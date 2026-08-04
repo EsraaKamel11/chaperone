@@ -1,0 +1,25 @@
+[project]
+name = "chaperone"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.7",
+    "pydantic-ai>=0.0.20",
+    "pydantic-evals>=0.0.20",
+    "claude-agent-sdk>=0.1.59",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "hypothesis>=6.100"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["."]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/chaperone"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
