@@ -82,3 +82,55 @@ def test_the_declared_classes_are_exactly_the_classes_the_pattern_table_carries(
     """
     from chaperone.policy.tripwires import _PATTERNS
     assert {violation_class for violation_class, _ in _PATTERNS} == TRIPWIRE_CLASSES
+
+
+def test_no_span_reaches_across_a_sentence_boundary():
+    r"""A span is a quotation. Design spec 4.7 hands it to a human verbatim in the redraft prompt,
+    and that human is deciding whether a draft may go out, so a span that runs two sentences
+    together tells them the draft said something it did not.
+
+    The gap between a trigger and the token it needs was `[^.]`, and `.` inside a character class
+    is a literal full stop -- so the gap traversed `!`, `?`, `;` and `:` freely. Each body below
+    declines to advise or states a fact, and each was quoted as one continuous clause of advice:
+    `'Personally I am not permitted to say; the deal'` was a real span from the real module.
+
+    Excluding the four sentence marks was measured free: all twelve bodies above keep their
+    verdict, and all three drafts that wrap a violation across a line break are still caught,
+    because `\n` stays traversable. Excluding `\n` as well is *not* free -- it loses two of those
+    three -- so it was not done, and what remains is pinned as a limit below.
+    """
+    for body in (
+        "Honestly, no comment! Separately: the round is open",
+        "Personally I am not permitted to say; the deal desk will follow up",
+        "They accept EU investors; the round is $10M",
+        "Honestly, I have no idea!\n\nThe round closes on Friday.",
+    ):
+        for finding in evaluate_tripwires(_draft(body)):
+            crossed = sorted(set(finding.span) & set("!?;:"))
+            assert not crossed, f"span {finding.span!r} crosses {crossed} in {body!r}"
+
+
+# --- Below this line, and ONLY below it, are limits: behaviours asserted in executable form
+# --- because they are known and unclosed, not because they are wanted. The one is named rather
+# --- than counted, following the banner in test_citations.py, which records that a counted
+# --- banner once instructed a maintainer to delete a guard.
+# ---
+# --- For a test below: if it fails, a limit has been closed. Delete it, do not repair it.
+# ---   test_a_span_can_still_cross_a_paragraph_break_a_known_limit
+# --- Every test ABOVE this line is a guard: if one fails, an escape or a misquotation has
+# --- reopened. Fix upstream.
+
+
+def test_a_span_can_still_cross_a_paragraph_break_a_known_limit():
+    r"""What the sentence-mark fix leaves behind, in executable form rather than in a comment.
+
+    `\n` is still traversable, so a trigger in one paragraph reaches a token in the next and the
+    span carries the break. Closing it costs two of the three measured catches on drafts that
+    soft-wrap a violation across a line -- `'We expect 20%\nannually.'` and `'Honestly, I think
+    the\nround is worth taking.'` both go from a finding to nothing -- which trades a
+    misquotation for an escape, the wrong direction. Closing it properly means matching across
+    the break but quoting only the sentence, which changes what a span is.
+    """
+    body = "Our last fund returned 3x\n\nThe partnership closed its first year of operations"
+    findings = evaluate_tripwires(_draft(body))
+    assert [f.span for f in findings] == ["3x\n\nThe partnership closed its first year"]
