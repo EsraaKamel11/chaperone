@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, DecimalException
 
 
 class CanonicalizationError(ValueError):
@@ -48,14 +48,20 @@ def normalize_money(raw: str | int | float | Decimal) -> Decimal:
     if match is None:
         raise CanonicalizationError(f"cannot canonicalize {raw!r}")
 
+    # Both the parse and the scaling sit inside one clause, and the clause names the base class
+    # rather than a member of it. Scaling is arithmetic, and arithmetic signals `Overflow`, which
+    # descends from `ArithmeticError` rather than `ValueError` -- so it is not a
+    # `CanonicalizationError`, and every `except CanonicalizationError` downstream would have
+    # waved it through. `DecimalException` is the common ancestor of `Overflow`,
+    # `InvalidOperation` and the rest, so no sibling is left to leak the next time this is edited.
+    # Every caller may then rely on exactly one escaping exception type.
+    suffix = match.group("suffix")
     try:
         value = Decimal(match.group("digits").replace(",", ""))
-    except InvalidOperation as exc:
+        if suffix:
+            value *= _MULTIPLIERS[suffix.lower()]
+    except DecimalException as exc:
         raise CanonicalizationError(f"cannot canonicalize {raw!r}") from exc
-
-    suffix = match.group("suffix")
-    if suffix:
-        value *= _MULTIPLIERS[suffix.lower()]
 
     negative = bool(match.group("sign")) or bool(match.group("paren"))
     return -value if negative else value

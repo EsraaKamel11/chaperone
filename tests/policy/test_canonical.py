@@ -82,6 +82,30 @@ def test_an_unsupported_type_raises_the_same_typed_error():
             normalize_money(value)
 
 
+# Large enough that applying any multiplier pushes the result past the decimal context's Emax.
+_TOO_LARGE_TO_SCALE = "9" * 999_999 + "m"
+
+
+def test_an_amount_too_large_to_scale_raises_the_same_typed_error():
+    """Every caller guards with `except CanonicalizationError`, so nothing else may escape.
+
+    Applying the multiplier is arithmetic, and arithmetic raises `decimal.Overflow`, which
+    derives from `ArithmeticError` rather than `ValueError` -- so it is not a
+    `CanonicalizationError` and would pass straight through every handler in the chain.
+    Catching `DecimalException` covers `Overflow`, `InvalidOperation` and their siblings at
+    once, leaving none to leak the next time this code is touched.
+    """
+    with pytest.raises(CanonicalizationError):
+        normalize_money(_TOO_LARGE_TO_SCALE)
+
+
+def test_an_amount_too_large_to_scale_is_skipped_without_losing_its_neighbours():
+    """One unrepresentable candidate must not cost the caller the rest of the body."""
+    assert figures_in(f"we raised $2.5M against a cap of {_TOO_LARGE_TO_SCALE}") == {
+        Decimal("2500000")
+    }
+
+
 def test_documented_limit_a_bare_digit_run_in_prose_is_treated_as_a_figure():
     """A documented boundary, not a defect.
 
