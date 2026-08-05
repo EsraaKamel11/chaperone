@@ -1,12 +1,46 @@
 from pathlib import Path
 
-from tools.static_audit import audit_policy_purity, audit_send_references
+from tools.static_audit import audit_policy_purity, audit_send_references, audit_tree, main
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "chaperone"
 
 
 def test_the_real_policy_package_is_pure():
     assert audit_policy_purity(SRC / "policy") == []
+
+
+def test_the_real_source_tree_has_no_send_references_outside_the_gateway():
+    """Vacuous until Task 7 creates `transmit`, since the symbol exists nowhere yet.
+
+    It stops being vacuous the instant that task lands, it puts the real tree under pytest rather
+    than under a tool invocation only, and it fails loudly if `src/chaperone` is ever renamed.
+    """
+    assert audit_send_references(SRC, send_symbol="transmit", allowed_module="audit.gateway") == []
+
+
+def test_the_audit_ci_runs_reports_both_halves_of_a_dirty_tree(tmp_path: Path):
+    """Binds the arguments `main()` audits with, through the code path CI actually runs.
+
+    A typo in `send_symbol`, a wrong `allowed_module`, or dropping either half disarms enforcement
+    while leaving every other test green -- so this plants one violation of each kind and requires
+    both to be reported.
+    """
+    src = tmp_path / "chaperone"
+    (src / "policy").mkdir(parents=True)
+    (src / "gates").mkdir(parents=True)
+    (src / "audit").mkdir(parents=True)
+    (src / "policy" / "p.py").write_text("import time\n", encoding="utf-8")
+    (src / "audit" / "gateway.py").write_text("def transmit(): ...\ntransmit()\n", encoding="utf-8")
+    (src / "gates" / "leak.py").write_text("transmit()\n", encoding="utf-8")
+    violations = audit_tree(src)
+    assert len(violations) == 2
+    assert any("policy/ imports 'time'" in v for v in violations)
+    assert any("leak.py" in v for v in violations)
+
+
+def test_the_audit_exits_zero_and_says_nothing_on_the_real_tree(capsys):
+    assert main() == 0
+    assert capsys.readouterr().out == ""
 
 
 def test_an_llm_client_import_in_policy_is_caught(tmp_path: Path):

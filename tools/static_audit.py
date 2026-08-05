@@ -10,6 +10,11 @@ The send symbol's name is reserved package-wide. Any identifier *or attribute* o
 the gateway is a violation, so nothing else under `src/chaperone` may be called `transmit` -- an
 unrelated `radio.transmit()` would fail CI too. That is the price of catching `gateway.transmit()`.
 
+Two further known false readings, both erring towards refusal: `from chaperone import policy`
+written inside `policy/` is reported as a dependency on `'chaperone'`, because the module an
+`ImportFrom` names is the package rather than the alias; and a source file that is not valid UTF-8
+raises `UnicodeDecodeError` before it can be parsed, failing closed exactly as a `SyntaxError` does.
+
 Both fail loud on a missing or empty root. An audit that examined no files reports that as a
 violation rather than reporting clean, so a renamed directory cannot disarm the guard in silence.
 
@@ -63,17 +68,29 @@ def _files_to_audit(root: Path, what: str) -> tuple[list[Path], list[str]]:
     return paths, []
 
 
+def _reason(module: str) -> str | None:
+    """Why `module` may not be imported from policy/, or None if it may.
+
+    Mirrors `_reason` in tools/guard_edit.py. The wording differs -- the hook addresses whoever is
+    making the edit -- but the verdict must not, and a parity test holds the two to that.
+    """
+    root = module.split(".")[0]
+    if root in FORBIDDEN_IN_POLICY:
+        return f"policy/ imports {root!r}"
+    if root == _PACKAGE and not _inside_policy(module):
+        return f"policy/ depends on {module!r} outside policy/"
+    return None
+
+
 def audit_policy_purity(package_root: Path) -> list[str]:
     paths, violations = _files_to_audit(package_root, "policy")
     for path in paths:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             for module in _imported_modules(node):
-                root = module.split(".")[0]
-                if root in FORBIDDEN_IN_POLICY:
-                    violations.append(f"{path}:{node.lineno}: policy/ imports {root!r}")
-                elif root == _PACKAGE and not _inside_policy(module):
-                    violations.append(f"{path}:{node.lineno}: policy/ depends on {module!r} outside policy/")
+                reason = _reason(module)
+                if reason:
+                    violations.append(f"{path}:{node.lineno}: {reason}")
     return violations
 
 
@@ -94,10 +111,24 @@ def audit_send_references(src_root: Path, send_symbol: str, allowed_module: str)
     return violations
 
 
+SEND_SYMBOL = "transmit"
+GATEWAY_MODULE = "audit.gateway"
+
+
+def audit_tree(src: Path) -> list[str]:
+    """Every audit CI runs, over one source tree.
+
+    Separate from `main()` so a test can point the real enforcement at a tree it controls. The
+    symbol and the allowed module are the disarm surface: a typo in either silently ends
+    enforcement, and only a test that plants a violation and demands it back can notice.
+    """
+    return audit_policy_purity(src / "policy") + audit_send_references(
+        src, send_symbol=SEND_SYMBOL, allowed_module=GATEWAY_MODULE
+    )
+
+
 def main() -> int:
-    src = Path(__file__).resolve().parents[1] / "src" / "chaperone"
-    violations = audit_policy_purity(src / "policy")
-    violations += audit_send_references(src, send_symbol="transmit", allowed_module="audit.gateway")
+    violations = audit_tree(Path(__file__).resolve().parents[1] / "src" / "chaperone")
     for line in violations:
         print(line)
     return 1 if violations else 0

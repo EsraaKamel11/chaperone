@@ -3,10 +3,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tools import guard_edit, static_audit
 from tools.guard_edit import FORBIDDEN_IN_POLICY as HOOK_FORBIDDEN
 from tools.static_audit import FORBIDDEN_IN_POLICY as AUDIT_FORBIDDEN
 
 GUARD = Path(__file__).resolve().parents[1] / "tools" / "guard_edit.py"
+
+_MODULE_SAMPLES = [
+    "chaperone.policy", "chaperone.policy.types", "chaperone.policyholder",
+    "chaperone.gates", "chaperone", "os", "chaperone_extras",
+]
 
 
 def _run(payload: dict, env: dict | None = None) -> subprocess.CompletedProcess:
@@ -27,6 +33,17 @@ def test_the_edit_guard_and_the_ci_audit_forbid_the_same_modules():
         f"only in the edit-time hook: {sorted(hook - audit)}; "
         f"only in the CI audit: {sorted(audit - hook)}"
     )
+
+
+def test_the_edit_guard_and_the_ci_audit_reach_the_same_verdict_on_every_module():
+    """Equal lists are not equal behaviour: the two layers also duplicate the decision itself.
+
+    The wording of the two refusals differs by design, so this compares the verdict -- refused or
+    allowed -- which is the thing the two layers must agree on.
+    """
+    hook = {m: guard_edit._reason(m) is None for m in _MODULE_SAMPLES}
+    audit = {m: static_audit._reason(m) is None for m in _MODULE_SAMPLES}
+    assert hook == audit
 
 
 def test_a_dynamic_import_helper_into_policy_is_blocked():
@@ -70,6 +87,38 @@ def test_a_dependency_outside_policy_in_an_unparseable_fragment_is_blocked():
         "tool_input": {
             "file_path": "src/chaperone/policy/x.py",
             "new_string": "from chaperone.gates import engine\n    y = (\n",
+        }
+    })
+    assert result.returncode == 2
+
+
+def test_an_offending_import_after_an_allowed_one_in_a_fragment_is_blocked():
+    result = _run({
+        "tool_input": {
+            "file_path": "src/chaperone/policy/x.py",
+            "new_string": "from chaperone.policy.types import Draft\nfrom chaperone.gates import engine\n    y = (\n",
+        }
+    })
+    assert result.returncode == 2
+    assert "chaperone.gates" in result.stderr
+
+
+def test_an_offending_alias_after_an_allowed_one_in_a_fragment_is_blocked():
+    result = _run({
+        "tool_input": {
+            "file_path": "src/chaperone/policy/x.py",
+            "new_string": "import chaperone.policy.types, chaperone.gates\n    y = (\n",
+        }
+    })
+    assert result.returncode == 2
+    assert "chaperone.gates" in result.stderr
+
+
+def test_a_forbidden_alias_after_an_allowed_one_in_a_fragment_is_blocked():
+    result = _run({
+        "tool_input": {
+            "file_path": "src/chaperone/policy/x.py",
+            "new_string": "import json, os\n    y = (\n",
         }
     })
     assert result.returncode == 2

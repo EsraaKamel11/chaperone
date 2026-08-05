@@ -26,12 +26,11 @@ FORBIDDEN_IN_POLICY = (
 _PACKAGE = "chaperone"
 _POLICY_PACKAGE = f"{_PACKAGE}.policy"
 
+# The module list of an import statement: the dotted names after `import`/`from`, including a
+# comma-separated series. Capturing the whole list rather than one name is what lets the fallback
+# see `import chaperone.policy.types, chaperone.gates`, whose offending alias is not the first.
 _IMPORT_LINE = re.compile(
-    r"^\s*(?:import|from)\s+(" + "|".join(re.escape(m) for m in FORBIDDEN_IN_POLICY) + r")\b",
-    re.MULTILINE,
-)
-_PACKAGE_LINE = re.compile(
-    r"^\s*(?:import|from)\s+(" + re.escape(_PACKAGE) + r"(?:\.\w+)*)\b",
+    r"^[ \t]*(?:import|from)[ \t]+([\w.]+(?:[ \t]*,[ \t]*[\w.]+)*)",
     re.MULTILINE,
 )
 
@@ -50,7 +49,10 @@ def _imported_modules(node: ast.AST) -> list[str]:
 
 
 def _reason(module: str) -> str | None:
-    """Why `module` may not be imported from policy/, or None if it may."""
+    """Why `module` may not be imported from policy/, or None if it may.
+
+    Mirrors `_reason` in tools/static_audit.py; a parity test holds the two verdicts identical.
+    """
     root = module.split(".")[0]
     if root in FORBIDDEN_IN_POLICY:
         return f"refusing an import of {root!r}. Pass the value in as an argument instead."
@@ -60,10 +62,14 @@ def _reason(module: str) -> str | None:
 
 
 def _fallback_refusal(content: str) -> str | None:
-    for pattern in (_IMPORT_LINE, _PACKAGE_LINE):
-        match = pattern.search(content)
-        if match:
-            reason = _reason(match.group(1))
+    """Check every module named by every import line, not merely the first.
+
+    The pattern matches allowed imports as well as forbidden ones, so stopping at the first match
+    would let `from chaperone.policy.types import Draft` vouch for an offending import below it.
+    """
+    for match in _IMPORT_LINE.finditer(content):
+        for module in match.group(1).split(","):
+            reason = _reason(module.strip())
             if reason:
                 return reason
     return None
@@ -77,7 +83,8 @@ def _refusal(content: str) -> str | None:
     docstring, a comment) is not. `content` may be a fragment (an Edit's new_string need not parse
     standalone) -- an indented fragment is retried dedented, since that alone makes most same-level
     inserted lines parseable and keeps them on the precise AST path. Only if both parses fail does
-    this fall back to line-anchored regexes, so a non-import fragment is never blocked.
+    this fall back to a line-anchored regex over each import statement's module list, so a
+    non-import fragment is never blocked and multi-alias forms are caught on either path.
     """
     try:
         tree = ast.parse(content)
