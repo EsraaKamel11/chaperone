@@ -67,3 +67,18 @@ def test_tripwires_only_cover_content_classes():
 def test_tripwires_are_deterministic():
     draft = _draft("Returns are guaranteed.")
     assert evaluate_tripwires(draft) == evaluate_tripwires(draft)
+
+
+def test_the_declared_classes_are_exactly_the_classes_the_pattern_table_carries():
+    """Two layers, one policy. `TRIPWIRE_CLASSES` is a hand-written set and the pattern table is
+    a separate literal, so they can drift apart in either direction and only this compares them.
+
+    The direction that hides is a class declared with no pattern behind it: `TRIPWIRE_CLASSES` is
+    what a coverage map reads to decide a content class has a deterministic detector, and the
+    test above it here checks the *declared* set, so an act-class pattern -- or a declared class
+    with nothing implementing it -- passes every other assertion in this file.
+
+    Equality, not containment, because each direction is a different failure and both are silent.
+    """
+    from chaperone.policy.tripwires import _PATTERNS
+    assert {violation_class for violation_class, _ in _PATTERNS} == TRIPWIRE_CLASSES
