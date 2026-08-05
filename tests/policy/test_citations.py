@@ -172,18 +172,100 @@ def test_an_unreadable_record_value_is_matched_by_its_text_alone_never_by_its_am
     it must not accept a draft that states the same amount some other way, because it never
     established what the amount is.
 
-    The middle and last assertions are the ordering, and they are deliberately the *same draft
-    body* judged against two records: "We raised $10m." is a finding against the unreadable
-    spelling and clean against the readable one. Only the record's spelling differs, which is
-    the whole claim -- the record decides which check applies, the draft never does, and the
-    degraded check is the narrower one. A fallback that widened it would let a record value the
-    module cannot read evidence more than one it can.
+    The middle and last assertions are deliberately the *same draft body* judged against two
+    records: "We raised $10m." is a finding against the unreadable spelling and clean against
+    the readable one. Only the record's spelling differs, which is the point -- the record
+    decides which check applies and the draft never does.
+
+    **What that establishes is one instance of non-widening, not the universal.** "The degraded
+    path is narrower everywhere" is a claim about every input, and a single pair of inputs
+    cannot carry it; the sign case was a live counterexample to it while this test passed. So
+    this test pins the specific behaviour it exercises -- an unreadable value admits no
+    representation variance -- and the universal is not claimed anywhere.
     """
     unreadable = Record(fields={"raise": "10,000,000 USD"})
     readable = Record(fields={"raise": "10000000"})
     assert validate_citations(_draft("We raised 10,000,000 USD.", ("raise",)), unreadable) == ()
     assert len(validate_citations(_draft("We raised $10m.", ("raise",)), unreadable)) == 1
     assert validate_citations(_draft("We raised $10m.", ("raise",)), readable) == ()
+
+
+def test_a_signed_figure_in_the_draft_cannot_evidence_an_unsigned_record_value():
+    """A debit read as a credit -- the one failure design spec 4.5 is most emphatic about.
+
+    `(?<!\\w)` treats "-" as a boundary character, which is exactly right for a text value ("US"
+    inside "(US)" is still the same US) and wrong for a value carrying a figure, because
+    `_AMOUNT` reads that same "-" as the sign. So "A loss of -$5MM." reproduced the record's
+    "$5MM" as a whole token and evidenced it, while the draft said the opposite. The two halves
+    of the module disagreed about what "-" means.
+
+    The last two assertions are the reason this is a tightening and not a blanket refusal: the
+    same figure still matches in plain prose, and a record value that carries its own minus
+    still matches the draft that states it. Only the draft *adding* a sign the record does not
+    have is refused.
+    """
+    unsigned = Record(fields={"loss": "$5MM"})
+    assert len(validate_citations(_draft("A loss of -$5MM.", ("loss",)), unsigned)) == 1
+    assert validate_citations(_draft("We raised $5MM.", ("loss",)), unsigned) == ()
+    signed = Record(fields={"loss": "-$5MM"})
+    assert validate_citations(_draft("A loss of -$5MM.", ("loss",)), signed) == ()
+
+
+def test_a_figure_bearing_value_in_parentheses_is_refused_a_pinned_false_block():
+    """A limit created by the sign fix, pinned rather than left to be discovered.
+
+    "(" is a sign character to `_AMOUNT`, so a figure-bearing value is refused when a
+    parenthesis immediately precedes it -- including when the parenthesis is merely
+    parenthetical and nothing negative is meant. This is the fail-closed direction: a spurious
+    finding routed to a human, never an escape.
+
+    The canonicalizer's actual behaviour here is narrower than "parentheses mean negative", and
+    it was measured rather than assumed: `figures_in` reads "(10000000)" as **-10000000** but
+    "(10,000,000 USD)" as **+10000000**, because the pattern only pairs a parenthesis with the
+    figure when nothing but whitespace intervenes before the closing bracket. So the two paths
+    genuinely disagree about the parenthesised form, and refusing it is what stops the degraded
+    path from being the more permissive of the two.
+    """
+    record = Record(fields={"round": "10,000,000 USD"})
+    assert len(validate_citations(_draft("The round (10,000,000 USD) closed.", ("round",)), record)) == 1
+    assert validate_citations(_draft("The round of 10,000,000 USD closed.", ("round",)), record) == ()
+    bracketed = Record(fields={"round": "(10,000,000 USD)"})
+    assert validate_citations(_draft("The round (10,000,000 USD) closed.", ("round",)), bracketed) == ()
+
+
+def test_the_legitimate_matches_that_anchoring_must_not_cost():
+    """The regression surface. Every row is a citation that genuinely appears and must validate.
+
+    Anchoring and the sign guard both narrow the check, and the cheapest way to pass a narrowing
+    test is to narrow too far -- a validator that refused everything would satisfy every
+    rejection test in this file. This is the other side of that ledger, and it is why the sign
+    guard is conditioned on the value carrying a digit: "(" and "-" are boundary characters for
+    a text value and sign characters for a figure, so a rule that ignored the difference would
+    cost rows 4, 7 and 8 below.
+    """
+    cases = [
+        ("value at body start", "US", "US investors are interested."),
+        ("value at body end, no trailing punctuation", "US", "The investor is in the US"),
+        ("value at body end, trailing punctuation", "US", "The investor is in the US."),
+        ("parenthesised text value", "US", "The investor (US) is interested."),
+        ("double-quoted", "Series A", 'They called it "Series A" internally.'),
+        ("single-quoted", "Series A", "They called it 'Series A' internally."),
+        ("comma-adjacent", "US", "The investor, US based, is keen."),
+        ("hyphen-adjacent", "US", "A US-based investor."),
+        ("case-varied", "Series A", "this is a series a round"),
+        ("value begins with a non-word character", "$5MM", "We raised $5MM."),
+        ("value ends with a non-word character", "(pending)", "The status is (pending) today."),
+        ("value begins and ends non-word", "(pending)", "Status: (pending)."),
+        ("figure-bearing value in plain prose", "10,000,000 USD", "We raised 10,000,000 USD."),
+        ("figure-bearing, trailing comma", "10,000,000 USD", "We raised 10,000,000 USD, a record."),
+        ("figure-bearing, record carries the sign", "-$5MM", "A loss of -$5MM."),
+    ]
+    refused = [
+        label for label, value, body in cases
+        if validate_citations(_draft(body, ("f",)), Record(fields={"f": value})) != ()
+    ]
+    assert refused == [], f"legitimate citations refused: {refused}"
+    assert len(cases) == 15
 
 
 def test_a_finding_never_reports_a_span_that_is_not_in_the_draft():
@@ -198,6 +280,11 @@ def test_a_finding_never_reports_a_span_that_is_not_in_the_draft():
     It is not idle. The denial contract publishes `span or ""` to the caller, so a span naming
     something absent from the draft sends a reader hunting for text that was never there. All
     three rejection paths are covered, and none of the three field names appears in the body.
+
+    The emptiness clause is load-bearing rather than defensive: `"" in body` is True, so
+    `span is None or span in body` alone would wave through a span set to the empty string --
+    the same `""`-shaped hole this module already had once, in the blank-value check. A span
+    must therefore be absent or *substantive*: non-blank, and findable in the body.
     """
     cases = [
         (Record(fields={"round_size": "10000000"}), ("round_size",)),  # the canonical path
@@ -208,7 +295,8 @@ def test_a_finding_never_reports_a_span_that_is_not_in_the_draft():
         draft = _draft("I made this up entirely.", cited)
         findings = validate_citations(draft, record)
         assert len(findings) == 1, "a case that reports nothing proves nothing about spans"
-        assert findings[0].span is None or findings[0].span in draft.body
+        span = findings[0].span
+        assert span is None or (span.strip() != "" and span in draft.body)
 
 
 # --- three limits, asserted in executable form rather than implied. None is a property to
@@ -234,6 +322,35 @@ def test_a_bare_digit_run_in_prose_can_satisfy_a_small_numeric_citation_a_known_
     record = Record(fields={"board_seats": "3"})
     draft = _draft("I have 3 questions about the round.", ("board_seats",))
     assert validate_citations(draft, record) == ()
+
+
+def test_a_digit_adjacent_to_a_separator_can_still_shift_a_magnitude_a_known_limit():
+    """The sign guard's unfixed siblings, found while measuring it and pinned rather than implied.
+
+    "-" and "(" change a figure's *sign*, and the guard refuses them in front of a digit-bearing
+    value. "." and "," change its *magnitude*, and they are not refused: a value can begin
+    immediately after a decimal point or a thousands separator, or end immediately before one,
+    and still match a draft that states a different number. Row 1 reads five out of "1.5", row 2
+    reads a thousands group out of "10,000", row 3 lets the draft extend the figure rightwards.
+
+    These are not refused because the naive rule costs a legitimate row: "We raised 10,000,000
+    USD, a record." ends the value at a comma, which the regression test above requires to keep
+    validating. Closing them needs the separator to be refused only where a digit continues on
+    the far side of it, which is a real fix but not the one this round was scoped to.
+
+    The direction is escape, so this is the sharpest residual in the file after the bare-digit
+    limit. It is stated here so it is a known boundary rather than a discovery.
+    """
+    cases = [
+        ("5 seats", "A ratio of 1.5 seats."),
+        ("000 USD", "We raised 10,000 USD."),
+        ("tranche 2", "In tranche 2,500,000 closed."),
+    ]
+    for value, body in cases:
+        assert validate_citations(_draft(body, ("f",)), Record(fields={"f": value})) == ()
+    assert validate_citations(
+        _draft("There are 5 seats.", ("f",)), Record(fields={"f": "5 seats"})
+    ) == ()
 
 
 def test_the_currency_symbol_is_not_part_of_the_canonical_value_a_stated_scope_limit():
