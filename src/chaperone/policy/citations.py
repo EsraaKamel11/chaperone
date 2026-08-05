@@ -6,6 +6,18 @@ from chaperone.policy.canonical import CanonicalizationError, figures_in, normal
 from chaperone.policy.types import Draft, Finding, Record, ViolationClass
 
 
+# Mirrors `_AMOUNT`'s own prefix -- `(?P<paren>\()?\s*(?P<sign>-)?\s*[$£€]?\s*` in
+# canonical.py -- reversed onto the text preceding a candidate match, and requiring the paren
+# or the minus actually to be present. It is applied by searching backwards rather than as a
+# lookbehind because `re` lookbehinds must be fixed-width and this prefix is not: the first
+# version of this guard was `(?<![-(])`, which read one character back and so refused
+# "-$5MM" while accepting "- $5MM", "-$10,000,000 USD" and "(-$10,000,000 USD)".
+#
+# **Update this whenever `_AMOUNT` changes.** Two patterns deciding what a sign is will drift,
+# and this guard exists because they already did once.
+_SIGN_PREFIX = re.compile(r"(?:\(\s*-?|-)\s*[$£€]?\s*$")
+
+
 def _appears_as_a_whole_token(value: str, body: str) -> bool:
     r"""True when `value` occurs in `body` as a whole token that the draft has not negated.
 
@@ -41,27 +53,34 @@ def _appears_as_a_whole_token(value: str, body: str) -> bool:
       2,500,000 closed." evidenced "tranche 2". The draft states a different number and reads
       as corroboration.
 
-    So a needle carrying a digit also refuses a sign character in front of it, and refuses a
-    separator on either side **when a digit continues past it**. Both conditions earn their
-    keep: applying the guards to text values would cost "(US)" and "US-based", and refusing
-    separators unconditionally would cost "We raised 10,000,000 USD, a record." -- ordinary
-    prose that ends a cited value at a comma. Each half has a mutant that dies to exactly one
-    test.
+    So a needle carrying a digit also refuses `_AMOUNT`'s sign prefix in front of it, and
+    refuses a separator on either side **when a digit continues past it**. Both conditions are
+    measured, not assumed: making the guards unconditional costs exactly one legitimate row,
+    "The investor (US) is interested."; refusing separators unconditionally costs four,
+    including "We raised $5MM." and "We raised 10,000,000 USD." -- a full stop is a separator,
+    so the blanket rule refuses any figure-bearing value that ends a sentence. Each condition
+    has a mutant that dies to exactly one test.
 
-    This is a set of enumerated defences, not a proof. It does not establish that the draft
-    means what the record means -- see the limits pinned in the tests, which are the residual.
+    **What this is.** A list of refused shapes, arrived at by measurement, each with a test.
+    It is not a proof that a signed or rescaled spelling cannot get through -- the sign guard
+    was itself one character wide until measurement found four spellings that walked past it.
+    It does not establish that the draft means what the record means. The residual is pinned in
+    the tests, and what is untested is what has not yet been thought of.
     """
     needle = value.strip()
     if not needle:
         return False
-    if any(character.isdigit() for character in needle):
-        # "-" and "(" are the characters `_AMOUNT` reads as making a figure negative; "." and
-        # "," are the ones it reads as continuing one, but only when a digit is on the far side.
-        before, after = r"(?<![-(])(?<!\d[.,])", r"(?![.,]\d)"
-    else:
-        before, after = "", ""
+    figure_bearing = any(character.isdigit() for character in needle)
+    # "." and "," are the characters `_AMOUNT` reads as continuing a figure, but only when a
+    # digit sits on the far side of them; those are fixed-width and stay in the pattern.
+    before, after = (r"(?<!\d[.,])", r"(?![.,]\d)") if figure_bearing else ("", "")
     pattern = rf"(?<!\w){before}{re.escape(needle)}(?!\w){after}"
-    return re.search(pattern, body, re.IGNORECASE) is not None
+    for match in re.finditer(pattern, body, re.IGNORECASE):
+        # The sign prefix is variable-width, so it is searched behind each candidate instead.
+        if figure_bearing and _SIGN_PREFIX.search(body[: match.start()]):
+            continue
+        return True
+    return False
 
 
 def validate_citations(draft: Draft, record: Record) -> tuple[Finding, ...]:
@@ -80,15 +99,18 @@ def validate_citations(draft: Draft, record: Record) -> tuple[Finding, ...]:
     would let a record value the module cannot read evidence *more* than one it can. What is
     actually enforced toward that end is a list, not a universal: the record's text must appear
     as a whole token, not as a fragment of a longer word; a blank value evidences nothing; and
-    a value carrying a figure is refused where the draft puts a sign character in front of it
-    or continues its digits past a separator, so the draft can neither negate nor rescale what
-    the record states.
+    a value carrying a figure is refused where the draft puts `_AMOUNT`'s sign prefix in front
+    of it, or continues its digits past a separator.
 
-    That list is not a proof that the degraded path is narrower everywhere -- the sign and
-    magnitude cases were counterexamples to exactly that claim until they were closed, and both
-    were found by measurement rather than by the sweep. The residuals are pinned as executable
-    limits in the tests: a bare digit run in prose can satisfy a small numeric citation, and a
-    currency symbol is not part of a canonical value.
+    **That is a list of refused shapes, not a completeness claim.** Read it as "these spellings
+    are refused", never as "the draft cannot negate or rescale the value" -- three sentences of
+    that stronger kind have been written in this module and all three were false when written.
+    The degraded path being narrower everywhere is likewise not established: the sign and
+    magnitude cases were live counterexamples to it, both found by measurement rather than by
+    the sweep, and the sign guard was a character wide until four spellings were measured
+    walking past it. The residuals that *are* known are pinned as executable limits in the
+    tests: a bare digit run in prose can satisfy a small numeric citation, and a currency symbol
+    is not part of a canonical value.
     """
     findings: list[Finding] = []
     draft_figures = figures_in(draft.body)

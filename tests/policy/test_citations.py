@@ -190,25 +190,40 @@ def test_an_unreadable_record_value_is_matched_by_its_text_alone_never_by_its_am
     assert validate_citations(_draft("We raised $10m.", ("raise",)), readable) == ()
 
 
-def test_a_signed_figure_in_the_draft_cannot_evidence_an_unsigned_record_value():
-    """A debit read as a credit -- the one failure design spec 4.5 is most emphatic about.
+def test_the_sign_bearing_shapes_the_guard_refuses():
+    """A debit read as a credit -- the failure design spec 4.5 is most emphatic about.
 
-    `(?<!\\w)` treats "-" as a boundary character, which is exactly right for a text value ("US"
+    `(?<!\\w)` treats "-" and "(" as boundary characters, which is right for a text value ("US"
     inside "(US)" is still the same US) and wrong for a value carrying a figure, because
-    `_AMOUNT` reads that same "-" as the sign. So "A loss of -$5MM." reproduced the record's
-    "$5MM" as a whole token and evidenced it, while the draft said the opposite. The two halves
-    of the module disagreed about what "-" means.
+    `_AMOUNT` reads those same characters as the sign.
 
-    The last two assertions are the reason this is a tightening and not a blanket refusal: the
-    same figure still matches in plain prose, and a record value that carries its own minus
-    still matches the draft that states it. Only the draft *adding* a sign the record does not
-    have is refused.
+    **This test enumerates measured shapes; it does not establish that no signed spelling gets
+    through.** The first version of this guard was a one-character lookbehind, and it refused
+    row 1 while accepting rows 2 to 5 -- `_AMOUNT` reads a sign through `\\s*[$....]?\\s*`, so
+    every spelling with a space or a currency symbol between the minus and the digits evaded a
+    guard that looked one character back. The rows below are the spellings that were measured;
+    the guard now mirrors `_AMOUNT`'s own prefix rather than guessing a width, which is what
+    makes the list extend rather than merely lengthen.
+
+    The accepted half is why this is a tightening and not a blanket refusal: the same figure in
+    plain prose, and a record value carrying its own minus, both still match.
     """
-    unsigned = Record(fields={"loss": "$5MM"})
-    assert len(validate_citations(_draft("A loss of -$5MM.", ("loss",)), unsigned)) == 1
-    assert validate_citations(_draft("We raised $5MM.", ("loss",)), unsigned) == ()
-    signed = Record(fields={"loss": "-$5MM"})
-    assert validate_citations(_draft("A loss of -$5MM.", ("loss",)), signed) == ()
+    unsigned = Record(fields={"f": "$5MM"})
+    wide = Record(fields={"f": "10,000,000 USD"})
+    for record, body in [
+        (unsigned, "A loss of -$5MM."),                    # 1: minus abutting the value
+        (unsigned, "A loss of - $5MM."),                   # 2: minus, space, then the value
+        (wide, "We wrote off -$10,000,000 USD."),          # 3: minus, currency, then digits
+        (wide, "We wrote off - $10,000,000 USD."),         # 4: minus, space, currency, digits
+        (wide, "We wrote off (-$10,000,000 USD)."),        # 5: bracket, minus, currency, digits
+        (wide, "We wrote off -10,000,000 USD."),           # 6: minus abutting the digits
+    ]:
+        findings = validate_citations(_draft(body, ("f",)), record)
+        assert len(findings) == 1, f"{record.fields['f']!r} was evidenced by {body!r}"
+    assert validate_citations(_draft("We raised $5MM.", ("f",)), unsigned) == ()
+    assert validate_citations(_draft("We raised 10,000,000 USD.", ("f",)), wide) == ()
+    carries_its_own = Record(fields={"f": "-$5MM"})
+    assert validate_citations(_draft("A loss of -$5MM.", ("f",)), carries_its_own) == ()
 
 
 def test_a_figure_bearing_value_in_parentheses_is_refused_a_pinned_false_block():
@@ -233,15 +248,48 @@ def test_a_figure_bearing_value_in_parentheses_is_refused_a_pinned_false_block()
     assert validate_citations(_draft("The round (10,000,000 USD) closed.", ("round",)), bracketed) == ()
 
 
+def test_a_hyphenated_number_is_refused_by_both_paths_alike():
+    """A false block, and the measurement that makes it the *right* kind.
+
+    "FY-2024", "COVID-19" and "10-15 seats" all put a hyphen in front of a figure, so the sign
+    guard refuses them. That looks like a degraded-path-only cost until you ask what the
+    canonicalizer makes of the same sentences, which is the question this whole round is about:
+
+        figures_in("The FY-2024 plan is set.") = [-2024]
+        figures_in("The COVID-19 response.")   = [-19]
+        figures_in("We have 10-15 seats.")     = [-15, 10]
+
+    `_AMOUNT` reads every one of them as **negative**, so the canonical path refuses a citation
+    to "2024" on the same body for the same reason. The two paths agree, which is the property
+    being chased -- a false block present on only one path would mean they had drifted again.
+
+    Reading "FY-2024" as negative 2024 is a limitation of `figures_in` scanning prose, not a
+    decision this module made; it is recorded here because this is where a reader meets it.
+    """
+    for value, body in [
+        ("2024", "The FY-2024 plan is set."),
+        ("19", "The COVID-19 response."),
+        ("15 seats", "We have 10-15 seats."),
+    ]:
+        findings = validate_citations(_draft(body, ("f",)), Record(fields={"f": value}))
+        assert len(findings) == 1, f"{value!r} in {body!r}"
+
+
 def test_the_legitimate_matches_that_anchoring_must_not_cost():
     """The regression surface. Every row is a citation that genuinely appears and must validate.
 
     Anchoring and the sign guard both narrow the check, and the cheapest way to pass a narrowing
     test is to narrow too far -- a validator that refused everything would satisfy every
-    rejection test in this file. This is the other side of that ledger, and it is why the sign
-    guard is conditioned on the value carrying a digit: "(" and "-" are boundary characters for
-    a text value and sign characters for a figure, so a rule that ignored the difference would
-    cost rows 4, 7 and 8 below.
+    rejection test in this file. This is the other side of that ledger, and it is why the guards
+    are conditioned on the value carrying a digit: "(" and "-" are boundary characters for a
+    text value and sign characters for a figure.
+
+    **Measured, the unconditional guards cost exactly one row: "parenthesised text value".**
+    An earlier version of this docstring claimed rows 4, 7 and 8, which was three times the real
+    figure -- row 7's comma is separated from the value by a space and the separator guard also
+    requires a preceding digit, and row 8's hyphen falls after the value where a lookbehind
+    cannot reach. The number is small, the conditionality is still real, and M22 still dies
+    here; the overstatement was in the claim, not the guard.
     """
     cases = [
         ("value at body start", "US", "US investors are interested."),
@@ -299,9 +347,52 @@ def test_a_finding_never_reports_a_span_that_is_not_in_the_draft():
         assert span is None or (span.strip() != "" and span in draft.body)
 
 
-# --- three limits, asserted in executable form rather than implied. None is a property to
-# --- preserve: if a later task closes one, its test fails, and that failure is the
-# --- notification. Delete it, do not repair it.
+def test_a_separator_cannot_let_a_smaller_figure_evidence_a_larger_one():
+    r"""The sign guard's other half: "." and "," shift a magnitude as "-" and "(" shift a sign.
+
+    One mechanism, not two defects -- adjacency characters that change what a figure means were
+    being treated as token boundaries. A record field valued "5 seats" or "3 board seats" is
+    ordinary, and it needs no exotic draft to defeat: "1.5 seats" reads as corroboration while
+    contradicting. Three shapes, all measured -- a decimal point truncating the value from the
+    left, a thousands separator doing the same, and a separator extending the figure rightwards.
+
+    The accepted half is the conditionality, and it is why the rule is `(?<!\d[.,])` rather than
+    a blanket refusal of separators. A separator is only part of a number when a digit continues
+    past it, and a full stop is a separator -- so the blanket form refuses any figure-bearing
+    value that ends a sentence. Measured, it costs four rows of the regression surface above,
+    including "We raised $5MM." and "We raised 10,000,000 USD."
+
+    **This is a regression guard, not a limit.** It began as a test pinning the escape as
+    accepted and was inverted when the escape was closed; if it fails, something has reopened
+    the magnitude escape and the fix is upstream of it.
+    """
+    for value, body in [
+        ("5 seats", "A ratio of 1.5 seats."),
+        ("000 USD", "We raised 10,000 USD."),
+        ("tranche 2", "In tranche 2,500,000 closed."),
+    ]:
+        findings = validate_citations(_draft(body, ("f",)), Record(fields={"f": value}))
+        assert len(findings) == 1, f"{value!r} was evidenced by {body!r}"
+    for value, body in [
+        ("5 seats", "There are 5 seats."),
+        ("tranche 2", "In tranche 2, we closed."),
+        ("10,000,000 USD", "We raised 10,000,000 USD, a record."),
+    ]:
+        accepted = validate_citations(_draft(body, ("f",)), Record(fields={"f": value}))
+        assert accepted == (), f"{value!r} genuinely appears in {body!r} and was refused"
+
+
+# --- Below this line, and ONLY below it, are limits: behaviours asserted in executable form
+# --- because they are known and unclosed, not because they are wanted. The three are named
+# --- explicitly rather than counted, because this banner once said "three limits" while four
+# --- tests followed it and one of them was a regression guard -- so the banner was instructing
+# --- a maintainer to delete the guard standing between this module and a reopened escape.
+# ---
+# --- For a test below: if it fails, a limit has been closed. Delete it, do not repair it.
+# ---   test_a_bare_digit_run_in_prose_can_satisfy_a_small_numeric_citation_a_known_limit
+# ---   test_the_currency_symbol_is_not_part_of_the_canonical_value_a_stated_scope_limit
+# ---   test_a_non_string_record_value_is_undefined_behaviour_outside_the_type_contract
+# --- Every test ABOVE this line is a guard: if one fails, an escape has reopened. Fix upstream.
 
 
 def test_a_bare_digit_run_in_prose_can_satisfy_a_small_numeric_citation_a_known_limit():
@@ -322,38 +413,6 @@ def test_a_bare_digit_run_in_prose_can_satisfy_a_small_numeric_citation_a_known_
     record = Record(fields={"board_seats": "3"})
     draft = _draft("I have 3 questions about the round.", ("board_seats",))
     assert validate_citations(draft, record) == ()
-
-
-def test_a_separator_cannot_let_a_smaller_figure_evidence_a_larger_one():
-    r"""The sign guard's other half: "." and "," shift a magnitude as "-" and "(" shift a sign.
-
-    One mechanism, not two defects -- adjacency characters that change what a figure means were
-    being treated as token boundaries. A record field valued "5 seats" or "3 board seats" is
-    ordinary, and it needs no exotic draft to defeat: "1.5 seats" reads as corroboration while
-    contradicting. Three shapes, all measured -- a decimal point truncating the value from the
-    left, a thousands separator doing the same, and a separator extending the figure rightwards.
-
-    The accepted half is the conditionality, and it is why the rule is `(?<!\d[.,])` rather than
-    a blanket refusal of separators. A separator is only part of a number when a digit continues
-    past it. "In tranche 2, we closed." and "We raised 10,000,000 USD, a record." are ordinary
-    prose that ends a cited value at a comma, and a blanket rule refuses both -- the second is
-    row 14 of the regression surface above, so the naive form is not merely inelegant, it breaks
-    a case this file already requires to pass.
-    """
-    for value, body in [
-        ("5 seats", "A ratio of 1.5 seats."),
-        ("000 USD", "We raised 10,000 USD."),
-        ("tranche 2", "In tranche 2,500,000 closed."),
-    ]:
-        findings = validate_citations(_draft(body, ("f",)), Record(fields={"f": value}))
-        assert len(findings) == 1, f"{value!r} was evidenced by {body!r}"
-    for value, body in [
-        ("5 seats", "There are 5 seats."),
-        ("tranche 2", "In tranche 2, we closed."),
-        ("10,000,000 USD", "We raised 10,000,000 USD, a record."),
-    ]:
-        accepted = validate_citations(_draft(body, ("f",)), Record(fields={"f": value}))
-        assert accepted == (), f"{value!r} genuinely appears in {body!r} and was refused"
 
 
 def test_the_currency_symbol_is_not_part_of_the_canonical_value_a_stated_scope_limit():
