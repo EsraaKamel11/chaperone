@@ -109,10 +109,11 @@ def test_documented_limit_an_unrecognised_multiplier_spelling_truncates_to_the_d
 
     The multiplier alphabet is `k`, `m` and `b` only -- the spellings a drafter actually
     emits. `MM`, `bn` and `MB` are not recognised, so such a figure truncates to its bare
-    digits instead of scaling. Truncation is the side to fail on, and the direction matters
-    more than the magnitude: a truncated figure will not match the record, so it produces a
-    spurious finding and routes the draft to a human, whereas dropping the figure entirely
-    would yield no finding at all and let the draft pass. Never drop a figure.
+    digits instead of scaling. Truncation is the side to fail on: a truncated figure usually
+    misses the record and produces a spurious finding that routes the draft to a human.
+    Usually, not always -- the act-class predicate pools every record field value into one
+    set, so a record holding any field valued "5" passes a draft writing "$5MM". Dropping the
+    figure escapes against every record, not merely a colliding one. Never drop a figure.
     """
     assert figures_in("$5MM") == {Decimal("5")}
     assert figures_in("$20bn") == {Decimal("20")}
