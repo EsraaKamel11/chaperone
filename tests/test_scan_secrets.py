@@ -32,3 +32,9 @@ def test_a_line_marked_allowlist_secret_produces_no_finding(tmp_path: Path):
         "key = sk-abc123def456ghi789jkl012mno345pqr  # allowlist-secret\n", encoding="utf-8"
     )
     assert scan_tree(tmp_path) == []
+
+def test_a_hyphenated_prose_phrase_with_a_long_tail_produces_no_finding(tmp_path: Path):
+    (tmp_path / "notes.md").write_text(
+        "This is the high-risk-assessment-and-mitigation-plan for review.\n", encoding="utf-8"
+    )
+    assert scan_tree(tmp_path) == []

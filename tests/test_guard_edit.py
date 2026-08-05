@@ -54,3 +54,23 @@ def test_an_edit_payload_is_checked_as_well_as_a_write_payload():
 def test_a_clean_edit_passes():
     result = _run({"tool_input": {"file_path": "src/chaperone/policy/x.py", "content": "VALUE = 42\n"}})
     assert result.returncode == 0
+
+
+def test_a_from_import_of_an_llm_client_into_policy_is_blocked():
+    result = _run({"tool_input": {"file_path": "src/chaperone/policy/x.py", "content": "from anthropic import Client\n"}})
+    assert result.returncode == 2
+
+
+def test_a_docstring_mentioning_forbidden_module_names_in_prose_is_allowed():
+    result = _run({
+        "tool_input": {
+            "file_path": "src/chaperone/policy/types.py",
+            "content": '"""This module must not import os, io, or time."""\n',
+        }
+    })
+    assert result.returncode == 0
+
+
+def test_a_multi_alias_import_fragment_is_blocked():
+    result = _run({"tool_input": {"file_path": "src/chaperone/policy/x.py", "new_string": "    import json, os\n    x = 1\n"}})
+    assert result.returncode == 2
