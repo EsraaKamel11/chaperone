@@ -129,7 +129,10 @@ def test_disposition_is_derived_from_category_in_one_place():
 # ---       -- the two sides of 4.8's routing: the four unrecoverable act-classes dropped back to
 # ---          refinable, and the futile set widened to swallow the one that is recoverable.
 # ---   test_every_unusable_checker_answer_is_futile_by_derivation_and_not_by_a_literal
-# ---       -- any one of the three checker-failure routes changing answer under the derivation.
+# ---   test_a_verdict_that_names_the_unclassified_class_is_futile_too
+# ---       -- any one of the FOUR routes carrying an unclassifiable class changing answer under
+# ---          the derivation. Four, counted by grepping the construction sites: three plumbing
+# ---          failures and one considered verdict. The first version of this list said three.
 # ---   test_the_denial_result_renders_the_class_and_the_disposition_as_their_values
 # ---       -- dropping `.value` from either field in `denial_result`.
 # ---   test_a_refinable_denial_is_still_not_retryable
@@ -358,6 +361,28 @@ def test_every_unusable_checker_answer_is_futile_by_derivation_and_not_by_a_lite
         assert decision.allowed is False
         assert decision.disposition is Disposition.REDIRECT_FUTILE
     assert disposition_for((Finding(ViolationClass.OTHER, "o", None),)) is Disposition.REDIRECT_FUTILE
+
+
+def test_a_verdict_that_names_the_unclassified_class_is_futile_too():
+    """The fourth route that carries `OTHER`, and the one I missed by enumerating from memory.
+
+    `_reject_unusable` refuses a violation with **no** class. It does not refuse one classed
+    `OTHER`, which pydantic accepts, so the real `Checker` returns such a verdict intact and it
+    becomes a finding through the ordinary `checker_findings` path -- carrying the model's own
+    confidence and span, which is what distinguishes this route from the three plumbing failures
+    above and is why the span is asserted here rather than the detail.
+
+    Futile is right on meaning: a category of `other` gives a redraft nothing to aim at. But this
+    was not a decision anyone took -- widening the futile set to let the other three derive their
+    disposition changed this path from `redirect_refinable` to `redirect_futile` as a side
+    effect, and no test covered it. It does now.
+    """
+    verdict = Verdict(violates=True, violation_class=ViolationClass.OTHER, confidence=0.8, span="unclear bit")
+    decision = decide(_draft("The round is $10M."), RECORD, CONTEXT, _checker(verdict))
+    assert decision.allowed is False
+    assert [f.violation_class for f in decision.findings] == [ViolationClass.OTHER]
+    assert decision.disposition is Disposition.REDIRECT_FUTILE
+    assert denial_result(decision)["span"] == "unclear bit"
 
 
 def test_the_denial_result_renders_the_class_and_the_disposition_as_their_values():

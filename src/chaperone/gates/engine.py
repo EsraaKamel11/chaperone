@@ -55,10 +55,16 @@ from chaperone.policy.types import Decision, Disposition, Draft, Finding, Record
 # - The four act-classes below -- no wording gives a message consent it never had, an approval
 #   token, a tool outside the grant, or send budget that is already spent. Routed refinable, each
 #   cost a redraft round and then stopped for deadlock with no alternative.
-# - `OTHER` -- carried by the three routes where the checker gave no answer the gate can use. A
-#   redraft cannot resolve a checker that is down, that flagged for review, or that reported a
-#   violation and declined to name it. This membership is also what lets those three routes derive
-#   their disposition here instead of writing a literal at each call site (4.7).
+# - `OTHER` -- carried by **four** routes. The count is from grepping every construction site that
+#   can produce this class, because the first version of this comment said "three" from memory and
+#   undercounted. Three are plumbing failures, where the checker gave no answer the gate can use:
+#   it was unavailable, it flagged for review, or it reported a violation and declined to name it.
+#   The fourth is a considered judgement -- `_reject_unusable` refuses a violation with *no* class
+#   and does not refuse one classed `OTHER`, so a verdict naming it is returned intact and becomes
+#   a finding carrying the model's own confidence and span. A redraft has nothing to aim at in any
+#   of the four. This membership is also what lets the first three derive their disposition here
+#   rather than writing a literal at each call site (4.7), and it silently changed the fourth from
+#   refinable to futile -- which a test now pins, because nothing covered that path.
 #
 # **Deliberately absent, and each is load-bearing.** `FIGURE_NOT_IN_RECORD` is recoverable -- a
 # figure can be corrected or removed -- and moving it breaks Task 21's budget test, measured. The
