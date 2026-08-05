@@ -48,8 +48,14 @@ def test_a_checker_model_weaker_than_the_drafter_is_refused():
 
 
 def test_an_equal_or_stronger_checker_model_is_accepted():
-    assert_checker_not_weaker("sonnet-tier", "sonnet-tier")
-    assert_checker_not_weaker("opus-tier", "sonnet-tier")
+    """The property is that neither call raises, and a raise still fails this test.
+
+    The `is None` is what makes that visible to `tests/test_no_empty_tests.py`, whose AST scan
+    reads a bare call as no assertion at all. It pins the declared `-> None` return besides, so a
+    future version that started returning a verdict could not do it silently.
+    """
+    assert assert_checker_not_weaker("sonnet-tier", "sonnet-tier") is None
+    assert assert_checker_not_weaker("opus-tier", "sonnet-tier") is None
 
 
 def test_construction_refuses_a_weaker_checker_model():
