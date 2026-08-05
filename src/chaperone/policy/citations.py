@@ -15,11 +15,25 @@ from chaperone.policy.types import Draft, Finding, Record, ViolationClass
 #
 # **Update this whenever `_AMOUNT` changes.** Two patterns deciding what a sign is will drift,
 # and this guard exists because they already did once.
-_SIGN_PREFIX = re.compile(r"(?:\(\s*-?|-)\s*[$£€]?\s*$")
+#
+# The paren branch carries no `\s*-?` of its own. It would be dead: branch two already matches
+# every "(" then "-" spelling by starting at the "-", and carrying it made the pattern cubic in
+# a run of spaces -- "(" + 2000 spaces + "x" took 17s. Equivalence of the two forms was checked
+# exhaustively over 97,656 strings, not sampled. The quantifiers are possessive for the same
+# reason: nothing after a `\s*` here can match whitespace, so giving any back can never rescue
+# a failing match, and refusing to give it back removes the backtracking entirely.
+_SIGN_PREFIX = re.compile(r"(?:\(|-)\s*+[$£€]?+\s*+$")
 
 
 def _appears_as_a_whole_token(value: str, body: str) -> bool:
-    r"""True when `value` occurs in `body` as a whole token that the draft has not negated.
+    r"""True when `value` occurs in `body` as a whole token, with the refused shapes below absent.
+
+    The summary line above used to end "that the draft has not negated". That was a completeness
+    claim in the quietest register available -- sitting at the head of the docstring whose last
+    paragraph disowns exactly that kind of claim -- and it was false by measurement: U+2212,
+    U+2013, U+2014, "minus 10,000,000 USD", "negative 10,000,000 USD" and "did not raise
+    10,000,000 USD" are all accepted. A summary line says what the function does; what a draft
+    cannot do is not something this function knows.
 
     Plain containment is finding E's own mistake with the value substituted for the field name.
     The spec's account of finding E is a validator that accepted a field token *anywhere* in a
@@ -77,7 +91,10 @@ def _appears_as_a_whole_token(value: str, body: str) -> bool:
     pattern = rf"(?<!\w){before}{re.escape(needle)}(?!\w){after}"
     for match in re.finditer(pattern, body, re.IGNORECASE):
         # The sign prefix is variable-width, so it is searched behind each candidate instead.
-        if figure_bearing and _SIGN_PREFIX.search(body[: match.start()]):
+        # `endpos` rather than `body[:start]`: `$` matches at `endpos`, so the two are
+        # equivalent -- checked over every cut of a corpus of bodies -- and slicing copied the
+        # whole prefix per candidate, which is quadratic in the number of candidates.
+        if figure_bearing and _SIGN_PREFIX.search(body, 0, match.start()):
             continue
         return True
     return False

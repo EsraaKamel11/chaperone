@@ -243,6 +243,10 @@ def test_a_figure_bearing_value_in_parentheses_is_refused_a_pinned_false_block()
     """
     record = Record(fields={"round": "10,000,000 USD"})
     assert len(validate_citations(_draft("The round (10,000,000 USD) closed.", ("round",)), record)) == 1
+    # The bracket is read through whitespace, exactly as `_AMOUNT` reads it. This spelling was
+    # found by measurement and named in a report a round before any test contained it -- in a
+    # file whose stated discipline is "pin the measured shape", that gap was the finding.
+    assert len(validate_citations(_draft("We wrote off ( 10,000,000 USD ).", ("round",)), record)) == 1
     assert validate_citations(_draft("The round of 10,000,000 USD closed.", ("round",)), record) == ()
     bracketed = Record(fields={"round": "(10,000,000 USD)"})
     assert validate_citations(_draft("The round (10,000,000 USD) closed.", ("round",)), bracketed) == ()

@@ -24,7 +24,19 @@ _MULTIPLIERS = {"k": Decimal(1_000), "m": Decimal(1_000_000), "b": Decimal(1_000
 #                 are errors only because fullmatch refuses to leave a character unconsumed.
 #                 search() matches a bare "500" out of both, so that half of the guarantee
 #                 lives in the caller. Swap fullmatch for search and it evaporates silently.
-_AMOUNT = re.compile(r"(?P<paren>\()?\s*(?P<sign>-)?\s*[$£€]?\s*(?P<digits>\d[\d,]*(?:\.\d+)?)\s*(?:(?P<suffix>[kmb])(?![A-Za-z]))?(?(paren)\))", re.IGNORECASE)
+#   \s*+ / ?+     the four groups before the required \d are possessive, and so is the currency
+#                 symbol. Greedy, they made a failing match backtrack across every way of
+#                 splitting a run of whitespace between them: 400 leading spaces before a
+#                 non-figure took 31 seconds, roughly N**5.6. `figures_in` runs on every draft
+#                 body and `evaluate_act_classes` calls it too, so that is a stall in the
+#                 boundary engine, and design spec 3.4 makes that engine fail *closed* -- a hang
+#                 is neither closed nor open, it is the gate not answering. Possessive is safe
+#                 here because every group is disjoint from what follows it: whitespace can
+#                 never help `-`, `[$£€]` or `\d` match, so giving any back cannot rescue a
+#                 failing attempt. Equivalence was checked exhaustively over 111,111 strings
+#                 across the whole alphabet this pattern reads, not sampled. Nothing else is
+#                 possessive: `\(?` and the digit groups do need to give back.
+_AMOUNT = re.compile(r"(?P<paren>\()?\s*+(?P<sign>-)?\s*+[$£€]?+\s*+(?P<digits>\d[\d,]*(?:\.\d+)?)\s*+(?:(?P<suffix>[kmb])(?![A-Za-z]))?(?(paren)\))", re.IGNORECASE)
 
 
 def normalize_money(raw: str | int | float | Decimal) -> Decimal:
