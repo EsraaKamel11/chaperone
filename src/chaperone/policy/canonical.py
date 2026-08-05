@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from decimal import Decimal, DecimalException
+from decimal import Decimal, DecimalException, localcontext
 
 
 class CanonicalizationError(ValueError):
@@ -56,10 +56,24 @@ def normalize_money(raw: str | int | float | Decimal) -> Decimal:
     # `InvalidOperation` and the rest, so no sibling is left to leak the next time this is edited.
     # Every caller may then rely on exactly one escaping exception type.
     suffix = match.group("suffix")
+    digits = match.group("digits").replace(",", "")
     try:
-        value = Decimal(match.group("digits").replace(",", ""))
+        value = Decimal(digits)
         if suffix:
-            value *= _MULTIPLIERS[suffix.lower()]
+            # Multiplication is the one context operation in this function, and a context
+            # operation rounds to `prec` -- 28 by default. A long figure was therefore scaled to
+            # a *different number*, and that direction is the dangerous one: a rounded product
+            # can land exactly on a record value the draft never stated, match it, and emit no
+            # finding at all. A wrong figure that fails to match is only a spurious finding
+            # routed to a human; a wrong figure that matches is silence.
+            #
+            # Widen the precision for the scaling so the product is exact. The multipliers are
+            # powers of ten, so a coefficient of n digits grows to at most n + 9, and the digit
+            # string is never shorter than its coefficient. `Emax` is not derived from `prec`,
+            # so an amount too large to represent still overflows and still raises.
+            with localcontext() as ctx:
+                ctx.prec = len(digits) + 9
+                value *= _MULTIPLIERS[suffix.lower()]
     except DecimalException as exc:
         raise CanonicalizationError(f"cannot canonicalize {raw!r}") from exc
 
@@ -99,10 +113,17 @@ def figures_in(text: str) -> set[Decimal]:
             # This is the lenient half of that split, scanning prose for candidates.
             digits = match.group("digits")
             sign = "-" if match.group("sign") or match.group("paren") else ""
-            try:
-                found.add(normalize_money(f"{sign}{digits}"))
-            except CanonicalizationError:
-                continue
+            # Deliberately unguarded. This reconstruction cannot fail: `digits` is `_AMOUNT`'s own
+            # group, so `sign + digits` always re-matches it; a digit string converts exactly and
+            # signals nothing; and dropping the suffix removes the only arithmetic in the
+            # function. Anyone editing `_AMOUNT` must preserve that.
+            #
+            # A handler here could only `continue`, silently dropping the figure -- the one
+            # outcome that yields no finding at all, six lines under a comment saying exactly
+            # that. Unreachable code that models the forbidden outcome teaches the next reader
+            # the wrong lesson. If a future pattern edit does make this reachable, an exception
+            # stops a test run immediately, where a dropped figure would pass one quietly.
+            found.add(normalize_money(f"{sign}{digits}"))
     return found
 
 

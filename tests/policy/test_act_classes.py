@@ -91,7 +91,10 @@ def test_an_oversized_figure_produces_a_finding_rather_than_vanishing():
     """
     findings = evaluate_act_classes(_draft(body=_TOO_LARGE_TO_SCALE), RECORD, _context())
     assert [f.violation_class for f in findings] == [ViolationClass.FIGURE_NOT_IN_RECORD]
-    assert findings[0].detail == _BARE_DIGITS
+    # Shape, not equality against a 10**6-character literal: a string of that length whose
+    # character set is exactly {"9"} can only be the literal, and a failure stays readable.
+    detail = findings[0].detail
+    assert (len(detail), set(detail)) == (len(_BARE_DIGITS), {"9"})
 
 
 def test_an_oversized_figure_does_not_cost_the_rest_of_the_body():
@@ -102,7 +105,25 @@ def test_an_oversized_figure_does_not_cost_the_rest_of_the_body():
         ViolationClass.FIGURE_NOT_IN_RECORD,
         ViolationClass.FIGURE_NOT_IN_RECORD,
     ]
-    assert [f.detail for f in findings] == ["40000000", _BARE_DIGITS]
+    details = [f.detail for f in findings]
+    assert details[0] == "40000000"
+    assert (len(details[1]), set(details[1])) == (len(_BARE_DIGITS), {"9"})
+
+
+def test_a_rounded_product_cannot_match_a_record_value_it_does_not_equal():
+    """The escape this module exists to prevent, in its worst direction.
+
+    Scaling used to round to 28 significant digits, so a draft stating 29 nines of millions
+    arrived as exactly 10**35. A record holding 10**35 then *matched* a figure the draft never
+    stated, no finding was emitted, and the draft went out. A rounded figure that fails to match
+    would only be a spurious finding routed to a human; a rounded figure that matches is silence.
+    """
+    digits = "9" * 29
+    draft = _draft(body=f"The round is ${digits}m.")
+    record = Record(fields={"round_size": "1" + "0" * 35})
+    findings = evaluate_act_classes(draft, record, _context())
+    assert [f.violation_class for f in findings] == [ViolationClass.FIGURE_NOT_IN_RECORD]
+    assert findings[0].detail == digits + "0" * 6
 
 
 def test_findings_arrive_in_a_fixed_order():

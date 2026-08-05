@@ -53,6 +53,18 @@ def test_normalization_round_trips_any_two_place_decimal(value):
     assert normalize_money(f"{value:.2f}") == value
 
 
+@given(st.text())
+def test_scanning_prose_for_figures_never_raises(text):
+    """The property that lets `figures_in`'s fallback carry no handler of its own.
+
+    That fallback is deliberately unguarded, because the only thing a handler there could do is
+    drop the figure. What makes the omission correct rather than merely convenient is that the
+    scan is total: `evaluate_act_classes` is a predicate, and an exception crossing it is not a
+    finding. Asserted here over arbitrary text instead of defended by unreachable code.
+    """
+    assert all(isinstance(figure, Decimal) for figure in figures_in(text))
+
+
 _LONG_LENGTHS = (29, 30, 40)
 
 
@@ -67,6 +79,11 @@ def test_a_long_negative_amount_is_negated_exactly():
     `-Decimal(digits)` is unusable as the expected value, because unary minus rounds on both
     sides of the comparison -- the assertion would hold while proving nothing. `copy_negate()`
     flips the sign without consulting the context, so it is the exact reference.
+
+    All-nines is load-bearing too, for the same reason one step further in: `Decimal` equality
+    compares value, not representation, so the digits must be ones that *change value* when
+    rounded. `"1" + "0" * 28` is also 29 significant digits but rounds to itself, and an
+    assertion built on it passes against an unfixed implementation.
     """
     for length in _LONG_LENGTHS:
         digits = "9" * length
@@ -78,6 +95,26 @@ def test_the_parenthesised_accounting_form_is_negated_exactly():
     for length in _LONG_LENGTHS:
         digits = "9" * length
         assert normalize_money(f"({digits})") == Decimal(digits).copy_negate()
+
+
+def test_a_long_amount_is_scaled_exactly():
+    """Applying a multiplier must not round, and `Decimal(digits) * factor` cannot be the reference.
+
+    Multiplication is a context operation, so at the default precision of 28 the product of a
+    long figure is silently rounded to a different number. That direction is worse than the
+    negation defect it sits one line above: a rounded product can come out *equal to a record
+    value the draft never stated*, so the figure matches, no finding is emitted, and the draft
+    goes out. A wrong figure that fails to match would merely be a spurious finding.
+
+    The same trap as `-Decimal(...)` applies to the expected value: `Decimal(digits) * 1000000`
+    rounds too, so an assertion written that way compares two rounded numbers and proves
+    nothing. The multipliers are exact powers of ten and the digits carry no decimal point, so
+    appending zeros is the exact reference.
+    """
+    for length in _LONG_LENGTHS:
+        digits = "9" * length
+        for suffix, zeros in (("k", 3), ("m", 6), ("b", 9)):
+            assert normalize_money(f"{digits}{suffix}") == Decimal(digits + "0" * zeros)
 
 
 def test_a_signed_zero_still_renders_unsigned():
@@ -150,10 +187,13 @@ def test_an_amount_too_large_to_scale_keeps_its_bare_digits():
     step later, where the failure is arithmetic rather than textual. The figure survives, fails
     to match the record, and routes the draft to a human.
     """
-    assert figures_in(f"we raised $2.5M against a cap of {_TOO_LARGE_TO_SCALE}") == {
-        Decimal("2500000"),
-        Decimal(_BARE_DIGITS),
-    }
+    figures = figures_in(f"we raised $2.5M against a cap of {_TOO_LARGE_TO_SCALE}")
+    # Asserted by shape rather than by equality against a 10**6-character literal. A string of
+    # this length whose character set is exactly {"9"} can only be that literal, so nothing is
+    # given up -- but a failure prints two integers instead of a megabyte.
+    kept = str(max(figures))
+    assert figures == {Decimal("2500000"), max(figures)}
+    assert (len(kept), set(kept)) == (len(_BARE_DIGITS), {"9"})
 
 
 def test_documented_limit_a_bare_digit_run_in_prose_is_treated_as_a_figure():
