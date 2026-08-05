@@ -15,7 +15,7 @@ dev = ["pytest>=8.0", "hypothesis>=6.100"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
-pythonpath = ["."]
+pythonpath = [".", "src"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/chaperone"]

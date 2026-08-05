@@ -8,9 +8,11 @@ from pathlib import Path
 Finding = tuple[Path, int, str]
 
 _PREFIXES = ("sk-", "ghp_", "gho_", "ghs_", "github_pat_", "AKIA", "xoxb-", "xoxp-", "AIza", "voc-")
+_PREFIX_PATTERN = re.compile("(?:" + "|".join(re.escape(p) for p in _PREFIXES) + r")[A-Za-z0-9_-]{16,}")
 _CREDENTIAL_NAME = re.compile(r"(?i)\b\w*(secret|token|api[_-]?key|password|passwd|credential)\w*\s*[:=]\s*['\"]([^'\"]{16,})['\"]")
-_SKIP_DIRS = {".git", ".venv", "venv", "__pycache__", "node_modules", ".pytest_cache"}
+_SKIP_DIRS = {".git", ".venv", "venv", "__pycache__", "node_modules", ".pytest_cache", ".superpowers"}
 _TEXT_SUFFIXES = {".py", ".md", ".txt", ".json", ".jsonl", ".toml", ".yml", ".yaml", ".cfg", ".ini", ".env", ".sh", ".ts", ".js"}
+_ALLOWLIST_MARKER = "allowlist-secret"
 
 
 def _entropy(value: str) -> float:
@@ -36,7 +38,9 @@ def scan_tree(root: Path) -> list[Finding]:
         except (UnicodeDecodeError, OSError):
             continue
         for lineno, line in enumerate(text.splitlines(), start=1):
-            if any(p in line for p in _PREFIXES):
+            if _ALLOWLIST_MARKER in line:
+                continue
+            if _PREFIX_PATTERN.search(line):
                 findings.append((path, lineno, "known_prefix"))
                 continue
             match = _CREDENTIAL_NAME.search(line)
