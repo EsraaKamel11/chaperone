@@ -83,7 +83,8 @@ def test_an_unsupported_type_raises_the_same_typed_error():
 
 
 # Large enough that applying any multiplier pushes the result past the decimal context's Emax.
-_TOO_LARGE_TO_SCALE = "9" * 999_999 + "m"
+_BARE_DIGITS = "9" * 999_999
+_TOO_LARGE_TO_SCALE = _BARE_DIGITS + "m"
 
 
 def test_an_amount_too_large_to_scale_raises_the_same_typed_error():
@@ -94,15 +95,27 @@ def test_an_amount_too_large_to_scale_raises_the_same_typed_error():
     `CanonicalizationError` and would pass straight through every handler in the chain.
     Catching `DecimalException` covers `Overflow`, `InvalidOperation` and their siblings at
     once, leaving none to leak the next time this code is touched.
+
+    This raises where `figures_in` falls back, and the asymmetry is the strict/lenient split:
+    `normalize_money` reads a value handed over as a record field and must never guess a
+    magnitude, so it refuses. Scanning prose for candidates is the lenient half.
     """
     with pytest.raises(CanonicalizationError):
         normalize_money(_TOO_LARGE_TO_SCALE)
 
 
-def test_an_amount_too_large_to_scale_is_skipped_without_losing_its_neighbours():
-    """One unrepresentable candidate must not cost the caller the rest of the body."""
+def test_an_amount_too_large_to_scale_keeps_its_bare_digits():
+    """The multiplier is dropped, never the figure.
+
+    An unrecognised spelling and a multiplier whose product overflows are the same situation --
+    the multiplier cannot be applied -- so they take the same answer. The pattern already
+    truncates `$5MM` to 5 before `normalize_money` is reached; this is that rule arriving one
+    step later, where the failure is arithmetic rather than textual. The figure survives, fails
+    to match the record, and routes the draft to a human.
+    """
     assert figures_in(f"we raised $2.5M against a cap of {_TOO_LARGE_TO_SCALE}") == {
-        Decimal("2500000")
+        Decimal("2500000"),
+        Decimal(_BARE_DIGITS),
     }
 
 

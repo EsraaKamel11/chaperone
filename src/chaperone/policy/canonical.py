@@ -73,7 +73,24 @@ def figures_in(text: str) -> set[Decimal]:
         try:
             found.add(normalize_money(match.group(0).strip()))
         except CanonicalizationError:
-            continue
+            # A multiplier that cannot be applied costs the multiplier, never the figure. An
+            # unrecognised spelling never reaches here -- the pattern itself declines to consume
+            # the suffix, so "$5MM" arrives as "$5" -- and a multiplier whose product overflows
+            # the decimal context is that same situation one step later, arithmetic rather than
+            # textual. Same situation, same answer: re-read the digits the drafter actually
+            # wrote, sign included, and discard only the multiplier. The alternative is dropping
+            # the figure, and a dropped figure is the one outcome that yields no finding at all
+            # and lets the draft through.
+            #
+            # `normalize_money` stays strict and still raises on the same input: it reads a value
+            # handed over as a record field, where guessing a magnitude would be a fabrication.
+            # This is the lenient half of that split, scanning prose for candidates.
+            digits = match.group("digits")
+            sign = "-" if match.group("sign") or match.group("paren") else ""
+            try:
+                found.add(normalize_money(f"{sign}{digits}"))
+            except CanonicalizationError:
+                continue
     return found
 
 

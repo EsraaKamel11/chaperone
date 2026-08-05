@@ -75,26 +75,34 @@ def test_the_same_inputs_always_produce_the_same_findings():
 
 
 # Large enough that applying its multiplier overflows the decimal context.
-_TOO_LARGE_TO_SCALE = "9" * 999_999 + "m"
+_BARE_DIGITS = "9" * 999_999
+_TOO_LARGE_TO_SCALE = _BARE_DIGITS + "m"
 
 
-def test_an_unrepresentable_figure_yields_findings_rather_than_raising():
-    """A predicate that raises is not a predicate.
+def test_an_oversized_figure_produces_a_finding_rather_than_vanishing():
+    """A predicate that raises is not a predicate, and a figure that vanishes is an escape.
 
-    An exception crossing this boundary is not a finding: an executor written to be forgiving
-    can relabel it "transient, please retry" and retry the very act the predicate exists to
-    stop. So the figure is skipped, and the rest of the body is still judged.
-
-    Skipping it does drop a figure, which canonicalization otherwise refuses to do -- see the
-    documented limit on multiplier spellings. This is the lesser of two escapes, not an
-    acceptable outcome, and it is not forced: the bare digits here are representable, so
-    truncating the unscalable multiplier, exactly as an unrecognised spelling already does,
-    would close it. That widens what `figures_in` promises, so it is not done here.
+    Two failure modes are ruled out at once here. An exception crossing this boundary is not a
+    finding: a forgiving executor can relabel it "transient, please retry" and retry the very
+    act the predicate exists to stop. Returning no finding is no better -- no figure, no
+    finding, and the draft goes out unreviewed. Canonicalization discards the multiplier rather
+    than the figure, so the figure reaches this predicate, fails to match the record, and routes
+    the draft to a human. Never drop a figure.
     """
+    findings = evaluate_act_classes(_draft(body=_TOO_LARGE_TO_SCALE), RECORD, _context())
+    assert [f.violation_class for f in findings] == [ViolationClass.FIGURE_NOT_IN_RECORD]
+    assert findings[0].detail == _BARE_DIGITS
+
+
+def test_an_oversized_figure_does_not_cost_the_rest_of_the_body():
+    """The oversized figure is judged alongside its neighbours, not instead of them."""
     draft = _draft(body=f"The round is {_TOO_LARGE_TO_SCALE}, up from $40M.")
     findings = evaluate_act_classes(draft, RECORD, _context())
-    assert [f.violation_class for f in findings] == [ViolationClass.FIGURE_NOT_IN_RECORD]
-    assert findings[0].detail == "40000000"
+    assert [f.violation_class for f in findings] == [
+        ViolationClass.FIGURE_NOT_IN_RECORD,
+        ViolationClass.FIGURE_NOT_IN_RECORD,
+    ]
+    assert [f.detail for f in findings] == ["40000000", _BARE_DIGITS]
 
 
 def test_findings_arrive_in_a_fixed_order():
