@@ -73,7 +73,14 @@ CHECKER_INSTRUCTIONS = (
 
 
 def build_checker_messages(draft: Draft, record: Record) -> list[dict]:
-    """Independence is enforced by omission. Nothing untransmitted enters this prompt."""
+    """Independence is enforced by omission: no untransmitted *field* enters this prompt.
+
+    The qualifier is load-bearing, and the unqualified sentence this one replaces was not true.
+    What follows selects which fields are read; it does not sanitize what they hold. Thread roles,
+    thread bodies and the draft body are all interpolated unescaped, so a forged role or a body
+    carrying delimiter text still reads as part of the prompt. Whoever assembles the `Draft` owns
+    the transmitted/untransmitted line for the text inside those fields.
+    """
     thread = "\n".join(f"[{m.role}] {m.body}" for m in draft.thread)
     cited = "\n".join(f"{name}: {record.get(name)}" for name in draft.cited_fields if record.get(name))
     content = (

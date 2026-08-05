@@ -154,7 +154,9 @@ def test_the_checker_message_carries_exactly_a_role_and_a_content_key():
     `test_the_checker_prompt_structure_is_exact`: the first scans five markers, the second pins
     the turn count and the role and never looks at the key set.
     """
-    for message in build_checker_messages(DRAFT, RECORD):
+    messages = build_checker_messages(DRAFT, RECORD)
+    assert messages, "a builder returning [] would make the loop below assert nothing"
+    for message in messages:
         assert set(message) == {"role", "content"}
 
 
@@ -229,11 +231,17 @@ def test_a_clean_verdict_carrying_no_class_is_still_usable():
     assert checker.check(DRAFT, RECORD) == clean
 
 
-def test_the_model_strength_table_cannot_be_rewritten_at_runtime():
-    """One assignment used to disarm the tier floor for the whole process.
+def test_the_model_strength_table_cannot_be_mutated_in_place():
+    """An in-place write used to disarm the tier floor for the whole process.
 
     The floor is what keeps a budget choice from confounding architecture with model capability
     in the attribution ladder, so it should not be undone by a stray statement.
+
+    **Rebinding is the residual and this does not close it.** `assert_checker_not_weaker` reads
+    the module global when it is called, so `checker.MODEL_STRENGTH = {...}` still lowers the
+    floor; only mutation through the existing object is refused. What is closed is the realistic
+    accidental path -- an extra tier registered with `MODEL_STRENGTH["some-tier"] = 4` -- not a
+    determined one. The name says "in place" because that is all that is held.
     """
     with pytest.raises(TypeError):
         MODEL_STRENGTH["haiku-tier"] = 99
