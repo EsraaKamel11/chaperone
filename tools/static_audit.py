@@ -6,6 +6,10 @@ Two audits, both parsing with `ast` rather than grepping text:
   nothing outside `policy/`.
 - `audit_send_references`: the send symbol is referenced only from the gateway module.
 
+The send symbol's name is reserved package-wide. Any identifier *or attribute* of that name outside
+the gateway is a violation, so nothing else under `src/chaperone` may be called `transmit` -- an
+unrelated `radio.transmit()` would fail CI too. That is the price of catching `gateway.transmit()`.
+
 Both fail loud on a missing or empty root. An audit that examined no files reports that as a
 violation rather than reporting clean, so a renamed directory cannot disarm the guard in silence.
 

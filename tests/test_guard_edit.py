@@ -3,6 +3,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tools.guard_edit import FORBIDDEN_IN_POLICY as HOOK_FORBIDDEN
+from tools.static_audit import FORBIDDEN_IN_POLICY as AUDIT_FORBIDDEN
+
 GUARD = Path(__file__).resolve().parents[1] / "tools" / "guard_edit.py"
 
 
@@ -11,6 +14,65 @@ def _run(payload: dict, env: dict | None = None) -> subprocess.CompletedProcess:
     merged = {**os.environ, **(env or {})}
     return subprocess.run([sys.executable, str(GUARD)], input=json.dumps(payload),
                           capture_output=True, text=True, env=merged)
+
+
+def test_the_edit_guard_and_the_ci_audit_forbid_the_same_modules():
+    """The two layers enforce one policy, so they must forbid one set of modules.
+
+    They hold separate literal lists -- the hook runs with tools/ on sys.path[0] and cannot
+    cleanly import the audit at startup -- so this test is what binds them.
+    """
+    hook, audit = set(HOOK_FORBIDDEN), set(AUDIT_FORBIDDEN)
+    assert hook == audit, (
+        f"only in the edit-time hook: {sorted(hook - audit)}; "
+        f"only in the CI audit: {sorted(audit - hook)}"
+    )
+
+
+def test_a_dynamic_import_helper_into_policy_is_blocked():
+    result = _run({"tool_input": {"file_path": "src/chaperone/policy/x.py", "content": "import importlib\n"}})
+    assert result.returncode == 2
+
+
+def test_a_dependency_outside_policy_is_blocked():
+    result = _run({
+        "tool_input": {
+            "file_path": "src/chaperone/policy/x.py",
+            "content": "from chaperone.gates import engine\n",
+        }
+    })
+    assert result.returncode == 2
+    assert "chaperone.gates" in result.stderr
+
+
+def test_an_import_from_within_policy_is_allowed():
+    result = _run({
+        "tool_input": {
+            "file_path": "src/chaperone/policy/x.py",
+            "content": "from chaperone.policy.types import Draft\n",
+        }
+    })
+    assert result.returncode == 0
+
+
+def test_a_package_merely_prefixed_with_policy_is_blocked():
+    result = _run({
+        "tool_input": {
+            "file_path": "src/chaperone/policy/x.py",
+            "content": "import chaperone.policyholder\n",
+        }
+    })
+    assert result.returncode == 2
+
+
+def test_a_dependency_outside_policy_in_an_unparseable_fragment_is_blocked():
+    result = _run({
+        "tool_input": {
+            "file_path": "src/chaperone/policy/x.py",
+            "new_string": "from chaperone.gates import engine\n    y = (\n",
+        }
+    })
+    assert result.returncode == 2
 
 
 def test_an_llm_import_into_policy_is_blocked():
