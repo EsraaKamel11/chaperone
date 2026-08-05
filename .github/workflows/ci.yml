@@ -11,5 +11,7 @@ jobs:
       - run: pip install -e ".[dev]"
       - name: Secret scan
         run: python tools/scan_secrets.py
+      - name: Static audit
+        run: python tools/static_audit.py
       - name: Tests
         run: pytest -v
