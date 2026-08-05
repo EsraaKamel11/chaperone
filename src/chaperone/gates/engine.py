@@ -18,13 +18,20 @@ here that refuses returns a `Decision`, and `denial_result` turns one into a too
 invitation to redraft is carried by `disposition` alone, and reading it across into
 `is_retryable` is the tidy-looking edit that reopens 3.4.
 
+**Every disposition is derived from the finding classes, in `disposition_for` and nowhere else**
+(design spec 4.7). `decide` hardcoded the futile disposition on three paths and nothing noticed,
+because the test named for the rule counted occurrences of the futile set's name -- which a
+hardcoded `Disposition` member does not touch. The one literal that remains is the clean return's
+`Disposition.ALLOW`, and a test pins that site by name so a second one cannot appear quietly.
+
 Three things this layer does NOT do, written down because their absence is otherwise invisible:
 
-- **It runs no clock.** Design spec 3.4 has the checker lane race to deny; nothing here races
-  anything. `checker.check` is a blocking call, so a deadline consulted after it returns stops no
-  hang -- the mechanism has to live in the transport, which can bound its own wait. The *policy*
-  is this module's (a deny is the fallback, and only `decide` knows that), the mechanism is not,
-  and today **no test holds either half**.
+- **It runs no clock, and the split is worth stating exactly.** Design spec 3.4 has the checker
+  lane race to deny; nothing here races anything. **The policy belongs to this layer** -- a deny
+  is the fallback when no answer arrives, and `decide` is the only place that knows it.
+  **The mechanism belongs to the transport**, because `checker.check` is a blocking call and a
+  deadline consulted after it returns stops no hang, while a transport can bound its own wait.
+  **Today neither half exists and no test holds either.** A hanging transport hangs the gate.
 - **It does not rank findings.** `denial_result` reports `findings[0]`, and act-classes are
   evaluated first and returned early -- so a draft that trips an act-class and a tripwire is
   categorized by the act-class and the tripwire is never evaluated. Nothing escapes; the category
@@ -40,7 +47,31 @@ from chaperone.policy.citations import validate_citations
 from chaperone.policy.tripwires import evaluate_tripwires
 from chaperone.policy.types import Decision, Disposition, Draft, Finding, Record, ViolationClass
 
-FUTILE_CLASSES = frozenset({ViolationClass.ADVISES_ON_MERITS})
+# Futile means: **no compliant redraft answers this**, so the refinement budget is skipped and the
+# denial escalates (design spec 4.8). Membership is decided by that question and by nothing else.
+#
+# - `ADVISES_ON_MERITS` -- "is this a good deal?" has no compliant direct answer. The compliant
+#   response changes the task rather than rewording it.
+# - The four act-classes below -- no wording gives a message consent it never had, an approval
+#   token, a tool outside the grant, or send budget that is already spent. Routed refinable, each
+#   cost a redraft round and then stopped for deadlock with no alternative.
+# - `OTHER` -- carried by the three routes where the checker gave no answer the gate can use. A
+#   redraft cannot resolve a checker that is down, that flagged for review, or that reported a
+#   violation and declined to name it. This membership is also what lets those three routes derive
+#   their disposition here instead of writing a literal at each call site (4.7).
+#
+# **Deliberately absent, and each is load-bearing.** `FIGURE_NOT_IN_RECORD` is recoverable -- a
+# figure can be corrected or removed -- and moving it breaks Task 21's budget test, measured. The
+# other two content-classes are recoverable by rewording: a forward-looking return can be stated as
+# a recorded fact, and a negotiation can become a referral.
+FUTILE_CLASSES = frozenset({
+    ViolationClass.ADVISES_ON_MERITS,
+    ViolationClass.NO_APPROVAL_TOKEN,
+    ViolationClass.JURISDICTION_NOT_CONSENTED,
+    ViolationClass.TOOL_OUTSIDE_GRANT,
+    ViolationClass.SEND_CAP_EXCEEDED,
+    ViolationClass.OTHER,
+})
 
 
 def disposition_for(findings: tuple[Finding, ...]) -> Disposition:
@@ -61,18 +92,12 @@ def decide(draft: Draft, record: Record, context: ActContext, checker: Checker) 
     try:
         result = checker.check(draft, record)
     except CheckerUnavailable as exc:
-        return Decision(
-            False,
-            (Finding(ViolationClass.OTHER, f"checker unavailable: {exc}", None),),
-            Disposition.REDIRECT_FUTILE,
-        )
+        unavailable = (Finding(ViolationClass.OTHER, f"checker unavailable: {exc}", None),)
+        return Decision(False, unavailable, disposition_for(unavailable))
 
     if isinstance(result, FlagForReview):
-        return Decision(
-            False,
-            (Finding(ViolationClass.OTHER, f"flagged for review: {result.reason}", None),) + tripwire_findings,
-            Disposition.REDIRECT_FUTILE,
-        )
+        flagged = (Finding(ViolationClass.OTHER, f"flagged for review: {result.reason}", None),) + tripwire_findings
+        return Decision(False, flagged, disposition_for(flagged))
 
     checker_findings: tuple[Finding, ...] = ()
     if result.violates:
@@ -85,12 +110,10 @@ def decide(draft: Draft, record: Record, context: ActContext, checker: Checker) 
             # `Verdict`s straight from recorded JSON and never calls `check()` at all. Futile
             # rather than refinable for the reason the two branches above are: no redraft answers
             # a checker that cannot say what is wrong.
-            return Decision(
-                False,
-                (Finding(ViolationClass.OTHER, "checker reported a violation without naming a class", None),)
-                + tripwire_findings,
-                Disposition.REDIRECT_FUTILE,
-            )
+            unnamed = (
+                Finding(ViolationClass.OTHER, "checker reported a violation without naming a class", None),
+            ) + tripwire_findings
+            return Decision(False, unnamed, disposition_for(unnamed))
         checker_findings = (Finding(result.violation_class, f"checker confidence {result.confidence}", result.span),)
 
     findings = checker_findings + tripwire_findings

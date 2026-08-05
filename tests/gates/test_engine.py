@@ -1,5 +1,8 @@
 import ast
+import dataclasses
 import inspect
+
+import pytest
 
 from chaperone.gates.checker import Checker, CheckerUnavailable, FlagForReview, Verdict
 from chaperone.gates.engine import decide, denial_result, disposition_for
@@ -116,9 +119,17 @@ def test_disposition_is_derived_from_category_in_one_place():
 # ---       -- the fail-open this task closed: `if result.violates and result.violation_class is
 # ---          not None` produced no finding for a verdict that reported a violation and named
 # ---          no class, and with no tripwire hit `decide` returned allowed.
-# ---   test_the_futile_set_is_read_in_exactly_one_function_body_and_it_is_disposition_for
-# ---       -- the behavioural companion to the substring count above; see its docstring for
-# ---          what it holds and, more importantly, for what it does not.
+# ---   test_the_futile_set_and_both_redirect_dispositions_are_named_only_in_disposition_for
+# ---       -- the behavioural companion to the substring count above, and the guard on design
+# ---          spec 4.7's single-site rule, which the substring count structurally cannot see.
+# ---          Mutants: the reader moved into `decide` with the count unchanged at two, and a
+# ---          fourth site hardcoding a disposition literal.
+# ---   test_an_act_class_no_redraft_can_answer_escalates_instead_of_burning_the_budget
+# ---   test_a_correctable_figure_stays_refinable_so_the_budget_is_not_skipped
+# ---       -- the two sides of 4.8's routing: the four unrecoverable act-classes dropped back to
+# ---          refinable, and the futile set widened to swallow the one that is recoverable.
+# ---   test_every_unusable_checker_answer_is_futile_by_derivation_and_not_by_a_literal
+# ---       -- any one of the three checker-failure routes changing answer under the derivation.
 # ---   test_the_denial_result_renders_the_class_and_the_disposition_as_their_values
 # ---       -- dropping `.value` from either field in `denial_result`.
 # ---   test_a_refinable_denial_is_still_not_retryable
@@ -177,21 +188,58 @@ def _battery() -> dict[str, object]:
     }
 
 
-def _functions_reading(name: str) -> set[str]:
-    """The name of every function in `engine` whose body reads `name`, by walking the AST.
+def _engine_functions(matches) -> set[str]:
+    """The name of every function in `engine` containing a node `matches` accepts.
 
-    Structural, in the manner of tools/static_audit.py. A mention in a docstring or a comment
-    produces no `ast.Name` node and so cannot satisfy this, and a second reader produces one
-    wherever in the module it is written.
+    Structural, in the manner of tools/static_audit.py, and a denylist over a statically visible
+    tree rather than a sandbox: `getattr(Disposition, "REDIRECT_FUTILE")` or a shadowing
+    redefinition would walk past this, exactly as `tools/static_audit.py` records for its own
+    checks. The job is to make accidental drift impossible and deliberate drift conspicuous.
     """
     from chaperone.gates import engine
 
-    readers = set()
+    found = set()
     for node in ast.walk(ast.parse(inspect.getsource(engine))):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if any(isinstance(inner, ast.Name) and inner.id == name for inner in ast.walk(node)):
-                readers.add(node.name)
-    return readers
+            if any(matches(inner) for inner in ast.walk(node)):
+                found.add(node.name)
+    return found
+
+
+def _functions_reading(name: str) -> set[str]:
+    """Every function whose body reads the global `name`.
+
+    A mention in a docstring or a comment produces no `ast.Name` node and so cannot satisfy this,
+    and a second reader produces one wherever in the module it is written.
+    """
+    return _engine_functions(lambda n: isinstance(n, ast.Name) and n.id == name)
+
+
+def _is_disposition(member: str):
+    return (
+        lambda n: isinstance(n, ast.Attribute)
+        and n.attr == member
+        and isinstance(n.value, ast.Name)
+        and n.value.id == "Disposition"
+    )
+
+
+def _functions_naming_disposition(member: str) -> set[str]:
+    """Every function whose body writes `Disposition.<member>` as a literal."""
+    return _engine_functions(_is_disposition(member))
+
+
+def _disposition_literals(member: str) -> int:
+    """How many times `Disposition.<member>` is written anywhere in the module.
+
+    The count is needed beside the function attribution, not instead of it. Attribution alone is
+    per-function, so a *second* literal added inside a function that already names that member
+    changes no set and slips through -- measured, as mutant `M6`, against the first version of
+    this helper, which had only the attribution.
+    """
+    from chaperone.gates import engine
+
+    return sum(1 for n in ast.walk(ast.parse(inspect.getsource(engine))) if _is_disposition(member)(n))
 
 
 def test_a_violation_reported_without_a_class_denies_rather_than_allowing():
@@ -213,19 +261,28 @@ def test_a_violation_reported_without_a_class_denies_rather_than_allowing():
     assert "unavailable" in through_checker.findings[0].detail
 
 
-def test_the_futile_set_is_read_in_exactly_one_function_body_and_it_is_disposition_for():
-    """The behavioural companion to the substring count above, and it holds strictly less.
+def test_the_futile_set_and_both_redirect_dispositions_are_named_only_in_disposition_for():
+    """The behavioural companion to the substring count above, and it holds more than that count.
 
-    What it holds: the futile set has exactly one module-level definition, and exactly one
-    function reads it -- `disposition_for`. A second reader anywhere in the module fails this,
-    and so does `disposition_for` ceasing to read it, whatever the substring count says.
+    Three things, each a different way the same drift returns:
 
-    **What it does not hold, stated because the test name would otherwise overclaim.** Design
-    spec 4.7 says retryable-as-redraft versus hard-handoff is derived in one place and never at
-    each call site. `decide` still writes `Disposition.REDIRECT_FUTILE` as a literal on three
-    paths -- checker unavailable, flagged for review, and a violation reported without a class --
-    and those are per-call-site disposition decisions that reference no constant, so this walk
-    passes straight over them. It sees who reads the set, not who decides a disposition.
+    1. The futile set has exactly one module-level definition, and exactly one function reads it.
+    2. Neither redirect disposition is written as a literal outside `disposition_for`. This is the
+       half the substring count above **cannot** see: it counts occurrences of the set's name,
+       which stay at two however many times `Disposition.REDIRECT_FUTILE` is hardcoded elsewhere,
+       so the test named for design spec 4.7's single-site rule did not test it. `decide` used to
+       hardcode the futile disposition on three paths and both instruments passed.
+    3. `Disposition.ALLOW` is written exactly twice -- `disposition_for`, which derives it, and
+       `decide`'s clean return. That second site is the one remaining per-call-site disposition
+       literal in the module, and it is pinned **by name and by count** rather than carved out,
+       so a third site fails this test instead of hiding behind an exemption.
+
+    The counts sit beside the attribution because attribution alone is per-function: a second
+    literal inside a function that already names that member changes no set. That gap was real
+    and was measured, not reasoned about -- see `_disposition_literals`.
+
+    What it does not hold is in `_engine_functions`' docstring: this is a walk over statically
+    visible attribute access, not a sandbox.
     """
     from chaperone.gates import engine
 
@@ -237,6 +294,70 @@ def test_the_futile_set_is_read_in_exactly_one_function_body_and_it_is_dispositi
     ]
     assert len(definitions) == 1
     assert _functions_reading("FUTILE_CLASSES") == {"disposition_for"}
+    assert _functions_naming_disposition("REDIRECT_FUTILE") == {"disposition_for"}
+    assert _functions_naming_disposition("REDIRECT_REFINABLE") == {"disposition_for"}
+    assert _functions_naming_disposition("ALLOW") == {"disposition_for", "decide"}
+    assert (_disposition_literals("REDIRECT_FUTILE"), _disposition_literals("REDIRECT_REFINABLE"),
+            _disposition_literals("ALLOW")) == (1, 1, 2)
+
+
+@pytest.mark.parametrize("klass,draft_overrides,context_overrides", [
+    (ViolationClass.NO_APPROVAL_TOKEN, {}, {"approval_token": None}),
+    (ViolationClass.JURISDICTION_NOT_CONSENTED, {"recipient_jurisdiction": "DE"}, {}),
+    (ViolationClass.TOOL_OUTSIDE_GRANT, {"tool_name": "wire_funds"}, {}),
+    (ViolationClass.SEND_CAP_EXCEEDED, {}, {"sent_count": 50}),
+])
+def test_an_act_class_no_redraft_can_answer_escalates_instead_of_burning_the_budget(
+    klass, draft_overrides, context_overrides
+):
+    """Design spec 4.8: some denials are unrecoverable, and those skip the refinement budget.
+
+    No redraft gives a message consent it never had, an approval token, a tool outside the grant
+    or send budget that is spent. Routed refinable, each of these cost a redraft round and then
+    stopped for `deadlock` with no alternative -- measured through Task 21's `refine` transcribed
+    verbatim -- where 4.8 asks for an escalation at round zero.
+
+    Asserted end to end through `decide` rather than on `disposition_for` alone, so it is the
+    effect that is pinned; the finding list is compared exactly so each case is the class it says
+    and not some other act-class firing alongside.
+    """
+    context = dataclasses.replace(CONTEXT, **context_overrides)
+    decision = decide(_draft("hello", **draft_overrides), RECORD, context, _checker(CLEAN))
+    assert [f.violation_class for f in decision.findings] == [klass]
+    assert decision.disposition is Disposition.REDIRECT_FUTILE
+    assert denial_result(decision)["disposition"] == "redirect_futile"
+
+
+def test_a_correctable_figure_stays_refinable_so_the_budget_is_not_skipped():
+    """The over-rejection side of the same edit, and it is the binding constraint on it.
+
+    A figure can be corrected or removed, so `act:figure_not_in_record` is recoverable and must
+    keep its budget. It is also the one act-class that cannot move: with it futile, Task 21's
+    `test_the_budget_is_a_backstop_and_its_exhaustion_is_distinguishable` escalates at round zero
+    and fails -- measured, not predicted. Pinning it from this side means the futile set cannot
+    be widened by reflex.
+    """
+    decision = decide(_draft("The round is $8M."), RECORD, CONTEXT, _checker(CLEAN))
+    assert [f.violation_class for f in decision.findings] == [ViolationClass.FIGURE_NOT_IN_RECORD]
+    assert decision.disposition is Disposition.REDIRECT_REFINABLE
+    assert disposition_for((Finding(ViolationClass.FIGURE_NOT_IN_RECORD, "f", None),)) is Disposition.REDIRECT_REFINABLE
+
+
+def test_every_unusable_checker_answer_is_futile_by_derivation_and_not_by_a_literal():
+    """All three checker-failure routes derive their disposition, and all three still escalate.
+
+    Behaviour-preserving by construction: `OTHER` joining the futile set is exactly what makes
+    `disposition_for` return what the three literals used to say. Asserted end to end on all
+    three routes so the derivation cannot quietly change the answer on one of them, which is the
+    failure mode a refactor from literals to a lookup actually has.
+    """
+    unavailable = decide(_draft("The round is $10M."), RECORD, CONTEXT, _checker(TimeoutError("down")))
+    flagged = decide(_draft("The round is $10M."), RECORD, CONTEXT, _checker(FlagForReview(reason="unclear")))
+    unnamed = decide(_draft("The round is $10M."), RECORD, CONTEXT, _RawChecker(Verdict(violates=True, confidence=0.9)))
+    for decision in (unavailable, flagged, unnamed):
+        assert decision.allowed is False
+        assert decision.disposition is Disposition.REDIRECT_FUTILE
+    assert disposition_for((Finding(ViolationClass.OTHER, "o", None),)) is Disposition.REDIRECT_FUTILE
 
 
 def test_the_denial_result_renders_the_class_and_the_disposition_as_their_values():
