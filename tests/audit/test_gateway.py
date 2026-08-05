@@ -269,9 +269,12 @@ def test_a_digest_that_could_not_be_computed_is_marked_and_still_holds_no_raw_ar
     it." A fallback that wrote `repr(args)` into the log to keep the entry would satisfy the letter
     of "an entry lands" and breach the reason the field is a digest at all.
 
-    The recipient is asserted absent rather than some number, because every entry carries two
-    64-character hex digests and any short numeric string will appear inside one by coincidence --
-    which would make a digit-absence assertion pass for the wrong reason.
+    Both absence assertions are on strings that **cannot be hex**, because every entry carries two
+    64-character hex digests and any short digit string will occur inside one by coincidence -- an
+    assertion like `"2026" not in raw` would pass today and start failing on an unrelated change,
+    which is the same defect as passing for the wrong reason. `"datetime"` is what `repr` renders
+    for the value that defeated canonicalisation, so its absence is a direct statement that the
+    degraded rendering never reached the log.
     """
     gateway = _gateway(tmp_path)
 
@@ -280,7 +283,7 @@ def test_a_digest_that_could_not_be_computed_is_marked_and_still_holds_no_raw_ar
 
     raw = (tmp_path / "audit.jsonl").read_text(encoding="utf-8")
     assert "someone@example.test" not in raw
-    assert "2026" not in raw
+    assert "datetime" not in raw
     entries, _ = gateway.store.read_all()
     assert all(e.arg_digest.startswith("unavailable:") for e in entries)
 
@@ -337,6 +340,14 @@ def test_the_outcome_names_whether_the_tool_was_ever_entered(tmp_path: Path):
     A tool that raised may or may not have had its side effect; a call that never reached the tool
     provably did not. Collapsing both onto `"error"` would throw away the one fact an auditor
     cannot reconstruct from anywhere else in the log.
+
+    The third arm is the one that has to be `BaseException`, not `Exception`. `KeyboardInterrupt`,
+    `SystemExit`, `GeneratorExit` and `asyncio.CancelledError` do not derive from `Exception`, so a
+    handler catching `Exception` misses every one of them -- and Ctrl-C part-way through a network
+    send is the ordinary instance, not an exotic one. It is also precisely the case where nobody
+    knows whether the message left, which is what `"error"` exists to say. Recording it as
+    `"unattempted"` -- a word `entry.py` defines as "the tool was never entered, so no side effect
+    occurred" -- tells an operator the send definitely did not happen, and they re-send it.
     """
     gateway = _gateway(tmp_path)
 
@@ -346,13 +357,18 @@ def test_the_outcome_names_whether_the_tool_was_ever_entered(tmp_path: Path):
     def gate_down():
         raise RuntimeError("checker transport unavailable")
 
+    def interrupted():
+        raise KeyboardInterrupt
+
     with pytest.raises(KeyError):
         gateway.call("send_message", {"n": 1}, decide=lambda: ALLOW, execute=boom)
     with pytest.raises(RuntimeError):
         gateway.call("send_message", {"n": 2}, decide=gate_down, execute=lambda: "sent")
+    with pytest.raises(KeyboardInterrupt):
+        gateway.call("send_message", {"n": 3}, decide=lambda: ALLOW, execute=interrupted)
 
     entries, _ = gateway.store.read_all()
-    assert [e.outcome for e in entries] == ["error", "unattempted"]
+    assert [e.outcome for e in entries] == ["error", "unattempted", "error"]
 
 
 def test_seqs_stay_strictly_increasing_when_the_log_has_a_hole(tmp_path: Path):

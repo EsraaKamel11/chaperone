@@ -9,6 +9,11 @@ from chaperone.policy.types import Decision, Disposition
 
 #: Prefix marking a digest that could not be computed canonically. What follows it is still a hash
 #: -- of a degraded rendering -- never the arguments themselves.
+#:
+#: **A digest carrying this prefix is not a stable idempotency key.** Any consumer that compares
+#: digests for equality must treat the prefix as its own answer rather than the comparison; see the
+#: interface contract on `Gateway` for the one consumer that exists (Task 24's
+#: `requires_approval_for`, which must return `True` on sight of it).
 DIGEST_UNAVAILABLE = "unavailable:"
 
 
@@ -27,11 +32,17 @@ def _safe_digest(args: object) -> str:
     path exactly as it binds the clean one. `repr(args)` is hashed and discarded; it is never
     stored.
 
-    **The marker prefixes a hash rather than replacing it.** Task 24's `resume` pairs an intent
-    with its outcome by `arg_digest`, and `requires_approval_for` treats a repeated digest as an
-    idempotency key. A single shared sentinel would pair unrelated records and make an unrelated
-    re-attempt read as a duplicate send, so two calls that both resist canonicalisation must still
-    receive two different digests.
+    **The marker prefixes a hash rather than replacing it, and that closes only one direction.**
+    Task 24's `resume` pairs an intent with its outcome by `arg_digest`, so a single shared
+    sentinel would pair unrelated records: two calls that both resist canonicalisation must still
+    receive two different digests, and a test pins that.
+
+    **The other direction is not closed here, and cannot be: a degraded digest is not a stable
+    idempotency key.** `repr` embeds an object address for anything without a stable `__repr__`,
+    and it follows dict insertion order where `canonical_json` sorts keys, so two attempts at the
+    same logical send can hash differently. Making `repr` canonical is a losing game. The
+    obligation is discharged where the marker is *consumed* instead -- see the interface contract
+    on `Gateway`.
 
     `arg_digest` cannot fail on the fallback: `degraded` is a `str`, and a string always
     canonicalises.
@@ -59,20 +70,37 @@ class GatewayResult:
 class Gateway:
     """The single chokepoint. Exactly one outcome entry per call, written in `finally`.
 
+    **INTERFACE CONTRACT FOR TASK 24 -- `requires_approval_for` must return `True` for any digest
+    beginning with `DIGEST_UNAVAILABLE`, regardless of equality.** A degraded digest is a hash of
+    `repr(args)` and `repr` is not canonical: it embeds an object address for anything without a
+    stable `__repr__`, and it follows dict insertion order where `canonical_json` sorts keys. Two
+    attempts at the same logical send can therefore hash differently, and `requires_approval_for`
+    matches on **equality** -- so on the degraded path it would return `False` for a genuine
+    re-attempt and the double-send that design spec 5.4(c) exists to prevent would proceed
+    unapproved. Treating the prefix itself as demanding approval is fail-closed and needs no
+    stability at all. This module owns the marker, so this module carries the obligation.
+
     **Nothing above the `try` in `call` may raise.** Three operations were found sitting there, and
     each skipped the audit entry exactly when it mattered most: digesting the arguments, consulting
     the gate, and -- in `__init__` -- numbering the entry. The inventory of what still runs before
     the `try` is deliberately short, and is meant to be re-read whenever a line is added to it:
 
     - `digest = DIGEST_UNAVAILABLE` -- binds a module constant to a local.
-    - `intent_seq = None`, `value = None` -- bind `None` to a local.
+    - `intent_seq = None` -- binds `None` to a local.
     - `outcome = "unattempted"` -- binds a literal to a local.
 
-    None of the four can raise. The one remaining finding-C-shaped hole is not above the `try` at
-    all: `self._write` in the `finally` calls `store.append`, which can fail on a full disk, and
-    when it does the outcome entry is lost *and* the in-flight exception is replaced by the store's
-    (the original survives as `__context__`). That one is unclosable here -- writing the entry is
-    the last thing that happens, so nothing remains to record that it did not.
+    None of the three can raise. Two things are deliberately outside that inventory's scope, and
+    saying so is the point of having one:
+
+    - **`__init__`'s `store.read_all()`** runs outside any `try` and can raise `ValueError`, a
+      pydantic `ValidationError` or `OSError`. It is not listed because no call is in flight and no
+      entry is owed: a gateway that cannot read its log fails to *construct*, which is the correct
+      outcome and is not a skipped entry.
+    - **`self._write` in the `finally`** is the one remaining finding-C-shaped hole, and it is not
+      above the `try` at all. `store.append` can fail on a full disk; the outcome entry is then
+      lost *and* the in-flight exception is replaced by the store's (the original survives as
+      `__context__`). Unclosable here -- writing the entry is the last thing that happens, so
+      nothing remains to record that it did not.
 
     `outcome = "unattempted"` is a **fail-closed default**. An earlier version defaulted to
     `"allowed"`, so any path returning without assigning would have logged an allow; the default
@@ -122,7 +150,6 @@ class Gateway:
     ) -> GatewayResult:
         digest = DIGEST_UNAVAILABLE
         intent_seq = None
-        value = None
         outcome = "unattempted"
         try:
             digest = _safe_digest(args)
@@ -136,15 +163,17 @@ class Gateway:
             if not decision.allowed:
                 outcome = "redirected" if decision.disposition is not Disposition.ALLOW else "denied"
                 return GatewayResult(False, None, decision, intent_seq, self._seq)
-            # The inner `try` scopes `"error"` to the tool's own failure rather than to a position
-            # in this function. `"error"` and `"unattempted"` are not interchangeable: a tool that
-            # raised may or may not have had its side effect, a call that never reached the tool
-            # provably did not, and the gateway is the only place that fact is known.
-            try:
-                value = execute()
-            except Exception:
-                outcome = "error"
-                raise
+            # No handler here, deliberately. `"error"` is set *before* the tool is entered and is
+            # downgraded only by a clean return, so every way of leaving `execute()` other than
+            # returning -- including `KeyboardInterrupt`, `SystemExit`, `GeneratorExit` and
+            # `asyncio.CancelledError`, none of which derive from `Exception` -- leaves `"error"`
+            # standing. An `except Exception` here missed all four and let the pre-`try` default
+            # through, so a send interrupted by Ctrl-C was recorded as `"unattempted"`: the word
+            # `entry.py` defines as "the tool was never entered, so no side effect occurred". The
+            # tool *was* entered, nobody knows whether the message left, and an operator reading
+            # that would re-send it. Fail-closed by construction beats enumerating exception types.
+            outcome = "error"
+            value = execute()
             outcome = "allowed"
             return GatewayResult(True, value, decision, intent_seq, self._seq)
         finally:
