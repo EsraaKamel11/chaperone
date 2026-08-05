@@ -53,6 +53,43 @@ def test_normalization_round_trips_any_two_place_decimal(value):
     assert normalize_money(f"{value:.2f}") == value
 
 
+_LONG_LENGTHS = (29, 30, 40)
+
+
+def test_a_long_negative_amount_is_negated_exactly():
+    """Negation must not round, and `-Decimal(...)` cannot be the reference for that.
+
+    The property above round-trips two-place decimals within +/-1e9. That is sound, but it is a
+    band: `places=2` inside those bounds tops out near twelve significant digits, and negation
+    only begins to round past the context precision of 28. The property reads as general
+    coverage of sign handling and is not, so the region it never visits is pinned here instead.
+
+    `-Decimal(digits)` is unusable as the expected value, because unary minus rounds on both
+    sides of the comparison -- the assertion would hold while proving nothing. `copy_negate()`
+    flips the sign without consulting the context, so it is the exact reference.
+    """
+    for length in _LONG_LENGTHS:
+        digits = "9" * length
+        assert normalize_money(f"-{digits}") == Decimal(digits).copy_negate()
+
+
+def test_the_parenthesised_accounting_form_is_negated_exactly():
+    """The accounting spelling reaches the same negation, so it must not round either."""
+    for length in _LONG_LENGTHS:
+        digits = "9" * length
+        assert normalize_money(f"({digits})") == Decimal(digits).copy_negate()
+
+
+def test_a_signed_zero_still_renders_unsigned():
+    """A findings report is read by a human, and `Finding.detail` renders `str()`.
+
+    `copy_negate()` differs from unary minus on exactly one input: it turns zero into negative
+    zero, equal in value but rendered "-0.00". Nothing should start printing that.
+    """
+    for raw in ("0.00", "-0.00", "(0.00)"):
+        assert str(normalize_money(raw)) == "0.00"
+
+
 def test_a_multiplier_suffix_is_never_taken_from_the_following_word():
     assert figures_in("the meeting is on 12 March") == {Decimal("12")}
     assert figures_in("10 mistakes were made") == {Decimal("10")}

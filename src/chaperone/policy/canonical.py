@@ -64,7 +64,19 @@ def normalize_money(raw: str | int | float | Decimal) -> Decimal:
         raise CanonicalizationError(f"cannot canonicalize {raw!r}") from exc
 
     negative = bool(match.group("sign")) or bool(match.group("paren"))
-    return -value if negative else value
+    # Unary minus is an arithmetic operation: it consults the context and rounds. A negative amount
+    # carrying more than the context's 28 significant digits therefore came back as a different
+    # magnitude, while the positive spelling of the same digits stayed exact -- returning `value`
+    # unchanged performs no operation and so never rounded. In a module whose whole job is sign and
+    # magnitude fidelity that asymmetry is the defect, not the length that exposes it.
+    # `copy_negate` flips the sign and touches nothing else.
+    #
+    # The guard keeps the one thing unary minus got right: it maps zero to +0, where `copy_negate`
+    # yields -0. They are equal, but `Finding.detail` renders `str()` for a human to read, and
+    # "-0.00" is not a thing anyone should be shown.
+    if not negative or value.is_zero():
+        return value
+    return value.copy_negate()
 
 
 def figures_in(text: str) -> set[Decimal]:
