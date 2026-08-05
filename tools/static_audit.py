@@ -39,6 +39,9 @@ FORBIDDEN_IN_POLICY = {
 _PACKAGE = "chaperone"
 _POLICY_PACKAGE = f"{_PACKAGE}.policy"
 
+SEND_SYMBOL = "transmit"
+GATEWAY_MODULE = "audit.gateway"
+
 
 def _imported_modules(node: ast.AST) -> list[str]:
     if isinstance(node, ast.Import):
@@ -109,10 +112,6 @@ def audit_send_references(src_root: Path, send_symbol: str, allowed_module: str)
             ):
                 violations.append(f"{path}:{node.lineno}: references {send_symbol!r} outside {allowed_module}")
     return violations
-
-
-SEND_SYMBOL = "transmit"
-GATEWAY_MODULE = "audit.gateway"
 
 
 def audit_tree(src: Path) -> list[str]:

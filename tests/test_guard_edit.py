@@ -1,3 +1,4 @@
+import ast
 import json
 import subprocess
 import sys
@@ -33,6 +34,42 @@ def test_the_edit_guard_and_the_ci_audit_forbid_the_same_modules():
         f"only in the edit-time hook: {sorted(hook - audit)}; "
         f"only in the CI audit: {sorted(audit - hook)}"
     )
+
+
+_DIFFERENTIAL_CORPUS = [
+    "import os", "import json", "import anthropic", "from anthropic import Client",
+    "import os.path", "from os import path", "from os.path import join",
+    "import os as o", "import json as j", "import chaperone.gates as g",
+    "import json, os", "import json,os", "import  json ,  os",
+    "import json as j, os", "import json as j, os as o", "import os, json",
+    "import json, os  # trailing comment",
+    "import chaperone.gates", "import chaperone.policy.types",
+    "import chaperone.policy.types as t, chaperone.gates",
+    "from chaperone.gates import engine", "from chaperone.policy.types import Draft",
+    "from chaperone.policy import types, canonical", "from chaperone import policy",
+    "import chaperone", "import chaperone.policyholder",
+    "from chaperone_extras import x", "import chaperone_extras",
+    "from x import os", "from x import time, random",
+    "from . import canonical", "from .gates import x", "from .os import x",
+    "from ..audit import gateway",
+]
+
+
+def _ast_path_refuses(statement: str) -> bool:
+    for node in ast.walk(ast.parse(statement)):
+        for module in guard_edit._imported_modules(node):
+            if guard_edit._reason(module):
+                return True
+    return False
+
+
+def test_the_two_paths_through_the_guard_reach_the_same_verdict():
+    """The fallback runs only on fragments the AST path could not parse, so nothing else ever
+    compares them. Either path can drift, and only the shape nobody thought to test would show it.
+    """
+    by_ast = {s: _ast_path_refuses(s) for s in _DIFFERENTIAL_CORPUS}
+    by_fallback = {s: guard_edit._fallback_refusal(s) is not None for s in _DIFFERENTIAL_CORPUS}
+    assert by_ast == by_fallback
 
 
 def test_the_edit_guard_and_the_ci_audit_reach_the_same_verdict_on_every_module():
@@ -114,7 +151,7 @@ def test_an_offending_alias_after_an_allowed_one_in_a_fragment_is_blocked():
     assert "chaperone.gates" in result.stderr
 
 
-def test_a_forbidden_alias_after_an_allowed_one_in_a_fragment_is_blocked():
+def test_a_forbidden_module_after_an_unlisted_one_in_a_fragment_is_blocked():
     result = _run({
         "tool_input": {
             "file_path": "src/chaperone/policy/x.py",
@@ -122,6 +159,44 @@ def test_a_forbidden_alias_after_an_allowed_one_in_a_fragment_is_blocked():
         }
     })
     assert result.returncode == 2
+    assert "'os'" in result.stderr
+
+
+def test_a_forbidden_module_after_an_as_alias_in_a_fragment_is_blocked():
+    result = _run({
+        "tool_input": {
+            "file_path": "src/chaperone/policy/x.py",
+            "new_string": "import json as j, os\n    y = (\n",
+        }
+    })
+    assert result.returncode == 2
+    assert "'os'" in result.stderr
+
+
+def test_a_relative_import_of_a_forbidden_name_in_a_fragment_is_blocked():
+    """The AST path refuses `from .os import x`; the fallback must not disagree.
+
+    Found by a differential probe over both paths, not by a failing edit.
+    """
+    result = _run({
+        "tool_input": {
+            "file_path": "src/chaperone/policy/x.py",
+            "new_string": "from .os import sleep\n    y = (\n",
+        }
+    })
+    assert result.returncode == 2
+    assert "'os'" in result.stderr
+
+
+def test_a_cross_package_import_after_an_as_alias_in_a_fragment_is_blocked():
+    result = _run({
+        "tool_input": {
+            "file_path": "src/chaperone/policy/x.py",
+            "new_string": "import chaperone.policy.types as t, chaperone.gates\n    y = (\n",
+        }
+    })
+    assert result.returncode == 2
+    assert "chaperone.gates" in result.stderr
 
 
 def test_an_llm_import_into_policy_is_blocked():

@@ -27,10 +27,12 @@ _PACKAGE = "chaperone"
 _POLICY_PACKAGE = f"{_PACKAGE}.policy"
 
 # The module list of an import statement: the dotted names after `import`/`from`, including a
-# comma-separated series. Capturing the whole list rather than one name is what lets the fallback
-# see `import chaperone.policy.types, chaperone.gates`, whose offending alias is not the first.
+# comma-separated series and any `as` clause on each element. Capturing the whole list rather than
+# one name is what lets the fallback see `import chaperone.policy.types as t, chaperone.gates`,
+# whose offending name is neither first nor adjacent to the comma the naive pattern looked for.
 _IMPORT_LINE = re.compile(
-    r"^[ \t]*(?:import|from)[ \t]+([\w.]+(?:[ \t]*,[ \t]*[\w.]+)*)",
+    r"^[ \t]*(?:import|from)[ \t]+"
+    r"([\w.]+(?:[ \t]+as[ \t]+\w+)?(?:[ \t]*,[ \t]*[\w.]+(?:[ \t]+as[ \t]+\w+)?)*)",
     re.MULTILINE,
 )
 
@@ -68,8 +70,13 @@ def _fallback_refusal(content: str) -> str | None:
     would let `from chaperone.policy.types import Draft` vouch for an offending import below it.
     """
     for match in _IMPORT_LINE.finditer(content):
-        for module in match.group(1).split(","):
-            reason = _reason(module.strip())
+        for token in match.group(1).split(","):
+            words = token.split()  # `os as o` -> the module is the first word, the alias is not
+            if not words:
+                continue
+            # Leading dots make a relative import; the AST path reports `.os` as `os`, so strip
+            # them here too rather than let the two paths reach different verdicts.
+            reason = _reason(words[0].lstrip("."))
             if reason:
                 return reason
     return None
@@ -83,8 +90,13 @@ def _refusal(content: str) -> str | None:
     docstring, a comment) is not. `content` may be a fragment (an Edit's new_string need not parse
     standalone) -- an indented fragment is retried dedented, since that alone makes most same-level
     inserted lines parseable and keeps them on the precise AST path. Only if both parses fail does
-    this fall back to a line-anchored regex over each import statement's module list, so a
-    non-import fragment is never blocked and multi-alias forms are caught on either path.
+    this fall back to a line-anchored regex over each import statement's module list -- every
+    comma-separated element, its `as` clause dropped and any leading dots stripped -- so a
+    non-import fragment is never blocked.
+
+    The two paths must reach the same verdict, and a differential test over a corpus of import
+    shapes is what holds them to it rather than this sentence. Neither path examines imported
+    *symbols*, so `from x import os` is allowed by both.
     """
     try:
         tree = ast.parse(content)
