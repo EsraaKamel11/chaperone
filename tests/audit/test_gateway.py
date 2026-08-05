@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -235,3 +236,163 @@ def test_a_gateway_reopened_on_an_existing_log_continues_the_sequence(tmp_path: 
 
     entries, _ = AuditStore(path).read_all()
     assert [e.seq for e in entries] == [0, 1, 2]
+
+
+# --- Fix round 1: three pre-`try` operations that skipped the entry when it mattered most -------
+
+
+def test_arguments_that_cannot_be_digested_still_produce_their_entries(tmp_path: Path):
+    """Finding C's shape inside the code written to fix finding C.
+
+    `arg_digest` is `json.dumps` underneath, and it raised *before* the first entry was written.
+    No exotic input is needed to reach it: `{"a": 1, 2: "b"}` has keys of two types and
+    `sort_keys` cannot order them, so a plain dict of plain scalars was enough to make a call
+    vanish from the log entirely.
+    """
+    gateway = _gateway(tmp_path)
+
+    gateway.call("send_message", {"a": 1, 2: "b"}, decide=lambda: ALLOW,
+                 execute=lambda: "sent", effectful=True)
+
+    entries, _ = gateway.store.read_all()
+    assert [e.kind for e in entries] == ["intent", "outcome"]
+    assert entries[-1].outcome == "allowed"
+
+
+def test_a_digest_that_could_not_be_computed_is_marked_and_still_holds_no_raw_argument(
+    tmp_path: Path
+):
+    """Design spec 5.2 binds the degraded path exactly as it binds the clean one.
+
+    The entry records "an argument digest -- canonical JSON, hashed -- never the raw arguments,
+    because recipient identifiers are personal data and an audit log is not a place to accumulate
+    it." A fallback that wrote `repr(args)` into the log to keep the entry would satisfy the letter
+    of "an entry lands" and breach the reason the field is a digest at all.
+
+    The recipient is asserted absent rather than some number, because every entry carries two
+    64-character hex digests and any short numeric string will appear inside one by coincidence --
+    which would make a digit-absence assertion pass for the wrong reason.
+    """
+    gateway = _gateway(tmp_path)
+
+    gateway.call("send_message", {"to": "someone@example.test", "when": datetime(2026, 1, 1)},
+                 decide=lambda: ALLOW, execute=lambda: "sent", effectful=True)
+
+    raw = (tmp_path / "audit.jsonl").read_text(encoding="utf-8")
+    assert "someone@example.test" not in raw
+    assert "2026" not in raw
+    entries, _ = gateway.store.read_all()
+    assert all(e.arg_digest.startswith("unavailable:") for e in entries)
+
+
+def test_two_calls_whose_arguments_resist_digesting_do_not_share_one_digest(tmp_path: Path):
+    """A constant sentinel would collapse distinct calls onto one identity.
+
+    Task 24's `resume` pairs an intent with its outcome **by `arg_digest`**, and
+    `requires_approval_for` treats a repeated digest as an idempotency key. One shared "digest
+    unavailable" marker would pair unrelated records and make an unrelated re-attempt look like a
+    duplicate send, so the fallback has to stay a hash of something call-specific.
+    """
+    gateway = _gateway(tmp_path)
+    gateway.call("send_message", {"a": 1, 2: "b"}, decide=lambda: ALLOW,
+                 execute=lambda: "sent", effectful=True)
+    gateway.call("send_message", {"c": 3, 4: "d"}, decide=lambda: ALLOW,
+                 execute=lambda: "sent", effectful=True)
+
+    entries, _ = gateway.store.read_all()
+    assert len(entries) == 4
+    assert len({e.arg_digest for e in entries}) == 2
+
+
+def test_a_gate_that_raises_still_writes_an_outcome_and_leaves_no_dangling_intent(tmp_path: Path):
+    """Design spec 3.4 keeps the raise; what must change is that the entry lands anyway.
+
+    The boundary engine is "fatal, fails closed -- nothing transmits on an unavailable gate", and
+    4.3 treats an unavailable checker as anticipated rather than exceptional. With `decide()`
+    outside the `try` an outage left `[('intent', 'pending')]` and no outcome at all, which is the
+    one shape Task 24's recovery pass cannot resolve on its own.
+
+    The digest equality is the load-bearing assertion: `resume` pairs an intent with its outcome by
+    `arg_digest`, so an outcome carrying a different digest would leave the intent dangling just as
+    surely as writing no outcome at all.
+    """
+    gateway = _gateway(tmp_path)
+
+    def gate_down():
+        raise RuntimeError("checker transport unavailable")
+
+    with pytest.raises(RuntimeError):
+        gateway.call("send_message", {"to": "a@example.test"}, decide=gate_down,
+                     execute=lambda: "sent", effectful=True)
+
+    entries, _ = gateway.store.read_all()
+    assert [e.kind for e in entries] == ["intent", "outcome"]
+    assert entries[-1].outcome == "unattempted"
+    assert entries[0].arg_digest == entries[-1].arg_digest
+
+
+def test_the_outcome_names_whether_the_tool_was_ever_entered(tmp_path: Path):
+    """`"error"` and `"unattempted"` are not interchangeable, and only the gateway can tell them apart.
+
+    A tool that raised may or may not have had its side effect; a call that never reached the tool
+    provably did not. Collapsing both onto `"error"` would throw away the one fact an auditor
+    cannot reconstruct from anywhere else in the log.
+    """
+    gateway = _gateway(tmp_path)
+
+    def boom():
+        raise KeyError("no such tool")
+
+    def gate_down():
+        raise RuntimeError("checker transport unavailable")
+
+    with pytest.raises(KeyError):
+        gateway.call("send_message", {"n": 1}, decide=lambda: ALLOW, execute=boom)
+    with pytest.raises(RuntimeError):
+        gateway.call("send_message", {"n": 2}, decide=gate_down, execute=lambda: "sent")
+
+    entries, _ = gateway.store.read_all()
+    assert [e.outcome for e in entries] == ["error", "unattempted"]
+
+
+def test_seqs_stay_strictly_increasing_when_the_log_has_a_hole(tmp_path: Path):
+    """`len(entries)` was the next seq only while the log had no holes.
+
+    A tear removes a record without removing its number, so counting re-allocated a number that was
+    already used -- `[0, 2]` counted two and issued 2 again. Seq is the ordering Task 24's recovery
+    pass reads to pair an intent with its outcome, so a duplicate corrupts exactly the field the
+    pairing depends on, and nothing raises to say so.
+    """
+    path = tmp_path / "audit.jsonl"
+    gateway = Gateway(AuditStore(path), principal="agent", tier=2)
+    for i in range(3):
+        gateway.call("read_record", {"n": i}, decide=lambda: ALLOW, execute=lambda: None)
+    lines = path.read_bytes().rstrip(b"\n").split(b"\n")
+    lines[1] = b'{"seq": 1, "kind": "outc'          # a crash took the middle record
+    path.write_bytes(b"\n".join(lines) + b"\n")
+
+    resumed = Gateway(AuditStore(path), principal="agent", tier=2)
+    resumed.call("read_record", {"n": 9}, decide=lambda: ALLOW, execute=lambda: None)
+
+    seqs = [entry.seq for entry in AuditStore(path).read_all()[0]]
+    assert seqs == sorted(set(seqs)), f"seqs must be strictly increasing, got {seqs}"
+    assert len(seqs) == 3
+
+
+def test_a_gateway_opened_over_a_torn_log_surfaces_the_tear(tmp_path: Path):
+    """`read_all` reports a tear and `__init__` was discarding it.
+
+    `count` does not surface `torn` either, so a caller that only ever sees a number cannot learn a
+    record was lost. What to *do* about it is Task 24's -- the send cap counts intents and a tear
+    may have taken one -- but a gateway that silently proceeds as though the log were whole leaves
+    that decision with no input to make it from.
+    """
+    path = tmp_path / "audit.jsonl"
+    gateway = Gateway(AuditStore(path), principal="agent", tier=2)
+    gateway.call("read_record", {}, decide=lambda: ALLOW, execute=lambda: None)
+    assert gateway.log_torn is False
+
+    with path.open("ab") as handle:
+        handle.write(b'{"seq": 9, "kind": "outc')
+
+    assert Gateway(AuditStore(path), principal="agent", tier=2).log_torn is True
