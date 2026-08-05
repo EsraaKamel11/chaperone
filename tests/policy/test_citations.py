@@ -324,33 +324,36 @@ def test_a_bare_digit_run_in_prose_can_satisfy_a_small_numeric_citation_a_known_
     assert validate_citations(draft, record) == ()
 
 
-def test_a_digit_adjacent_to_a_separator_can_still_shift_a_magnitude_a_known_limit():
-    """The sign guard's unfixed siblings, found while measuring it and pinned rather than implied.
+def test_a_separator_cannot_let_a_smaller_figure_evidence_a_larger_one():
+    r"""The sign guard's other half: "." and "," shift a magnitude as "-" and "(" shift a sign.
 
-    "-" and "(" change a figure's *sign*, and the guard refuses them in front of a digit-bearing
-    value. "." and "," change its *magnitude*, and they are not refused: a value can begin
-    immediately after a decimal point or a thousands separator, or end immediately before one,
-    and still match a draft that states a different number. Row 1 reads five out of "1.5", row 2
-    reads a thousands group out of "10,000", row 3 lets the draft extend the figure rightwards.
+    One mechanism, not two defects -- adjacency characters that change what a figure means were
+    being treated as token boundaries. A record field valued "5 seats" or "3 board seats" is
+    ordinary, and it needs no exotic draft to defeat: "1.5 seats" reads as corroboration while
+    contradicting. Three shapes, all measured -- a decimal point truncating the value from the
+    left, a thousands separator doing the same, and a separator extending the figure rightwards.
 
-    These are not refused because the naive rule costs a legitimate row: "We raised 10,000,000
-    USD, a record." ends the value at a comma, which the regression test above requires to keep
-    validating. Closing them needs the separator to be refused only where a digit continues on
-    the far side of it, which is a real fix but not the one this round was scoped to.
-
-    The direction is escape, so this is the sharpest residual in the file after the bare-digit
-    limit. It is stated here so it is a known boundary rather than a discovery.
+    The accepted half is the conditionality, and it is why the rule is `(?<!\d[.,])` rather than
+    a blanket refusal of separators. A separator is only part of a number when a digit continues
+    past it. "In tranche 2, we closed." and "We raised 10,000,000 USD, a record." are ordinary
+    prose that ends a cited value at a comma, and a blanket rule refuses both -- the second is
+    row 14 of the regression surface above, so the naive form is not merely inelegant, it breaks
+    a case this file already requires to pass.
     """
-    cases = [
+    for value, body in [
         ("5 seats", "A ratio of 1.5 seats."),
         ("000 USD", "We raised 10,000 USD."),
         ("tranche 2", "In tranche 2,500,000 closed."),
-    ]
-    for value, body in cases:
-        assert validate_citations(_draft(body, ("f",)), Record(fields={"f": value})) == ()
-    assert validate_citations(
-        _draft("There are 5 seats.", ("f",)), Record(fields={"f": "5 seats"})
-    ) == ()
+    ]:
+        findings = validate_citations(_draft(body, ("f",)), Record(fields={"f": value}))
+        assert len(findings) == 1, f"{value!r} was evidenced by {body!r}"
+    for value, body in [
+        ("5 seats", "There are 5 seats."),
+        ("tranche 2", "In tranche 2, we closed."),
+        ("10,000,000 USD", "We raised 10,000,000 USD, a record."),
+    ]:
+        accepted = validate_citations(_draft(body, ("f",)), Record(fields={"f": value}))
+        assert accepted == (), f"{value!r} genuinely appears in {body!r} and was refused"
 
 
 def test_the_currency_symbol_is_not_part_of_the_canonical_value_a_stated_scope_limit():

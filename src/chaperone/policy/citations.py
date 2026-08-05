@@ -29,15 +29,24 @@ def _appears_as_a_whole_token(value: str, body: str) -> bool:
     It accepts exactly what it should refuse. A negative lookaround for `\w` states the property
     directly: nothing may run into the value from either side, whatever the value starts with.
 
-    **The sign guard.** `(?<!\w)` treats "-" and "(" as boundaries, which is right for a text
-    value -- "US" inside "(US)" is still the same US -- and wrong for a value carrying a figure,
-    because `_AMOUNT` reads those same characters as the sign. Without the guard, "A loss of
-    -$5MM." reproduced a record's "$5MM" as a whole token and evidenced it while stating the
-    opposite: the two halves of the module disagreed about what "-" means, and design spec 4.5
-    is most emphatic about exactly this failure -- a debit silently turned into a credit. So a
-    needle carrying a digit additionally refuses a sign character immediately in front of it.
-    The guard is conditional because applying it to text values would cost "(US)" and
-    "US-based", which are not sign-bearing at all.
+    **The adjacency guards.** `(?<!\w)` treats "-", "(", "." and "," as boundaries, which is
+    right for a text value -- "US" inside "(US)" is still the same US -- and wrong for a value
+    carrying a figure, because `_AMOUNT` reads those same characters as part of the number. Two
+    kinds of damage follow, and they are one mechanism rather than two defects:
+
+    - **sign.** "A loss of -$5MM." reproduced a record's "$5MM" as a whole token and evidenced
+      it while stating the opposite. Design spec 4.5 is most emphatic about exactly this -- a
+      debit silently turned into a credit.
+    - **magnitude.** "A ratio of 1.5 seats." evidenced a record's "5 seats", and "In tranche
+      2,500,000 closed." evidenced "tranche 2". The draft states a different number and reads
+      as corroboration.
+
+    So a needle carrying a digit also refuses a sign character in front of it, and refuses a
+    separator on either side **when a digit continues past it**. Both conditions earn their
+    keep: applying the guards to text values would cost "(US)" and "US-based", and refusing
+    separators unconditionally would cost "We raised 10,000,000 USD, a record." -- ordinary
+    prose that ends a cited value at a comma. Each half has a mutant that dies to exactly one
+    test.
 
     This is a set of enumerated defences, not a proof. It does not establish that the draft
     means what the record means -- see the limits pinned in the tests, which are the residual.
@@ -45,9 +54,13 @@ def _appears_as_a_whole_token(value: str, body: str) -> bool:
     needle = value.strip()
     if not needle:
         return False
-    # "-" and "(" are the two characters `_AMOUNT` can read as making a figure negative.
-    sign_guard = r"(?<![-(])" if any(character.isdigit() for character in needle) else ""
-    pattern = rf"(?<!\w){sign_guard}{re.escape(needle)}(?!\w)"
+    if any(character.isdigit() for character in needle):
+        # "-" and "(" are the characters `_AMOUNT` reads as making a figure negative; "." and
+        # "," are the ones it reads as continuing one, but only when a digit is on the far side.
+        before, after = r"(?<![-(])(?<!\d[.,])", r"(?![.,]\d)"
+    else:
+        before, after = "", ""
+    pattern = rf"(?<!\w){before}{re.escape(needle)}(?!\w){after}"
     return re.search(pattern, body, re.IGNORECASE) is not None
 
 
@@ -67,14 +80,15 @@ def validate_citations(draft: Draft, record: Record) -> tuple[Finding, ...]:
     would let a record value the module cannot read evidence *more* than one it can. What is
     actually enforced toward that end is a list, not a universal: the record's text must appear
     as a whole token, not as a fragment of a longer word; a blank value evidences nothing; and
-    a value carrying a figure is refused where the draft puts a sign character in front of it,
-    so the draft cannot negate what the record states.
+    a value carrying a figure is refused where the draft puts a sign character in front of it
+    or continues its digits past a separator, so the draft can neither negate nor rescale what
+    the record states.
 
-    That list is not a proof that the degraded path is narrower everywhere -- the sign case was
-    a counterexample to exactly that claim until it was closed, and it was found by measurement
-    rather than by the sweep. The residuals are pinned as executable limits in the tests: a bare
-    digit run in prose can satisfy a small numeric citation, currency symbols are not part of a
-    canonical value, and digits adjacent to "." or "," can still truncate or extend a magnitude.
+    That list is not a proof that the degraded path is narrower everywhere -- the sign and
+    magnitude cases were counterexamples to exactly that claim until they were closed, and both
+    were found by measurement rather than by the sweep. The residuals are pinned as executable
+    limits in the tests: a bare digit run in prose can satisfy a small numeric citation, and a
+    currency symbol is not part of a canonical value.
     """
     findings: list[Finding] = []
     draft_figures = figures_in(draft.body)
