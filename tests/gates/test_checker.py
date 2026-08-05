@@ -3,7 +3,7 @@ import json
 import pytest
 
 from chaperone.gates.checker import (
-    Checker, CheckerUnavailable, FlagForReview, Verdict,
+    MODEL_STRENGTH, Checker, CheckerUnavailable, FlagForReview, Verdict,
     assert_checker_not_weaker, build_checker_messages,
 )
 from chaperone.policy.types import Draft, Message, Record, ViolationClass
@@ -171,3 +171,72 @@ def test_an_unknown_model_is_refused_rather_than_assumed_strong_enough():
     with pytest.raises(ValueError):
         Checker(model="unlisted-tier", drafter_model="sonnet-tier",
                 transport=lambda m: FlagForReview(reason="x"))
+
+
+# --- Fix round 1: an unusable verdict reached the caller intact, and the gate then allowed the
+# --- send or raised at it. The two shapes below are what "schema-valid but invalid" means here:
+# --- pydantic accepts both, and neither can be turned into a finding.
+
+
+def test_a_violation_reported_without_a_class_exhausts_the_budget_and_then_denies():
+    """The escape this round closes: the checker said "violates" and the draft transmitted.
+
+    Nothing rejects this verdict on the way through, so the retry budget never engaged and the
+    engine's `result.violates and result.violation_class is not None` treated it as clean. An
+    unnamed violation cannot become a `Finding`, so it has to be refused where the budget lives.
+    """
+    calls = []
+
+    def unusable(messages):
+        calls.append(1)
+        return Verdict(violates=True, violation_class=None, confidence=0.97)
+
+    checker = Checker("sonnet-tier", "sonnet-tier", transport=unusable, retries=2)
+    with pytest.raises(CheckerUnavailable):
+        checker.check(DRAFT, RECORD)
+    assert len(calls) == 3, "the retry budget must be spent before the verdict is given up on"
+
+
+@pytest.mark.parametrize("returned", [None, "compliant", {"violates": False}, Verdict])
+def test_a_transport_returning_something_other_than_a_verdict_denies_rather_than_bubbling(returned):
+    """`None`, prose, a raw dict and the class itself all used to sail through `check`.
+
+    Each then raised `AttributeError` inside the engine, past its `except CheckerUnavailable`, so
+    an unusable answer arrived as a crash at the gate instead of a deny.
+    """
+    calls = []
+
+    def wrong_type(messages):
+        calls.append(1)
+        return returned
+
+    checker = Checker("sonnet-tier", "sonnet-tier", transport=wrong_type, retries=1)
+    with pytest.raises(CheckerUnavailable):
+        checker.check(DRAFT, RECORD)
+    assert len(calls) == 2
+
+
+def test_a_clean_verdict_carrying_no_class_is_still_usable():
+    """The input that would make the new refusal and the rest of the system disagree.
+
+    `violates=False` with no class is the ordinary compliant answer -- every downstream task
+    builds its clean checker as `Verdict(violates=False, confidence=0.9)`. Refusing an unnamed
+    class unconditionally would deny every compliant draft in the project, so the refusal is
+    conditioned on `violates` and this pins that it is.
+    """
+    clean = Verdict(violates=False, confidence=0.9)
+    checker = Checker("sonnet-tier", "sonnet-tier", transport=lambda m: clean, retries=0)
+    assert checker.check(DRAFT, RECORD) == clean
+
+
+def test_the_model_strength_table_cannot_be_rewritten_at_runtime():
+    """One assignment used to disarm the tier floor for the whole process.
+
+    The floor is what keeps a budget choice from confounding architecture with model capability
+    in the attribution ladder, so it should not be undone by a stray statement.
+    """
+    with pytest.raises(TypeError):
+        MODEL_STRENGTH["haiku-tier"] = 99
+    assert MODEL_STRENGTH["haiku-tier"] == 1
+    with pytest.raises(ValueError, match="not be weaker"):
+        assert_checker_not_weaker("haiku-tier", "opus-tier")
