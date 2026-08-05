@@ -11,8 +11,15 @@ TRIPWIRE_CLASSES = frozenset({
 })
 
 _HORIZON = r"(?:year|month|quarter|annually|per annum|p\.a\.)"
+
+# The boundary belongs inside the alternation, because `%` is not a word character. `(?:%|x)\b`
+# demanded a boundary immediately after `%`, and one exists there only when a word character
+# follows -- so the pattern refused "20% annually" and accepted the glued "20%annually", inverting
+# what it was for. That is the mechanism `_appears_as_a_whole_token` in citations.py already
+# records for `\b\$5MM\b`; here it cost the whole `%` branch, measured identically on 3.11 and
+# 3.13. `x` is a word character and keeps its boundary, which is what refuses "0x1F" and "12xy".
 _PATTERNS: tuple[tuple[ViolationClass, re.Pattern[str]], ...] = (
-    (ViolationClass.FORWARD_LOOKING_RETURN, re.compile(rf"(?i)\b\d+(?:\.\d+)?\s*(?:%|x)\b[^.]{{0,60}}\b{_HORIZON}")),
+    (ViolationClass.FORWARD_LOOKING_RETURN, re.compile(rf"(?i)\b\d+(?:\.\d+)?\s*(?:%|x\b)[^.]{{0,60}}\b{_HORIZON}")),
     (ViolationClass.FORWARD_LOOKING_RETURN, re.compile(r"(?i)\b(guarantee[sd]?|assure you|downside protection|no risk)\b")),
     (ViolationClass.NEGOTIATES_TERMS, re.compile(r"(?i)\b(instead of|come down on|meet you at|accept)\b[^.]{0,40}[$£€]?\s*\d")),
     (ViolationClass.NEGOTIATES_TERMS, re.compile(r"(?i)\b(ask them to|push them (?:on|to)|negotiate)\b")),
