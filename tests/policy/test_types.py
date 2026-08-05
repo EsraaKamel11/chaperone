@@ -43,3 +43,38 @@ def test_a_draft_carries_its_transmitted_thread():
     )
     assert len(draft.thread) == 1
     assert draft.thread[0].role == "investor"
+
+
+def test_a_finding_outside_other_is_accepted_without_detail_text():
+    finding = Finding(
+        violation_class=ViolationClass.FIGURE_NOT_IN_RECORD,
+        detail=None,
+        span="a $40m valuation",
+    )
+    assert finding.violation_class is ViolationClass.FIGURE_NOT_IN_RECORD
+    assert finding.detail is None
+    assert finding.span == "a $40m valuation"
+
+
+# Transcribed from the task brief's implementation block, not from the module under test: these
+# wire values are the contract the downstream tasks read, and the act:/content: prefixes are what
+# ViolationClass.family derives the family from.
+@pytest.mark.parametrize(
+    "member, expected_value, expected_family",
+    [
+        (ViolationClass.NO_APPROVAL_TOKEN, "act:no_approval_token", Family.ACT),
+        (ViolationClass.JURISDICTION_NOT_CONSENTED, "act:jurisdiction_not_consented", Family.ACT),
+        (ViolationClass.TOOL_OUTSIDE_GRANT, "act:tool_outside_grant", Family.ACT),
+        (ViolationClass.FIGURE_NOT_IN_RECORD, "act:figure_not_in_record", Family.ACT),
+        (ViolationClass.SEND_CAP_EXCEEDED, "act:send_cap_exceeded", Family.ACT),
+        (ViolationClass.ADVISES_ON_MERITS, "content:advises_on_merits", Family.CONTENT),
+        (ViolationClass.NEGOTIATES_TERMS, "content:negotiates_terms", Family.CONTENT),
+        (ViolationClass.FORWARD_LOOKING_RETURN, "content:forward_looking_return", Family.CONTENT),
+        (ViolationClass.OTHER, "other", Family.UNCLASSIFIED),
+    ],
+)
+def test_every_violation_class_pins_its_value_and_the_family_that_value_yields(
+    member, expected_value, expected_family
+):
+    assert member.value == expected_value
+    assert member.family is expected_family
