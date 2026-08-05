@@ -99,8 +99,14 @@ def test_an_unparseable_response_after_the_retry_budget_raises_checker_unavailab
     assert len(calls) == 3
 
 
-# --- Four guards below, one per mutant that the eleven tests above were measured to survive. ---
-# --- Each was watched failing against that mutant applied to the shipped module. ---
+# --- Guards below, each added because the eleven tests above were measured to survive the mutant
+# --- it names, and each watched failing against that mutant applied to the shipped module. Named
+# --- rather than counted, following the banner in test_citations.py, which records that a counted
+# --- banner once instructed a maintainer to delete a guard. The count would be wrong here in both
+# --- directions: the omission guard covers two mutants, and one measured survivor -- a
+# --- justification sentence appended to CHECKER_INSTRUCTIONS -- has no guard at all, because
+# --- closing it means pinning the whole instruction string. That one is recorded in the task
+# --- report as the limit of the absence-scan prong, not as something these guards cover.
 
 
 def test_the_checker_prompt_contains_the_candidate_draft():
