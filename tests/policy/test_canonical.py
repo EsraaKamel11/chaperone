@@ -90,7 +90,7 @@ def test_documented_limit_a_bare_digit_run_in_prose_is_treated_as_a_figure():
     candidate figure and every caller must expect to see one. Nobody should later mistake it
     for a money detector.
     """
-    assert Decimal("3") in figures_in("I have 3 questions")
+    assert figures_in("I have 3 questions") == {Decimal("3")}
 
 
 def test_documented_limit_comma_grouping_is_not_validated():
@@ -102,3 +102,18 @@ def test_documented_limit_comma_grouping_is_not_validated():
     """
     assert normalize_money("2,5,0,0") == Decimal("2500")
     assert normalize_money("1,23") == Decimal("123")
+
+
+def test_documented_limit_an_unrecognised_multiplier_spelling_truncates_to_the_digits():
+    """A documented boundary, not a defect.
+
+    The multiplier alphabet is `k`, `m` and `b` only -- the spellings a drafter actually
+    emits. `MM`, `bn` and `MB` are not recognised, so such a figure truncates to its bare
+    digits instead of scaling. Truncation is the side to fail on, and the direction matters
+    more than the magnitude: a truncated figure will not match the record, so it produces a
+    spurious finding and routes the draft to a human, whereas dropping the figure entirely
+    would yield no finding at all and let the draft pass. Never drop a figure.
+    """
+    assert figures_in("$5MM") == {Decimal("5")}
+    assert figures_in("$20bn") == {Decimal("20")}
+    assert figures_in("a 5MB attachment") == {Decimal("5")}

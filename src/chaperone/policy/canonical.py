@@ -13,9 +13,18 @@ class CanonicalizationError(ValueError):
 _MULTIPLIERS = {"k": Decimal(1_000), "m": Decimal(1_000_000), "b": Decimal(1_000_000_000)}
 # Two guards earn their keep here, and neither is decoration:
 #   (?![A-Za-z])  a multiplier must not be the first letter of the next word, or "12 March"
-#                 reads as twelve million.
-#   (?(paren)\))  the parentheses are all-or-nothing, or "(500" invents a negative sign.
-_AMOUNT = re.compile(r"(?P<paren>\()?\s*(?P<sign>-)?\s*[$£€]?\s*(?P<digits>\d[\d,]*(?:\.\d+)?)\s*(?P<suffix>[kmb])?(?![A-Za-z])(?(paren)\))", re.IGNORECASE)
+#                 reads as twelve million. It sits INSIDE the optional group on purpose: if
+#                 it constrained the character after the digits whenever no suffix matched,
+#                 "$5MM" would match nothing at all and the figure would be dropped rather
+#                 than truncated -- an escape, not a spurious finding.
+#   (?(paren)\))  the parentheses must pair, but the two directions are enforced by different
+#                 mechanisms. Structural: the conditional lets `paren` participate only when a
+#                 ")" was also consumed, so a negative sign can never be built from a lone "("
+#                 -- that is what stops "(500" reading as -500. Incidental: "500)" and "(500"
+#                 are errors only because fullmatch refuses to leave a character unconsumed.
+#                 search() matches a bare "500" out of both, so that half of the guarantee
+#                 lives in the caller. Swap fullmatch for search and it evaporates silently.
+_AMOUNT = re.compile(r"(?P<paren>\()?\s*(?P<sign>-)?\s*[$£€]?\s*(?P<digits>\d[\d,]*(?:\.\d+)?)\s*(?:(?P<suffix>[kmb])(?![A-Za-z]))?(?(paren)\))", re.IGNORECASE)
 
 
 def normalize_money(raw: str | int | float | Decimal) -> Decimal:
