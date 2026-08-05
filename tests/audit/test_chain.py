@@ -74,8 +74,13 @@ def test_the_link_digest_matches_an_independently_computed_sha256():
     here is built from stdlib `hashlib` and `json` only, spelling out the canonical form -- sorted
     keys, no whitespace, no ASCII escaping -- so a change to what is hashed, or to how it is
     serialised, breaks this test and nothing else has to notice.
+
+    The principal carries a non-ASCII character deliberately. Every other field is ASCII, and over
+    an all-ASCII payload `ensure_ascii=False` and `ensure_ascii=True` emit identical bytes -- so
+    the "no ASCII escaping" half of that claim named a property the payload could not exercise,
+    and flipping the flag in `canonical_json` would have left this test green.
     """
-    payload = dict(seq=0, kind="intent", tool="send_message", principal="agent",
+    payload = dict(seq=0, kind="intent", tool="send_message", principal="agent-café",
                    tier=2, scope="send", outcome="pending", arg_digest="d" * 64, seed=None)
     material = GENESIS_HASH + json.dumps(
         payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False

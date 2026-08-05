@@ -194,6 +194,19 @@ def test_a_tear_anywhere_in_the_file_is_reported_and_never_silently_dropped(tmp_
     described the tail would report a holed log as clean. `count` discards the flag, so a caller
     that never sees `torn` go true has no way to learn an entry is missing -- the silent drop
     this widening exists to prevent.
+
+    The `verify` assertion is what makes tolerating mid-file tears safe, and it is the whole reason
+    the widened flag is not a licence to lose records. **Destroying a complete mid-file record
+    breaks the chain; a crash tear does not.** A torn record was never durable, so its hash was
+    never any later entry's `prev_hash` and it was never a link -- which is why
+    `test_an_append_after_a_tear_is_readable_and_the_count_does_not_undercount` gets `ok is True`
+    over a log with a hole in it, while this test, where a *chained* record was replaced, gets
+    `ok is False` at the index the destroyed record used to occupy. Assert both or the pair proves
+    nothing: `ok is True` alone would also hold for a store that had stopped checking.
+
+    The claim is deliberately narrower than "tampering is detected". A tamperer who removes a
+    record **and rewrites the entries that follow it** produces `ok is True` and `torn is False`,
+    which is the limit design spec 5.5 already concedes to anyone holding the file.
     """
     path = tmp_path / "audit.jsonl"
     store = AuditStore(path)
@@ -207,6 +220,9 @@ def test_a_tear_anywhere_in_the_file_is_reported_and_never_silently_dropped(tmp_
 
     assert torn is True
     assert [entry.seq for entry in entries] == [0, 2]
+    result = verify(entries, torn_tail=torn)
+    assert result.ok is False, "a destroyed mid-file record is not a crash artifact"
+    assert result.broken_at == 1
 
 
 def test_a_tear_that_splits_a_multibyte_character_is_reported_rather_than_failing_the_whole_read(
