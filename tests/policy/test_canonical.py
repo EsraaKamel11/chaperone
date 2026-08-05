@@ -51,3 +51,54 @@ def test_arg_digest_is_stable_and_does_not_contain_the_raw_value():
 @given(st.decimals(min_value=Decimal("-1e9"), max_value=Decimal("1e9"), places=2))
 def test_normalization_round_trips_any_two_place_decimal(value):
     assert normalize_money(f"{value:.2f}") == value
+
+
+def test_a_multiplier_suffix_is_never_taken_from_the_following_word():
+    assert figures_in("the meeting is on 12 March") == {Decimal("12")}
+    assert figures_in("10 mistakes were made") == {Decimal("10")}
+    assert figures_in("we are raising $2.5M this round") == {Decimal("2500000")}
+    assert figures_in("We are raising $10m.") == {Decimal("10000000")}
+    assert normalize_money("1.5k") == Decimal("1500")
+
+
+def test_an_unbalanced_parenthesis_is_unparseable_rather_than_negative():
+    with pytest.raises(CanonicalizationError):
+        normalize_money("(500")
+    with pytest.raises(CanonicalizationError):
+        normalize_money("500)")
+    assert normalize_money("($500.00)") == Decimal("-500.00")
+    assert normalize_money("-$500.00") == Decimal("-500.00")
+
+
+def test_a_non_finite_amount_is_unparseable():
+    for value in (float("nan"), float("inf"), float("-inf"), Decimal("NaN"), Decimal("Infinity")):
+        with pytest.raises(CanonicalizationError):
+            normalize_money(value)
+
+
+def test_an_unsupported_type_raises_the_same_typed_error():
+    for value in (None, ["500"], {"amount": 500}, object()):
+        with pytest.raises(CanonicalizationError):
+            normalize_money(value)
+
+
+def test_documented_limit_a_bare_digit_run_in_prose_is_treated_as_a_figure():
+    """A documented boundary, not a defect.
+
+    `figures_in` is a candidate extractor for currency-marked drafts, not a general numeric
+    parser. It cannot tell a sum from a count, so an unadorned numeral in prose arrives as a
+    candidate figure and every caller must expect to see one. Nobody should later mistake it
+    for a money detector.
+    """
+    assert Decimal("3") in figures_in("I have 3 questions")
+
+
+def test_documented_limit_comma_grouping_is_not_validated():
+    """A documented boundary, not a defect.
+
+    Commas are stripped, never checked, so a malformed thousands grouping normalizes to a
+    value instead of raising. Canonicalization answers "what number is this", not "is this
+    well-formed".
+    """
+    assert normalize_money("2,5,0,0") == Decimal("2500")
+    assert normalize_money("1,23") == Decimal("123")

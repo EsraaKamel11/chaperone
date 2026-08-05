@@ -11,16 +11,28 @@ class CanonicalizationError(ValueError):
 
 
 _MULTIPLIERS = {"k": Decimal(1_000), "m": Decimal(1_000_000), "b": Decimal(1_000_000_000)}
-_AMOUNT = re.compile(r"(?P<paren>\()?\s*(?P<sign>-)?\s*[$£€]?\s*(?P<digits>\d[\d,]*(?:\.\d+)?)\s*(?P<suffix>[kmb])?\)?", re.IGNORECASE)
+# Two guards earn their keep here, and neither is decoration:
+#   (?![A-Za-z])  a multiplier must not be the first letter of the next word, or "12 March"
+#                 reads as twelve million.
+#   (?(paren)\))  the parentheses are all-or-nothing, or "(500" invents a negative sign.
+_AMOUNT = re.compile(r"(?P<paren>\()?\s*(?P<sign>-)?\s*[$£€]?\s*(?P<digits>\d[\d,]*(?:\.\d+)?)\s*(?P<suffix>[kmb])?(?![A-Za-z])(?(paren)\))", re.IGNORECASE)
 
 
 def normalize_money(raw: str | int | float | Decimal) -> Decimal:
     if isinstance(raw, Decimal):
+        if not raw.is_finite():
+            raise CanonicalizationError(f"cannot canonicalize {raw!r}")
         return raw
     if isinstance(raw, int):
         return Decimal(raw)
     if isinstance(raw, float):
-        return Decimal(str(raw))
+        value = Decimal(str(raw))
+        if not value.is_finite():
+            raise CanonicalizationError(f"cannot canonicalize {raw!r}")
+        return value
+
+    if not isinstance(raw, str):
+        raise CanonicalizationError(f"cannot canonicalize {raw!r}")
 
     text = raw.strip()
     match = _AMOUNT.fullmatch(text)
