@@ -11,10 +11,10 @@ import pytest
 from chaperone.audit.gateway import Gateway
 from chaperone.audit.store import AuditStore
 from chaperone.gates.checker import Checker, Verdict
-from chaperone.gates.engine import decide
+from chaperone.gates.engine import decide, denial_result
 from chaperone.gates.hook import guarded_call, pre_tool_use
 from chaperone.policy.act_classes import ActContext
-from chaperone.policy.types import Draft, Message, Record
+from chaperone.policy.types import Draft, Message, Record, ViolationClass
 from tools import policy_hook
 
 RECORD = Record(fields={"round_size": "10000000"})
@@ -315,6 +315,16 @@ def test_a_guard_that_cannot_explain_itself_still_blocks():
 
     handle = os.open(os.devnull, os.O_RDONLY)
     try:
+        # The premise, asserted on whatever platform this runs: the handle really is unwritable.
+        # Measured on Windows across CPython 3.11.15 and 3.13.9; **unverified on Linux**, where CI
+        # runs. Without this guard a platform that quietly permitted the write would make the test
+        # pass while proving nothing, which is the failure mode a single-platform measurement has.
+        try:
+            os.write(handle, b"x")
+        except OSError:
+            pass
+        else:
+            raise AssertionError("stderr redirect is writable here, so this test proves nothing")
         malformed = subprocess.run([sys.executable, str(GUARD)], input="not json", text=True, stderr=handle)
         policy = subprocess.run([sys.executable, str(GUARD)],
                                 input=json.dumps(_send(body="Returns are guaranteed.")),
@@ -347,8 +357,24 @@ def test_the_hook_runs_every_pure_predicate_the_engine_consults():
         and getattr(engine, name).__module__.startswith("chaperone.policy")
     }
     assert pure, "derived no pure predicates from `decide`, so this test would assert nothing"
-    source = GUARD.read_text(encoding="utf-8")
-    assert sorted(name for name in pure if name not in source) == []
+
+    # Called, not merely mentioned. A substring search over the source was the first version and it
+    # was satisfiable by prose: the comment beside the call in policy_hook.py names
+    # `validate_citations`, so deleting the call and keeping the comment passed. `ast.Call` with an
+    # `ast.Name` func produces no node for a docstring or a comment, which is the same idiom
+    # test_engine.py's `_functions_reading` already uses for exactly this reason.
+    invoked = {
+        node.func.id
+        for node in ast.walk(ast.parse(GUARD.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert sorted(pure - invoked) == []
+
+    # Function-level parity is not class-level parity, and the difference has to be declared rather
+    # than inferred from silence. `evaluate_act_classes` runs here, but one of the classes it can
+    # produce needs a count this process does not hold, so the out-of-process layer enforces a
+    # strict subset. The exemption is named, and a test below exhibits it.
+    assert policy_hook.UNENFORCEABLE_HERE == frozenset({ViolationClass.SEND_CAP_EXCEEDED})
 
 
 # One logical draft per row, rendered twice: as JSON for the subprocess, and as objects for
@@ -417,6 +443,32 @@ def test_the_two_enforcement_layers_reach_the_same_verdict_and_the_same_category
             assert match.group(1) == decision.findings[0].violation_class.value, label
         verdicts[label] = decision.allowed
     assert set(verdicts.values()) == {True, False}, f"the corpus lost a whole outcome: {verdicts}"
+
+
+def test_the_out_of_process_layer_enforces_a_strict_subset_and_names_the_gap():
+    """§6.3's real bound: predicate parity does not give coverage parity.
+
+    Design spec 3.2 makes the cap predicate pure over `(draft, count)` with the **gateway**
+    supplying the count from the audit log. A stateless guard has no log, so a payload that omits
+    the count is allowed by a layer that runs `evaluate_act_classes` in full -- the predicate is
+    called, the class it would produce is unreachable. Exhibited on the exact draft, so the
+    subset relation is a measurement rather than a sentence in a docstring.
+
+    The corpus test passes `sent_count` and `send_cap` in every row precisely because of this: it
+    supplies the state so the comparison isolates the predicates.
+    """
+    assert policy_hook.UNENFORCEABLE_HERE == frozenset({ViolationClass.SEND_CAP_EXCEEDED})
+    row = {**_DEFAULTS, "sent_count": 50, "send_cap": 50}
+    stateless = {k: v for k, v in row.items() if k not in ("sent_count", "send_cap")}
+
+    assert _run_hook({"tool_input": stateless}).returncode == 0
+    decision = _in_process(row)
+    assert decision.allowed is False
+    assert [f.violation_class for f in decision.findings] == [ViolationClass.SEND_CAP_EXCEEDED]
+
+    # And with the count supplied, the layers agree again -- so the gap is the missing state, not a
+    # missing predicate. Without this the test would equally suit a hook that never checks the cap.
+    assert _run_hook({"tool_input": row}).returncode == 2
 
 
 def test_the_shared_artefact_is_the_predicate_set_and_not_the_configuration():
@@ -499,8 +551,6 @@ def test_a_denial_carries_its_category_through_to_the_agent_facing_result(tmp_pa
     real is the category and the disposition travelling with it, so those are pinned here against
     the tripwire that actually fired.
     """
-    from chaperone.gates.engine import denial_result
-
     result = guarded_call(_gateway(tmp_path), "send_message", {}, _draft("Returns are guaranteed."),
                           RECORD, CONTEXT, CLEAN, TrackingRegistry({"send_message": lambda **kw: "sent"}))
     payload = denial_result(result.decision)
@@ -524,21 +574,92 @@ def test_an_unknown_tool_never_reaches_the_registry_as_a_key_error(tmp_path: Pat
     assert registry.lookups == []
 
 
-def test_the_gate_reviews_the_draft_while_the_executor_sends_the_arguments(tmp_path: Path):
-    """A stated residual, pinned so it is not mistaken for a guarantee.
+def test_arguments_carrying_text_the_gate_never_read_are_denied(tmp_path: Path):
+    """The other half of the binding, and the same class of defect as the tool mismatch.
 
-    `decide` reads `draft.body`; `execute` passes `args` to the tool. Nothing binds them, so a
-    draft that passes review does not establish that the arguments carry the reviewed text. The
-    brief's tests all pass `args={}`, which is why nothing here noticed. What is closed is the
-    tool *identity*; the argument *contents* are not, and this exhibits the gap rather than
-    describing it.
+    `decide` reads the `Draft`; `execute` passes `args` to the tool. With only the tool identity
+    held, a draft the gate approves could ship arguments carrying entirely different prose -- here
+    a guarantee of returns, riding on an approved draft about a round size. Design spec 4.1's
+    ordering guarantee says the gate runs before the tool is looked up; that is worth nothing if
+    the object reviewed is not the object sent.
+
+    Returned, never raised, per 3.4: the denial arrives as a `GatewayResult`, and nothing
+    transmits.
     """
     delivered = {}
     registry = TrackingRegistry({"send_message": lambda **kw: delivered.update(kw) or "sent"})
     result = guarded_call(_gateway(tmp_path), "send_message", {"body": "Returns are guaranteed."},
                           _draft("The round is $10M."), RECORD, CONTEXT, CLEAN, registry)
+    assert result.allowed is False
+    assert delivered == {}
+    assert registry.lookups == []
+    assert denial_result(result.decision)["category"] == "other"
+    assert denial_result(result.decision)["disposition"] == "redirect_futile"
+
+
+def test_arguments_drawn_from_the_reviewed_draft_are_delivered(tmp_path: Path):
+    """The companion that keeps the rule above from being 'deny everything with arguments'.
+
+    Without this, the denial test passes against a `guarded_call` that refuses any non-empty
+    `args` at all, which would close the hole by making the chokepoint useless.
+    """
+    draft = _draft("The round is $10M.")
+    delivered = {}
+    registry = TrackingRegistry({"send_message": lambda **kw: delivered.update(kw) or "sent"})
+    args = {"body": draft.body, "to": draft.recipient_domain, "draft": None, "urgent": False}
+    result = guarded_call(_gateway(tmp_path), "send_message", args, draft, RECORD, CONTEXT,
+                          CLEAN, registry)
     assert result.allowed is True
-    assert delivered == {"body": "Returns are guaranteed."}
+    assert delivered == args
+    assert registry.lookups == ["send_message"]
+
+
+def test_a_reviewed_body_is_not_taken_apart_into_characters(tmp_path: Path):
+    """`str` is a sequence, so a container branch reached before the string branch would iterate it.
+
+    Each character would then be an unreviewed one-character string and every call would deny --
+    a fail-closed bug, but a bug. The body here is long enough that the failure is unmistakable.
+    """
+    draft = _draft("The round is $10M. We have shared the requested details with you already.")
+    registry = TrackingRegistry({"send_message": lambda **kw: "sent"})
+    result = guarded_call(_gateway(tmp_path), "send_message", {"body": draft.body}, draft,
+                          RECORD, CONTEXT, CLEAN, registry)
+    assert result.allowed is True
+
+
+def test_an_unreviewed_value_nested_inside_a_container_is_still_found(tmp_path: Path):
+    """A flat comparison would miss it, and structured tool arguments are ordinary."""
+    registry = TrackingRegistry({"send_message": lambda **kw: "sent"})
+    args = {"parts": [{"kind": "text", "value": "Returns are guaranteed."}]}
+    result = guarded_call(_gateway(tmp_path), "send_message", args, _draft("The round is $10M."),
+                          RECORD, CONTEXT, CLEAN, registry)
+    assert result.allowed is False
+    assert registry.lookups == []
+
+
+def test_a_figure_that_reached_no_predicate_as_an_argument_is_denied(tmp_path: Path):
+    """Numbers are not exempt, and `act:figure_not_in_record` is why.
+
+    `evaluate_act_classes` scans `draft.body` for figures and checks each against the record. A
+    figure that travels as an argument instead was scanned by nothing at all, so exempting
+    non-strings would reopen the class one layer over.
+    """
+    registry = TrackingRegistry({"send_message": lambda **kw: "sent"})
+    result = guarded_call(_gateway(tmp_path), "send_message", {"amount": 5_000_000},
+                          _draft("The round is $10M."), RECORD, CONTEXT, CLEAN, registry)
+    assert result.allowed is False
+    assert registry.lookups == []
+
+
+def test_the_framework_hook_denies_the_same_unreviewed_argument():
+    """One binding, both in-process layers -- a check living in only one of them is the drift."""
+    outcome = pre_tool_use("send_message", {"body": "Returns are guaranteed."},
+                           (_draft("The round is $10M."), RECORD, CONTEXT, CLEAN))
+    assert outcome.allow is False
+    assert outcome.payload["category"] == "other"
+    allowed = pre_tool_use("send_message", {"body": "The round is $10M."},
+                           (_draft("The round is $10M."), RECORD, CONTEXT, CLEAN))
+    assert allowed.allow is True
 
 
 def test_the_gate_runs_before_the_registry_is_indexed_even_when_the_tool_is_absent(tmp_path: Path):

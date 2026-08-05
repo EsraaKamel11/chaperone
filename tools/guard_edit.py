@@ -114,35 +114,73 @@ def _refusal(content: str) -> str | None:
     return None
 
 
+def _say(line: str) -> None:
+    """Write the reason, or write nothing. The exit code is what blocks; the text only explains.
+
+    With stderr unwritable the shutdown flush fails and the process exits 120, which is neither 0
+    nor 2 -- and only 2 blocks. Measured on Windows under CPython 3.11.15 and 3.13.9, and
+    **unverified on Linux**, where CI runs; the test asserts its own premise so a platform that
+    behaves differently fails loudly instead of passing vacuously. Swallowing the write is not enough, measured: the failed write stays
+    in the stream buffer and shutdown retries it, so the handler replaces the stream. Identical to
+    `tools/policy_hook.py`, and a parity test holds the two to the same treatment.
+    """
+    try:
+        print(line, file=sys.stderr)
+        sys.stderr.flush()
+    except Exception:
+        try:
+            sys.stderr = open(os.devnull, "w")
+        except Exception:
+            pass
+
+
+def _block(reason: str) -> int:
+    _say(reason)
+    return 2
+
+
 def main() -> int:
+    # An unreadable payload is a refusal, not an allow. This returned 0 -- so an edit arriving with
+    # malformed or empty stdin was waved through unexamined, and the guard that exists to keep
+    # policy/ pure had not looked at it. `tools/policy_hook.py` closed the identical line, and the
+    # same defect surviving in the sibling that runs at edit time is the drift the project forbids.
     try:
         payload = json.load(sys.stdin)
-    except json.JSONDecodeError:
-        return 0
+    except Exception as exc:
+        return _block(f"refusing an edit whose payload could not be read as JSON: {exc}")
 
-    tool_input = payload.get("tool_input", {}) or {}
+    if not isinstance(payload, dict):
+        return _block(f"refusing an edit whose payload is a {type(payload).__name__}, not an object")
+
+    tool_input = payload.get("tool_input") or {}
+    if not isinstance(tool_input, dict):
+        return _block(f"refusing an edit whose tool_input is a {type(tool_input).__name__}")
+
     path = (tool_input.get("file_path") or "").replace("\\", "/")
     content = tool_input.get("content") or tool_input.get("new_string") or ""
 
     if "src/chaperone/policy/" in path:
         reason = _refusal(content)
         if reason:
-            print(f"policy/ must stay pure: {reason}", file=sys.stderr)
-            return 2
+            return _block(f"policy/ must stay pure: {reason}")
 
     tokens = [t.strip().lower() for t in os.environ.get("CHAPERONE_FORBIDDEN_TOKENS", "").split(",") if t.strip()]
     lowered = content.lower()
     for token in tokens:
         if token in lowered:
-            print(
+            return _block(
                 "refusing a write containing a forbidden organisation token. "
-                "This repository describes a synthetic scenario only.",
-                file=sys.stderr,
+                "This repository describes a synthetic scenario only."
             )
-            return 2
 
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        code = main()
+    # Fail-closed by construction beats enumerating exception types. Exit 1 does not block a
+    # PreToolUse hook, so any raise here was an edit allowed by a guard that crashed on it.
+    except BaseException as exc:
+        code = _block(f"refusing an edit the guard could not evaluate: {type(exc).__name__}: {exc}")
+    sys.exit(code)

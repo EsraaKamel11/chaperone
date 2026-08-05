@@ -28,10 +28,18 @@ that will not import -- into fail-open paths, and each is closed below rather th
   its own permissions from the caller is not a guard, so this is the fail-closed choice -- but it
   means a deployment can configure the two layers apart, and the shared artefact across layers is
   the predicate set, never the configuration. A test exhibits a jurisdiction the two disagree on.
-- `sent_count` and `send_cap` arrive in the payload or default to a permissive pair, because the
-  count is *state* and this process holds none. The send-cap act-class therefore does not really
-  run out of process unless a caller supplies the count. Same category as the model call not
-  porting: the deterministic half is the portable half, and the stateful half is not.
+- **This layer enforces a strict subset of the in-process policy, and the missing predicate is
+  named.** `act:send_cap_exceeded` is the one act-class it cannot decide. Design spec 3.2 makes the
+  cap predicate pure over `(draft, count)` with the **gateway** supplying the count from the audit
+  log; this process holds no log and no state, so `sent_count` and `send_cap` can only arrive in
+  the payload or fall back to a permissive pair, and a caller that omits them gets no cap check at
+  all. `UNENFORCEABLE_HERE` declares it, a test exhibits the draft the two layers disagree on, and
+  the predicate-parity test asserts the declaration rather than letting silence imply parity.
+
+  Same category as the model call not porting: the deterministic half is the portable half, and the
+  stateful half is not. **So "the same policy is enforced at two layers" is true of the predicates
+  and false of the coverage** -- the honest claim is that every predicate this layer runs reaches
+  the in-process verdict, and that one predicate does not run here at all.
 """
 from __future__ import annotations
 
@@ -51,17 +59,26 @@ if str(_SRC) not in sys.path:
 from chaperone.policy.act_classes import ActContext, evaluate_act_classes
 from chaperone.policy.citations import validate_citations
 from chaperone.policy.tripwires import evaluate_tripwires
-from chaperone.policy.types import Draft, Message, Record
+from chaperone.policy.types import Draft, Message, Record, ViolationClass
 
 CONSENTED = frozenset({"US", "UK"})
 GRANTED = frozenset({"send_message", "send_reply", "draft_message", "read_policy"})
+
+#: The violation classes this layer cannot decide, so the subset relation is declared rather than
+#: discovered. `evaluate_act_classes` runs here and can produce `act:send_cap_exceeded`, but only
+#: from a count that lives in the audit log this process cannot read -- so a caller who omits the
+#: count gets an allow where the in-process gate denies. Declared as a set rather than prose so the
+#: predicate-parity test can assert it, and so widening it is an edit somebody has to make on
+#: purpose.
+UNENFORCEABLE_HERE = frozenset({ViolationClass.SEND_CAP_EXCEEDED})
 
 
 def _say(line: str) -> None:
     """Write the reason, or write nothing. The exit code is what blocks; the text only explains.
 
     With stderr unwritable -- a hook wired behind a redirect that failed, say -- the interpreter's
-    shutdown flush reports the failure and the process exits 120. That is neither 0 nor 2, and only
+    shutdown flush reports the failure and the process exits 120 -- measured on Windows
+    under CPython 3.11.15 and 3.13.9, and **unverified on Linux**, where CI runs. That is neither 0 nor 2, and only
     2 blocks, so a guard that lost its voice also lost its verdict.
 
     **Swallowing the exception is not enough, measured.** The failed write stays in the stream's

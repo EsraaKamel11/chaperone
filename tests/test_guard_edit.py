@@ -1,5 +1,6 @@
 import ast
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -260,3 +261,78 @@ def test_a_docstring_mentioning_forbidden_module_names_in_prose_is_allowed():
 def test_a_multi_alias_import_fragment_is_blocked():
     result = _run({"tool_input": {"file_path": "src/chaperone/policy/x.py", "new_string": "    import json, os\n    x = 1\n"}})
     assert result.returncode == 2
+
+
+# ---------------------------------------------------------------------------
+# The same fail-open sweep applied here as to tools/policy_hook.py.
+#
+# Exit 2 blocks a PreToolUse hook and exit 1 does not, so an unreadable payload returning 0 and an
+# uncaught raise exiting 1 were both edits waved through by a guard that had not examined them.
+# The identical line was closed in the policy hook; leaving it standing here is one defect fixed in
+# one of two siblings, which is the drift this project treats as a failure in itself.
+# ---------------------------------------------------------------------------
+
+
+def _run_raw(text: str) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(GUARD)], input=text, capture_output=True, text=True)
+
+
+def test_an_unreadable_payload_refuses_the_edit():
+    """`except json.JSONDecodeError: return 0` allowed every edit it could not parse."""
+    assert _run_raw("not json at all").returncode == 2
+
+
+def test_an_empty_payload_refuses_the_edit():
+    """Empty stdin raises `JSONDecodeError` too, so it took the same allow."""
+    assert _run_raw("").returncode == 2
+
+
+def test_a_payload_that_is_not_an_object_refuses_the_edit():
+    """`payload.get` on a list raised `AttributeError`, and an uncaught raise exits 1, which allows."""
+    assert _run_raw("[1, 2, 3]").returncode == 2
+    assert _run_raw('"a string"').returncode == 2
+
+
+def test_a_payload_the_guard_cannot_evaluate_refuses_the_edit():
+    """A non-string body reaches `ast.parse` and raises `TypeError` on the way to a verdict.
+
+    The file path names `policy/`, so this is precisely an edit the guard exists to examine, and
+    exiting 1 on it meant the purity check was skipped exactly where it applies.
+    """
+    result = _run({"tool_input": {"file_path": "src/chaperone/policy/x.py", "content": 5}})
+    assert result.returncode == 2
+
+
+def test_a_guard_that_cannot_explain_itself_still_refuses():
+    """The verdict travels in the exit code, so losing stderr must not lose the verdict."""
+    handle = os.open(os.devnull, os.O_RDONLY)
+    try:
+        # Measured on Windows across CPython 3.11.15 and 3.13.9; unverified on Linux, where CI runs.
+        # The premise is asserted so a platform that permitted the write fails loudly here rather
+        # than letting the assertion below pass vacuously.
+        try:
+            os.write(handle, b"x")
+        except OSError:
+            pass
+        else:
+            raise AssertionError("stderr redirect is writable here, so this test proves nothing")
+        completed = subprocess.run([sys.executable, str(GUARD)], input="not json", text=True, stderr=handle)
+    finally:
+        os.close(handle)
+    assert completed.returncode == 2
+
+
+def test_both_command_hooks_refuse_an_unreadable_payload_identically():
+    """One policy on malformed input, two guards -- asserted rather than assumed.
+
+    These are the project's two command hooks. They guard different things, so their verdicts on a
+    *readable* payload differ by design, and only the undecidable case is shared: neither can have
+    examined anything, so neither may report clean. Comparing them here is what stops the next fix
+    landing in one and not the other.
+    """
+    policy_guard = Path(__file__).resolve().parents[1] / "tools" / "policy_hook.py"
+    for text in ("not json at all", "", "[1, 2, 3]"):
+        edit = _run_raw(text)
+        policy = subprocess.run([sys.executable, str(policy_guard)], input=text,
+                                capture_output=True, text=True)
+        assert (edit.returncode, policy.returncode) == (2, 2), text
