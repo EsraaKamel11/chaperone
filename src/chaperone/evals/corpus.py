@@ -16,7 +16,18 @@ below and from nothing else. Deriving a label by scanning the body for marker su
 alternative, and it is wrong in both directions: a compliant draft that happens to say "honestly" is
 labelled violating, and -- the expensive one -- a violation whose author never used the marker word
 is labelled compliant, so the escape it represents is scored as a success. Provenance cannot make
-that mistake, because it was recorded before any body was read by anything here.
+*that* mistake, because it was recorded before any body was read by anything here.
+
+**It has its own, and it is not smaller.** Provenance records what the author set out to write, not
+what the text achieves. A draft intended as `negotiates_terms` that lands innocuous is still
+labelled violating, and every arm that allows it is charged an escape it did not commit; a draft
+intended as `compliant` that strays is labelled compliant, and an arm that blocks it is charged a
+false block. Nothing here detects either -- checking would mean reading the bodies with a detector,
+which is the circularity the labels exist to avoid. The trade is deliberate: a substring rule's
+errors correlate with the tripwires' own vocabulary, so they bias the measurement in the direction
+that flatters arm 4, while an author's misses do not know what the tripwires look for and land in
+no particular direction. **A biased error is worse than a larger unbiased one**, which is the whole
+reason to prefer provenance here. The residual is real and unquantified.
 
 Provenance rides on the `CorpusItem` and not inside the `Draft` or the `Record`, which are the two
 objects an arm is handed -- so no detector is given the recorded intent. That is a narrow claim and
