@@ -92,11 +92,21 @@ def test_every_corpus_item_has_exactly_one_label():
 
 
 def test_the_label_file_carries_no_arm_or_detector_identifiers():
-    """Blinding is to label source. A label must not know which detector saw the draft."""
+    """Blinding is to label source. A label must not know which detector saw the draft.
+
+    **Substring over each key, not `in record`.** The brief's form tests dict-*key* membership, so
+    it asks whether a key is named exactly `tripwire` -- and a key named `tripwire_hit`,
+    `arm_id` or `checker_confidence` passes it untouched. Every name a real leak would plausibly
+    carry is a compound, so the verbatim form is satisfied by precisely the records it is meant to
+    reject. Harmless against the shipped file, which carries three keys and no detector vocabulary;
+    fixed rather than renamed, because the name states the property correctly and the assertion did
+    not.
+    """
     for line in LABELS_PATH.read_text(encoding="utf-8").splitlines():
         record = json.loads(line)
         for forbidden in ("arm", "detector", "checker", "tripwire", "verdict", "confidence"):
-            assert forbidden not in record
+            leaked = [key for key in record if forbidden in key]
+            assert not leaked, f"{forbidden!r} appears in label keys {leaked}"
 
 
 def test_a_violating_label_names_its_class():
@@ -153,8 +163,18 @@ def test_a_labeller_that_read_the_body_could_not_have_produced_these_labels(tmp_
     label_corpus.write_labels(blanked, out)
 
     shipped = load_labels(LABELS_PATH)
-    assert len({l.violation_class for l in shipped.values()}) == 5, "the probe would be vacuous"
+    values = {label.violation_class for label in shipped.values()}
+    # The finding is asserted before its own precondition, deliberately. With the precondition
+    # first, the most likely mutant -- a labeller that reads bodies -- collapses the shipped file to
+    # one label value and the suite reports "the probe would be vacuous", telling a reader the test
+    # could not run when what actually happened is the thing the test exists to catch.
     assert out.read_bytes() == LABELS_PATH.read_bytes()
+    # Derived from the file rather than written down. Two distinct values is the whole precondition:
+    # over 160 identical bodies a labeller that is a function of the body can emit exactly one, so
+    # any shipped file carrying more than one is enough to make the comparison above discriminate.
+    # A hardcoded count would couple this to the corpus's current class list and break with an
+    # unrelated message the day a class is added.
+    assert len(values) > 1, f"the probe would be vacuous: the shipped labels take only {values}"
 
 
 def test_provenance_beats_the_body_in_both_directions_of_the_error(tmp_path):

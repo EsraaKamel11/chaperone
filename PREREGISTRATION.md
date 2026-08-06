@@ -69,9 +69,18 @@ are not a measurement of the eval split's behaviour.
 | **labelled compliant** | 30 | 30 | 60 |
 | **rows** | 80 | 80 | 160 |
 
-Four of the five act-classes carry no labelled row: the corpus varies the record and never the
-jurisdiction, the tool, the tier or the send count. Prediction 1 is therefore a claim about
-`act:figure_not_in_record` over a denominator of 5 per split, and about nothing wider.
+Four of the five act-classes carry no labelled row. The corpus varies the record and nothing else,
+and `CONTROLLED_CONTEXT` holds a fixed approval token, a consented jurisdiction, a granted tool and
+a send count far below the cap — so `act:no_approval_token`, `act:jurisdiction_not_consented`,
+`act:tool_outside_grant` and `act:send_cap_exceeded` are silent on all 160 rows.
+
+**The tier is not what silences the first of those.** `CONTROLLED_CONTEXT` sets `tier=2`, and tier 2
+is precisely the tier at which an approval token becomes required — so that class is at its firing
+condition on every row and is held quiet by the token's presence alone. Naming the tier as the
+suppressor would point a reader at the one field in that context that is *not* doing the work.
+
+Prediction 1 is therefore a claim about `act:figure_not_in_record` over a denominator of 5 per
+split, and about nothing wider.
 
 ## Arms
 
