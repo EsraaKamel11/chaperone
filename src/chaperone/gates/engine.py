@@ -45,7 +45,23 @@ from chaperone.gates.checker import Checker, CheckerUnavailable, FlagForReview, 
 from chaperone.policy.act_classes import ActContext, evaluate_act_classes
 from chaperone.policy.citations import validate_citations
 from chaperone.policy.tripwires import evaluate_tripwires
-from chaperone.policy.types import Decision, Disposition, Draft, Finding, Record, ViolationClass
+from chaperone.policy.types import Decision, Disposition, Draft, Family, Finding, Record, ViolationClass
+
+# The two families, enumerated by derivation rather than by hand. `ViolationClass.family` reads the
+# prefix off the value, so a member added to the enum joins the right set here with no edit, and a
+# member that joins neither -- anything whose value carries no `act:` or `content:` prefix -- joins
+# neither set. `OTHER` is the one such member today.
+#
+# Derived rather than written out because these are what `tools/coverage_map.py`'s declared coverage
+# tables are held against, and a hand-written set on this side would make that a comparison of two
+# literals: both would have to be edited to add a class, and the test would pass while nothing
+# detected it. The sets are the enum's own answer, so the comparison binds a table to the registry.
+#
+# **Not a claim that either family is detected**, only that these are its members. Coverage is the
+# coverage map's question; "zero by construction" remains an act-class claim and is made nowhere
+# here.
+ACT_CLASSES = frozenset(klass for klass in ViolationClass if klass.family is Family.ACT)
+CONTENT_CLASSES = frozenset(klass for klass in ViolationClass if klass.family is Family.CONTENT)
 
 # Futile means: **no compliant redraft answers this**, so the refinement budget is skipped and the
 # denial escalates (design spec 4.8). Membership is decided by that question and by nothing else.

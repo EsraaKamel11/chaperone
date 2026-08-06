@@ -475,9 +475,13 @@ def test_an_act_finding_short_circuits_before_the_tripwires_run_a_known_limit():
     negotiation. The checker is not consulted either, which is deliberate and is what the brief's
     second test pins.
 
-    This body is Task 14's own fixture for `content:negotiates_terms`, so
-    `test_each_content_class_blocks_through_the_tripwire_alone` will pass its `allowed is False`
-    assertion on the act class and never reach the tripwire it is named for.
+    This body was Task 14's own fixture for `content:negotiates_terms`, and it reached exactly the
+    outcome above: `test_each_content_class_blocks_through_the_tripwire_alone` passed its
+    `allowed is False` assertion on the act class, failed its class assertion, and would never
+    have reached the tripwire it is named for even had it passed both. Task 14 fixed the fixture
+    rather than the short-circuit -- its record now carries the $8M, so the act lane is clean
+    there and the tripwire is what denies. **The limit is unchanged**, and it is this file's own
+    record, which backs `$10M` alone, that still demonstrates it below.
     """
     body = "They would probably accept $8M instead of $10M."
     assert ViolationClass.NEGOTIATES_TERMS in [f.violation_class for f in evaluate_tripwires(_draft(body))]
