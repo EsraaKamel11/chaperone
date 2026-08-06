@@ -1,17 +1,20 @@
 import ast
 import dataclasses
 import inspect
+from enum import Enum
+from pathlib import Path
 
 import pytest
 
 from tools.coverage_map import detectors_for, uncovered_classes
 from chaperone.policy.types import Family, ViolationClass
 
+import tools.coverage_map as cm_module
 from chaperone.gates.engine import ACT_CLASSES, CONTENT_CLASSES
 from chaperone.policy import act_classes as act_classes_module
 from chaperone.policy.act_classes import ActContext, evaluate_act_classes
 from chaperone.policy.types import Draft, Message, Record
-from tools.coverage_map import ACT_COVERAGE, CHECKER_COVERAGE, TRIPWIRE_COVERAGE, main
+from tools.coverage_map import ACT_COVERAGE, CHECKER_COVERAGE, EXEMPT, TRIPWIRE_COVERAGE, main
 
 
 def test_every_constraint_class_has_a_detector():
@@ -52,10 +55,22 @@ def test_a_class_with_no_detector_is_reported(monkeypatch):
 # ---          and `main()` stays 0 under that mutant while `detectors_for` claims a pure detector
 # ---          for a content class, so this assertion is the only one that sees it.
 # ---   test_other_is_the_only_class_the_map_is_allowed_to_exempt
-# ---       -- a tenth member `ESCALATION_REQUIRED = "escalation_required"` added to
-# ---          `ViolationClass`: the map exits 0 over it, and only this test objects.
+# ---       -- `EXEMPT | {ViolationClass.NEGOTIATES_TERMS}`, the shape of silencing this tool for
+# ---          a class rather than closing the gap it reports.
 # ---   test_the_tool_exits_nonzero_and_names_the_class_when_one_is_uncovered
-# ---       -- `return 1 if uncovered else 0` weakened to `return 0`, and the `print` removed.
+# ---       -- `return 1 if found else 0` weakened to `return 0`, and the `print` removed.
+# ---   test_a_stand_in_registry_is_interchangeable_with_the_real_one
+# ---       -- `_registry` built on a plain `str` mixin with no `family`, and built with mismatched
+# ---          member names: the harness every guard below it rests on, measured not assumed.
+# ---   test_a_run_that_classified_nothing_fails_rather_than_reporting_clean
+# ---       -- `violations()` with its classified-nothing branch removed and nothing else changed:
+# ---          both rows fail and no other test moves. Also watched against the module as it stood
+# ---          before this round, where it had no such branch at all.
+# ---   test_a_class_that_names_no_family_is_reported_rather_than_exempted
+# ---       -- `uncovered_classes` restored to skipping a family with no `REQUIRED_DETECTORS`
+# ---          entry, which is the hole verbatim: this test alone fails, and the tool exits 0.
+# ---       Both assert through `main()` because the exit code is the property, and both hold the
+# ---       tool end of design spec 10.4 rather than the suite end.
 # --- Every test above this banner is the brief's own.
 
 RECORD = Record(fields={"round_size": "10000000"})
@@ -79,6 +94,36 @@ def _draft(**overrides) -> Draft:
                 recipient_jurisdiction="US", recipient_domain="example.test", tool_name="send_message")
     base.update(overrides)
     return Draft(**base)
+
+
+class _FamilyStr(str):
+    """The mixin a stand-in registry is built on, carrying the **real** family derivation.
+
+    `ViolationClass.family.fget` rather than a copy of its four lines: a second derivation in the
+    tests would let the registry a stand-in expresses drift from the one the tool reads, which is
+    the failure this whole file exists to catch.
+    """
+
+    family = property(ViolationClass.family.fget)
+
+
+def _registry(name: str, members: dict[str, str]):
+    """A stand-in for `ViolationClass`, for registries the real enum cannot be made to express.
+
+    `uncovered_classes` resolves `ViolationClass` from the module globals at call time, so pointing
+    that name at one of these drives the shipped code over a registry of choice -- no copy of the
+    tool, and `main()` is the same `main()` CI runs.
+
+    Members carry the real names and values, so they are found in the real coverage tables and in
+    `EXEMPT`: an enum member's hash is its **name**'s and a str-mixin member's equality is its
+    **value**'s, so a stand-in agreeing on both is interchangeable with the real member in a
+    `frozenset`. That is measured in `test_a_stand_in_registry_is_interchangeable_with_the_real_one`
+    below rather than assumed, because every test using this helper rests on it.
+    """
+    return Enum(name, members, type=_FamilyStr)
+
+
+_REAL_MEMBERS = {klass.name: klass.value for klass in ViolationClass}
 
 
 @pytest.mark.parametrize("table,covered", [
@@ -176,21 +221,24 @@ def test_the_coverage_tables_are_the_families_the_enum_declares():
 
 
 def test_other_is_the_only_class_the_map_is_allowed_to_exempt():
-    """`uncovered_classes` skips `Family.UNCLASSIFIED` by family, so the exemption is not `OTHER`'s
-    alone -- it belongs to any member whose value carries neither prefix.
+    """`EXEMPT` is the map's disarm surface: every name in it is a class the map stops asking about.
 
-    Measured on the shipped module: a tenth member `ESCALATION_REQUIRED = "escalation_required"`
-    added to `ViolationClass` is exempted and `main()` exits 0, while the same member spelled
-    `content:escalation_required` is reported and exits 1. So "you cannot silently forget a class"
-    holds for a class that names its family, and not for one that does not.
+    So it is pinned by equality against the one class that legitimately has none -- `OTHER`, which
+    a finding carries when the checker gave no usable answer, where there is nothing to detect and
+    a detector would be a category error. A second entry fails here, which is the same treatment
+    CLAUDE.md gives `tools/static_audit.py`'s allowed list: if the map reports a class, close the
+    gap rather than exempting the class.
 
-    Closing that inside `uncovered_classes` changes the map's contract and is not this task's to
-    take, so this holds the enum end instead: a new unclassified member fails here even though the
-    tool still exits 0. `OTHER` is the one member that legitimately has no detector -- it is the
-    class carried when the checker gives no usable answer, and there is nothing to detect.
+    It used to be an exemption of the whole `UNCLASSIFIED` **family**, and this test used to assert
+    that family had one member. That was the weaker statement it looks like: the family exemption
+    was granted before any detector was consulted, so a member added with neither prefix inherited
+    it and `python tools/coverage_map.py` exited 0 over a forgotten class. The exemption is now by
+    identity and the family assertion below is no longer load-bearing -- it is kept because a
+    second `UNCLASSIFIED` member is still worth a human looking at, and it now fails **beside** the
+    tool rather than instead of it.
     """
-    exempt = [klass for klass in ViolationClass if klass.family is Family.UNCLASSIFIED]
-    assert exempt == [ViolationClass.OTHER]
+    assert EXEMPT == frozenset({ViolationClass.OTHER})
+    assert [klass for klass in ViolationClass if klass.family is Family.UNCLASSIFIED] == [ViolationClass.OTHER]
 
 
 def test_the_tool_exits_nonzero_and_names_the_class_when_one_is_uncovered(monkeypatch, capsys):
@@ -212,32 +260,113 @@ def test_the_tool_exits_nonzero_and_names_the_class_when_one_is_uncovered(monkey
         assert f"uncovered constraint class: {klass.value}" in printed
 
 
+def test_a_stand_in_registry_is_interchangeable_with_the_real_one():
+    """Every test below rests on this, so it is measured rather than assumed.
+
+    An `Enum` member hashes as its **name** and a `str`-mixin member compares as its **value**, so
+    a stand-in agreeing on both is found in a `frozenset` of real members and vice versa. Get
+    either wrong and the tests below would report every class uncovered for the wrong reason --
+    passing while measuring nothing about the guard they are named for.
+    """
+    stand_in = _registry("Same", _REAL_MEMBERS)
+    assert stand_in.ADVISES_ON_MERITS in CHECKER_COVERAGE
+    assert stand_in.NO_APPROVAL_TOKEN in ACT_COVERAGE
+    assert stand_in.OTHER in frozenset({ViolationClass.OTHER})
+    assert [klass.family for klass in stand_in] == [klass.family for klass in ViolationClass]
+
+
+@pytest.mark.parametrize("label,members", [
+    ("an empty registry", {}),
+    ("nothing but the exempt class", {"OTHER": "other"}),
+])
+def test_a_run_that_classified_nothing_fails_rather_than_reporting_clean(monkeypatch, capsys, label, members):
+    """Design spec 10.4 exists so you cannot silently forget a class, and a run that classified nothing has
+    forgotten every class at once.
+
+    This is the third time this project has met the shape: `tools/static_audit.py::_files_to_audit`
+    records the first two -- a missing package root and a root with no Python files, both of which
+    used to report clean -- and its answer is the one reused here rather than a second convention
+    invented beside it: the "examined nothing" case produces a **violation line**, so it travels
+    the same path to the same exit code as any other finding.
+
+    Both rows are reachable without a stand-in registry, which is why they are guards and not
+    curiosities: dropping the `act:`/`content:` prefixes from `ViolationClass`'s values disarms the
+    whole map, because the prefix is the only thing `family` reads -- and the second row is what a
+    registry pruned back to its plumbing class looks like.
+    """
+    import tools.coverage_map as cm
+    monkeypatch.setattr(cm, "ViolationClass", _registry("Nothing", members))
+    assert cm.main() == 1, f"{label}: the map reported clean over a registry it classified nothing in"
+    assert "classified nothing" in capsys.readouterr().out
+
+
+def test_a_class_that_names_no_family_is_reported_rather_than_exempted(monkeypatch, capsys):
+    """The exemption belongs to `OTHER`, not to every class that fails to name a family.
+
+    `uncovered_classes` used to skip on `klass.family is Family.UNCLASSIFIED`, so a member added
+    with neither prefix inherited `OTHER`'s free pass: measured on the real enum, a tenth member
+    `ESCALATION_REQUIRED = "escalation_required"` left `python tools/coverage_map.py` at exit 0
+    while the same member spelled `content:escalation_required` exited 1. Design spec 10.4's
+    sentence is about the tool, and CI runs the tool, so a guard living only in the suite left the
+    promise depending on which entry point someone used.
+
+    Asserted through `main()` -- the exit code is the property -- and the printed line is asserted
+    too, because an exit code says a class was forgotten and not which one.
+    """
+    import tools.coverage_map as cm
+    extended = _registry("Extended", {**_REAL_MEMBERS, "ESCALATION_REQUIRED": "escalation_required"})
+    monkeypatch.setattr(cm, "ViolationClass", extended)
+    assert cm.main() == 1
+    assert "uncovered constraint class: escalation_required" in capsys.readouterr().out
+
+    unchanged = _registry("Unchanged", _REAL_MEMBERS)
+    monkeypatch.setattr(cm, "ViolationClass", unchanged)
+    assert cm.main() == 0, "the real registry must still report clean, or the guard above is trivial"
+
+
 # --- Below this line, and ONLY below it, are limits: behaviours asserted in executable form
 # --- because they are known and unclosed, not because they are wanted. The one is named rather
 # --- than counted, following the banner in tests/policy/test_citations.py, which records that a
 # --- counted banner once instructed a maintainer to delete a guard.
 # ---
 # --- For a test below: if it fails, a limit has been closed. Delete it, do not repair it.
-# ---   test_a_class_outside_both_families_is_reported_covered_a_known_limit
+# ---   test_the_tool_reads_no_act_or_checker_detector_a_known_limit
+# ---
+# --- One limit was deleted here rather than repaired, per that rule:
+# ---   test_a_class_outside_both_families_is_reported_covered_a_known_limit recorded that the map
+# ---   exempted the whole UNCLASSIFIED family, so a member added with neither prefix was reported
+# ---   covered. `EXEMPT` closed it -- the exemption is by identity now -- and the behaviour it
+# ---   pinned is asserted from the other side by the two guards above.
+# ---
 # --- Every test ABOVE this line is a guard: if one fails, a class has lost its detector or a
 # --- declaration has drifted from what implements it. Fix upstream.
 
 
-def test_a_class_outside_both_families_is_reported_covered_a_known_limit():
-    """The map answers "covered" for a class with no detector at all, and this is that in
-    executable form rather than in a comment.
+def test_the_tool_reads_no_act_or_checker_detector_a_known_limit():
+    """The tool's answer is invariant under **every** change to the act and checker detectors,
+    because it imports neither. Deleting `evaluate_act_classes` outright leaves
+    `python tools/coverage_map.py` at exit 0 -- measured, along with the send it then allows.
 
-    `detectors_for(OTHER)` is empty and `uncovered_classes()` does not contain it, so the tool
-    exits 0 over a class nothing detects. That is correct for `OTHER` -- it is what a finding
-    carries when the checker gave no usable answer, and a detector for it would be a category
-    error -- but the exemption is granted by family rather than by identity, so it extends to any
-    member added with neither prefix. The guard above holds the enum end of that; this records
-    what the tool itself does.
+    Asserted as the import set rather than by mutating a detector, because that is the structural
+    fact that produces the limit and it holds without touching another module. `TRIPWIRE_COVERAGE`
+    is the exception and the reason this is worth stating: it **is** `TRIPWIRE_CLASSES`, so that
+    one lane genuinely cannot drift, and the asymmetry between the three tables is invisible from
+    the outside.
 
-    Closing it means `uncovered_classes` distinguishing "unclassified and expected" from
-    "unclassified and forgotten", which is a change to the map's contract: today the map has no
-    notion of an expected exemption, and inventing one here would put a second allowlist beside
-    the three coverage tables.
+    Closing it means the map running detectors rather than declaring them, which is a different
+    tool: a detector needs a draft, a record and an `ActContext` to run at all, and inventing
+    fixtures inside a coverage map would make the map's answer depend on how good they were.
+    `test_the_declared_act_detector_is_bound_to_the_module_that_implements_it` is where that lives
+    instead, in the suite where fixtures belong -- so the binding exists, and this records only
+    that it is not in the tool.
     """
-    assert detectors_for(ViolationClass.OTHER) == []
-    assert ViolationClass.OTHER not in uncovered_classes()
+    source = ast.parse(Path(cm_module.__file__).read_text(encoding="utf-8"))
+    imported = set()
+    for node in ast.walk(source):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module)
+    assert {name for name in imported if name.split(".")[0] == "chaperone"} == {
+        "chaperone.policy.tripwires", "chaperone.policy.types"
+    }
