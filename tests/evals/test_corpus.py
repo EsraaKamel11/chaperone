@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import collections
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -44,6 +45,16 @@ from chaperone.evals.corpus import (
 from chaperone.policy.canonical import figures_in, normalize_money
 from chaperone.policy.types import Draft, Message, Record, ViolationClass
 from tools import build_corpus
+
+
+def _doc() -> str:
+    """The module docstring with runs of whitespace collapsed.
+
+    The numbers below are bound to the artifact on purpose, but where a sentence happens to wrap is
+    not a property of anything. Matching the raw string would turn a reflow into a red suite, and a
+    test that cries on a harmless edit gets loosened by whoever hits it next.
+    """
+    return re.sub(r"\s+", " ", corpus_module.__doc__)
 
 
 def _item(
@@ -155,6 +166,36 @@ def test_every_body_and_intent_is_the_blind_authors_own():
     assert shipped == authored
 
 
+def test_reordering_the_blind_file_renumbers_every_row_and_moves_none_between_splits(tmp_path):
+    """The hazard the module docstring warns about, demonstrated rather than asserted.
+
+    The split is keyed on a digest of the body specifically so that the source's line order cannot
+    move a draft between dev and eval, and that half is shown here to hold. The id is positional and
+    that half is shown here to fail: reordering the source renumbers every row, and the id is what
+    `corpus/labels.jsonl` and `corpus/recorded_verdicts.json` join on. **No other test in this file
+    notices**, because the byte-equality test rebuilds from the same reordered source and agrees
+    with itself -- which is exactly why the warning is written down and why this stands under it.
+
+    **What this test does not do, measured rather than assumed.** Making ids content-derived does
+    *not* fail it: the comparison is shipped-file against rebuild, so a changed id scheme makes every
+    id differ, which is what the assertion already expects. That mutant is caught by
+    `test_the_frozen_corpus_is_byte_for_byte_what_the_builder_produces` instead, because the shipped
+    file has positional ids. The sentence that stood here claimed the opposite and a one-line mutant
+    disproved it. So: this test pins the hazard under the scheme in force, and whoever changes the
+    scheme must rewrite it rather than expect it to object.
+    """
+    reordered = tmp_path / "blind-drafts.jsonl"
+    lines = [l for l in BLIND_DRAFTS_PATH.read_text(encoding="utf-8").splitlines() if l.strip()]
+    reordered.write_text("\n".join(reversed(lines)) + "\n", encoding="utf-8")
+    build_corpus.build(reordered, tmp_path / "drafts.jsonl")
+
+    shipped = {i.draft.body: (i.id, i.split) for i in load_corpus(CORPUS_PATH)}
+    rebuilt = {i.draft.body: (i.id, i.split) for i in load_corpus(tmp_path / "drafts.jsonl")}
+    assert set(shipped) == set(rebuilt)
+    assert {b for b in shipped if shipped[b][0] != rebuilt[b][0]} == set(shipped)
+    assert {b for b in shipped if shipped[b][1] != rebuilt[b][1]} == set()
+
+
 def test_the_frozen_corpus_is_byte_for_byte_what_the_builder_produces(tmp_path):
     """The committed artifact is a function of the committed blind drafts and of nothing else.
 
@@ -216,6 +257,26 @@ def test_the_record_holds_the_bodys_figures_and_nothing_else():
         else:
             assert recorded == set()
             assert body_figures
+
+
+def test_the_act_lane_contributes_no_false_block_on_this_corpus():
+    """Prediction 3's attribution, held in the vocabulary the false-block rate is counted in.
+
+    Arm 4 blocks a labelled-compliant row on either half of its deterministic layer, and this corpus
+    supplies no row where the act half does it. So "false blocks rise from arm 3 to arm 4" is a
+    claim about the tripwires alone here.
+
+    Stated over `violation_class_for` rather than over `act_lane`, and the two are not the same
+    test: a change making `violation_class_for` return None for the declaring rows would move ten
+    rows carrying a real act finding into the false-block denominator, and the lane-level test would
+    not notice, because those rows still declare their lane truthfully.
+    """
+    compliant = [i for i in load_corpus(CORPUS_PATH) if violation_class_for(i) is None]
+    assert compliant
+    assert {i.id: [f.violation_class.value for f in act_findings_for(i)] for i in compliant if act_findings_for(i)} == {}
+    # The denominator is quoted in the module docstring, so it is held to the corpus like every
+    # other number there. A disclosure that silently goes stale is worse than none.
+    assert f"0 of {len(compliant)} carry any act finding" in _doc()
 
 
 def test_both_splits_carry_every_intent_and_a_row_from_each_act_lane():
@@ -370,7 +431,7 @@ def test_the_corpus_documentation_states_the_measured_class_asymmetry():
     vocabulary, and writing one down here is how a later tripwire author would be contaminated.
     """
     items = load_corpus(CORPUS_PATH)
-    doc = corpus_module.__doc__
+    doc = _doc()
     for intent in INTENTS:
         group = [i for i in items if i.intent == intent]
         bearing = [i for i in group if figures_in(i.draft.body)]
@@ -392,4 +453,4 @@ def test_the_corpus_documentation_states_the_size_of_each_act_lane():
         in_lane = [i for i in items if i.act_lane == lane]
         per_split = {s: sum(1 for i in in_lane if i.split == s) for s in ("dev", "eval")}
         assert len(set(per_split.values())) == 1, per_split
-        assert f"{len(in_lane)} rows, {per_split['dev']} in each split" in corpus_module.__doc__
+        assert f"{len(in_lane)} rows, {per_split['dev']} in each split" in _doc()

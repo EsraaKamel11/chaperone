@@ -80,6 +80,25 @@ comparison over bodies and records alone. `cited_fields` is empty on every row, 
 deterministic layer is exercised by unit tests and not by this artifact. Four of the five act-classes
 are likewise unexercised: the corpus varies the record, never the jurisdiction, the tool, the tier or
 the send count.
+
+**And the one a Task 17 reader would otherwise attribute wrongly: the act lane contributes exactly
+zero false blocks here.** Every labelled-compliant row is act-clean -- measured, 0 of 60 carry any
+act finding -- because a row declaring `act:figure_not_in_record` is labelled violating, and every
+other row backs its figures. So pre-registered prediction 3, *"false blocks rise from arm 3 to arm
+4"*, rests **entirely on the tripwire half** of arm 4's deterministic layer. Whatever that
+prediction does, the act half did not cause it. This is a consequence of the design rather than a
+defect in it: backing the figures is what makes the content lane reachable at all, and of the two
+directions available it is the one that costs a spurious block and never hides a violation. A test
+holds the zero, in the labels' own vocabulary rather than the lanes', because that is the vocabulary
+the false-block denominator is counted in.
+
+**The blind file's line order is load-bearing, which the split's independence from it may disguise.**
+The split is a function of `sha256(body)` precisely so that reordering the source cannot move a draft
+between dev and eval. Ids are not: `tools/build_corpus.py` numbers rows `c0000..c0159` by position in
+`corpus/blind-drafts.jsonl`, and the id is the join key `corpus/labels.jsonl` and
+`corpus/recorded_verdicts.json` are keyed on. **Reordering that file renumbers every row and every
+test still passes** -- the byte-equality test compares the corpus against a rebuild from the same
+reordered source, so it agrees. Treat the file's line order as frozen, not as incidental.
 """
 from __future__ import annotations
 

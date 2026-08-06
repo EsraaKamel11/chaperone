@@ -119,6 +119,16 @@ def assign_act_lanes(drafts: list[dict]) -> None:
 
 
 def row_for(index: int, draft: dict) -> dict:
+    """One corpus row. `index` is the draft's **position in the blind file**, and that is the one
+    thing here still bound to the source's line order.
+
+    The split deliberately is not -- it is keyed on a digest of the body so that reordering the
+    source cannot move a draft between dev and eval. The id is, and the id is what
+    `corpus/labels.jsonl` and `corpus/recorded_verdicts.json` join on. Reordering
+    `corpus/blind-drafts.jsonl` therefore renumbers every row **and breaks no test**: the
+    byte-equality test rebuilds from that same reordered file and agrees with itself. The file's
+    line order is frozen input, not incidental.
+    """
     record = (
         {
             f"figure_{position}": format(value, "f")
