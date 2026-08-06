@@ -4,7 +4,7 @@ from chaperone.audit.gateway import Gateway
 from chaperone.audit.store import AuditStore
 from chaperone.gates.checker import Checker, Verdict
 from chaperone.policy.act_classes import ActContext
-from chaperone.policy.types import Record
+from chaperone.policy.types import Record, ViolationClass
 from chaperone.testing.scripted import Attempt, ScriptedRunner
 
 RECORD = Record(fields={"round_size": "10000000"})
@@ -82,6 +82,12 @@ def test_the_scripted_suite_reaches_exactly_the_classes_it_names(tmp_path: Path)
     # sentence naming both. Pinned on the tool name, which is the fixture's own value.
     out_of_grant = results[len(CONTENT_ATTEMPTS)].decision.findings[0]
     assert out_of_grant.detail == "wire_funds"
+    # The denominator. Everything above pins which classes are reached; nothing pins how many there
+    # are to reach, so a new enum member would leave the module docstring's "three of the five" and
+    # "two of the three" quietly wrong with every test still green. A coverage fraction whose
+    # denominator is unasserted is a numerator wearing a fraction's clothes.
+    families = [c.value.split(":", 1)[0] for c in ViolationClass]
+    assert (families.count("act"), families.count("content")) == (5, 3)
 
 
 def test_a_compliant_attempt_is_allowed(tmp_path: Path):

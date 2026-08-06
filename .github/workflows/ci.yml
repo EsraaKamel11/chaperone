@@ -13,5 +13,10 @@ jobs:
         run: python tools/scan_secrets.py
       - name: Static audit
         run: python tools/static_audit.py
+      # The day-2 artifact is a script, so nothing in `tests/` executes it. Run it here: it asserts
+      # the blocked tool was never entered, so a regression that let the send through fails the
+      # build instead of printing a different number and exiting 0.
+      - name: Day-2 demo
+        run: python demo/day2.py
       - name: Tests
         run: pytest -v

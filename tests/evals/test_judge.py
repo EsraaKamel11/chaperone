@@ -1,4 +1,6 @@
+import ast
 import json
+from pathlib import Path
 
 from chaperone.evals.judge import QualityScores, build_judge_messages, score_quality
 from chaperone.policy.types import Draft, Message, Record
@@ -143,3 +145,57 @@ def test_no_draft_or_record_field_outside_the_three_named_inputs_reaches_the_jud
     for omitted in ("marker_jurisdiction", "marker_domain", "marker_tool",
                     "marker_uncited_field", "marker_uncited_value"):
         assert omitted not in blob, f"{omitted} is untransmitted and reached the judge prompt"
+
+
+#: The generator artefacts neither reviewer prompt may carry. Design spec 3.3 names them for the
+#: checker **and** the judge: no generator system prompt, no scratchpad, no tool-call history, no
+#: chain of thought. Held in parity with the checker's list by the test below.
+GENERATOR_ARTEFACTS = ("<thinking>", "toolu_", "You are a drafting agent", "scratchpad", "chain of thought")
+
+#: The checker test whose marker list this module must not fall behind.
+_CHECKER_SCAN = "test_the_checker_prompt_has_no_generator_artefacts"
+
+
+def _checker_artefact_markers() -> set[str]:
+    """The checker's marker list, read from its source, so parity is measured and not remembered.
+
+    Its markers are a literal inside a test function rather than an importable constant, and a
+    cross-test import would depend on collection order. Reading the AST is the idiom this project
+    already uses where two layers must agree and neither can import the other. A rename raises
+    rather than returning an empty set, because a parity check that silently compares against
+    nothing is the fail-open this whole exercise is about.
+    """
+    source = Path(__file__).resolve().parents[1] / "gates" / "test_checker.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == _CHECKER_SCAN:
+            docstring = ast.get_docstring(node)
+            return {n.value for n in ast.walk(node)
+                    if isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value != docstring}
+    raise AssertionError(f"{_CHECKER_SCAN} not found in {source}; the parity check cannot run")
+
+
+def test_the_judge_prompt_carries_none_of_the_artefacts_the_checker_refuses():
+    """The absence prong at the checker's full width, and the reason the narrow one was not enough.
+
+    This module's first revision scanned three markers where the checker scanned five, and the
+    argument for leaving the gap was that the field-origin test dominated it. That was false, and
+    measurably: prepending "You are a drafting agent. Show your chain of thought." to the prompt
+    left every test in this module passing. Refusal by origin covers *fields*, and a generator
+    preamble originates from no `Draft` or `Record` field at all -- so nothing that reasons about
+    where a value came from can ever see it.
+    """
+    blob = json.dumps(build_judge_messages(DRAFT, RECORD))
+    for marker in GENERATOR_ARTEFACTS:
+        assert marker not in blob
+
+
+def test_the_judge_scans_for_every_artefact_the_checker_scans_for():
+    """One policy, two reviewer prompts: the judge's list may lead the checker's, never lag it.
+
+    The drift this refuses is the one that actually happened, so it is asserted rather than noted.
+    A superset rather than equality, because 3.3 forbids untransmitted artefacts on both surfaces
+    and a judge-only marker is a tightening.
+    """
+    missing = _checker_artefact_markers() - set(GENERATOR_ARTEFACTS)
+    assert not missing, f"the checker refuses {sorted(missing)} and this module does not scan for it"

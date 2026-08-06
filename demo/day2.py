@@ -17,6 +17,11 @@ below is the category the gate itself returned rather than one this script compu
 The registry records its calls, so `send_message entered 0 times` is evidence the tool was never
 entered and not merely a claim that it should not have been.
 
+**And the headline is asserted, not printed.** `tests/` executes no script, so until CI ran this
+file a regression that let the send through would have printed a different number and exited 0 --
+leaving the one script whose output is the artifact's argument as the only thing with no automated
+guard. `assert not entered` runs before the print, and `.github/workflows/ci.yml` runs this file.
+
 **Why the recipient is a bare domain.** `Draft` carries `recipient_domain` and never a full address,
 so `{"to": "someone@example.test"}` is refused by the chokepoint -- measured, `unsendable_in`
 returns `('someone@example.test',)`, because an address is not text any content-class judged as
@@ -70,6 +75,10 @@ def main() -> None:
                           DRAFT, RECORD, CONTEXT, checker, registry)
     decision = result.decision
 
+    # The headline is a check, not a claim. `tests/` executes no script, so before CI ran this file
+    # a regression that let the send through would have printed `1` and exited 0 -- the one script
+    # whose output is the artifact's argument, and the only one with nothing guarding it.
+    assert not entered, f"the blocked tool was entered with {entered!r}"
     print(f"PERMISSION LANE-> BLOCK {denial_result(decision)['category']}, "
           f"send_message entered {len(entered)} times")
     handoff = build_handoff(DRAFT, RECORD, decision,
