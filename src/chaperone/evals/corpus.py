@@ -11,8 +11,10 @@ no test here can establish that the file itself was written blind. That is a fac
 produced, recorded in this task's report, and it is the assumption everything below rests on.
 
 **`intent` is provenance, and it is the label source.** Each blind draft carries the class it was
-written to instance, or `compliant`. Task 16 derives `corpus/labels.jsonl` from `violation_class_for`
-below and from nothing else. Deriving a label by scanning the body for marker substrings is the
+written to instance, or `compliant`. `tools/label_corpus.py` derives `corpus/labels.jsonl` from
+`violation_class_for` below and from nothing else, and `load_labels` reads it back with the
+coherence rule held in `Label` so the writer and the reader cannot disagree about what a label is.
+Deriving a label by scanning the body for marker substrings is the
 alternative, and it is wrong in both directions: a compliant draft that happens to say "honestly" is
 labelled violating, and -- the expensive one -- a violation whose author never used the marker word
 is labelled compliant, so the escape it represents is scored as a success. Provenance cannot make
@@ -114,6 +116,7 @@ from chaperone.policy.types import Draft, Finding, Message, Record, ViolationCla
 _ROOT = Path(__file__).resolve().parents[3]
 CORPUS_PATH = _ROOT / "corpus" / "drafts.jsonl"
 BLIND_DRAFTS_PATH = _ROOT / "corpus" / "blind-drafts.jsonl"
+LABELS_PATH = _ROOT / "corpus" / "labels.jsonl"
 
 SPLITS = ("dev", "eval")
 
@@ -149,7 +152,12 @@ CONTROLLED_CONTEXT = ActContext(
 
 
 class CorpusError(ValueError):
-    """A corpus row, or a request for one, that cannot be honoured as written."""
+    """A corpus row, a label, or a request for either, that cannot be honoured as written.
+
+    One refusal type for one module rather than a second for the labels: every consumer of this
+    module catches the same name, and a caller that caught one and not the other would let exactly
+    the malformed input the other guards against pass unexamined.
+    """
 
 
 @dataclass(frozen=True)
@@ -279,3 +287,101 @@ def violation_class_for(item: CorpusItem) -> ViolationClass | None:
             f"{item.id}: row instances both {content.value} and {act.value}; a label carries one class"
         )
     return content if content is not None else act
+
+
+@dataclass(frozen=True)
+class Label:
+    """One row's ground truth: whether it is violating, and which single class it instances.
+
+    `violation_class` is the `ViolationClass` **value string** rather than the enum, because that is
+    what the consumers read: `evals/harness.py` reconstructs the enum with
+    `ViolationClass(label.violation_class)` and `evals/calibration.py` compares the raw string. A
+    label carrying the enum would work for the first and silently never match the second.
+
+    **The coherence rule lives here and nowhere else.** `load_labels` below and
+    `tools/label_corpus.py`'s verification both reach it by constructing a `Label`, so the file
+    format's rule and the tool's rule cannot become two rules that disagree. What it refuses:
+
+    - a non-`bool` `violating`. `"false"` is a true string and `1` is a true int, and every consumer
+      branches on `if label.violating` -- so a JSON string would move a compliant row into the
+      violating denominator with nothing raising. `isinstance(True, int)` is also true, which is why
+      the check is against `bool` by identity of type rather than against truthiness.
+    - a `violation_class` outside `ViolationClass`. A typo is otherwise silent in the calibration
+      table, where a cell that never matches is a row nobody counted rather than an error.
+    - a violating label naming no class, and a compliant label naming one. Either shape reaches a
+      consumer as `ViolationClass(None)` or as a class counted in the wrong denominator.
+    """
+
+    id: str
+    violating: bool
+    violation_class: str | None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.id, str) or not self.id.strip():
+            raise CorpusError(f"label id {self.id!r} is not a usable identifier")
+        if type(self.violating) is not bool:
+            raise CorpusError(
+                f"{self.id}: 'violating' is {self.violating!r}, a {type(self.violating).__name__}, "
+                "and every consumer branches on it as a bool"
+            )
+        if self.violation_class is not None:
+            try:
+                ViolationClass(self.violation_class)
+            except ValueError as exc:
+                raise CorpusError(
+                    f"{self.id}: violation_class {self.violation_class!r} is not a registered class"
+                ) from exc
+        if self.violating and self.violation_class is None:
+            raise CorpusError(f"{self.id}: labelled violating but names no class")
+        if not self.violating and self.violation_class is not None:
+            raise CorpusError(
+                f"{self.id}: labelled compliant but names {self.violation_class!r}"
+            )
+
+
+def load_labels(path: Path = LABELS_PATH) -> dict[str, Label]:
+    """Every label in `path`. Raises rather than returning an empty or self-contradicting mapping.
+
+    **A label file that labelled nothing must never read as a labelled corpus**, which is the rule
+    `load_corpus` already applies one layer down and for the same reason: every rate in the harness
+    is counted over labels, and a run with no label reports zero escapes -- the number the best arm
+    is predicted to produce. An empty file, an unreadable line and a line that is not an object are
+    all refusals here rather than a shorter mapping downstream.
+
+    **A repeated id is refused rather than resolved by last-write-wins.** Set equality against the
+    corpus's ids cannot see a duplicate -- two lines for one id collapse to one key and the sets
+    still match -- so `tests/evals/test_labels.py::test_every_corpus_item_has_exactly_one_label` is
+    only true of a file this function accepted. Without the check, a labels file that disagrees with
+    itself loads without complaint and every rate is counted against whichever line came last.
+
+    `violation_class` is read with `raw["violation_class"]` rather than `.get`, so a row that lost
+    the key is a refusal naming its line instead of a row that quietly reads as compliant.
+    """
+    labels: dict[str, Label] = {}
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        origin = f"{path.name}:{lineno}"
+        try:
+            raw = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise CorpusError(f"{origin}: line is not readable as JSON: {exc}") from exc
+        if not isinstance(raw, dict):
+            raise CorpusError(f"{origin}: expected a JSON object, got {type(raw).__name__}")
+        try:
+            label = Label(
+                id=raw["id"],
+                violating=raw["violating"],
+                violation_class=raw["violation_class"],
+            )
+        except KeyError as exc:
+            raise CorpusError(f"{origin}: label is missing a required field: {exc!r}") from exc
+        except CorpusError as exc:
+            raise CorpusError(f"{origin}: {exc}") from exc
+        if label.id in labels:
+            raise CorpusError(f"{origin}: id {label.id!r} is labelled more than once")
+        labels[label.id] = label
+
+    if not labels:
+        raise CorpusError(f"{path}: loaded no label")
+    return labels
