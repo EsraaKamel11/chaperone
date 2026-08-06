@@ -11,17 +11,21 @@ tripwire fires on the same body the checker names, the categorized denial, the e
 the hash-linked log. `evaluate_tripwires` reaches `content:advises_on_merits` from the body alone, so
 the BLOCK survives a checker that says nothing.
 
-**Two limits, so the output is not read for more than it shows.**
+**This runs the real path.** The send goes through `guarded_call` -- the executor chokepoint -- so
+the tool identity is bound to the reviewed draft, the arguments are bound to it too, and the BLOCK
+below is the category the gate itself returned rather than one this script computed alongside it.
+The registry records its calls, so `send_message entered 0 times` is evidence the tool was never
+entered and not merely a claim that it should not have been.
 
-- The BLOCK line is derived from `decision`, not from the value `Gateway.call` returns, and
-  `execute` has no observable side effect. So this evidences that `decide` refused; it does not
-  evidence that the executor declined to run. `tests/gates/test_hook.py` is where that is held.
-- This hands `gateway.call` a decision already taken rather than routing through `guarded_call`, so
-  Task 12's argument binding is not exercised. It could not be, with these arguments: measured,
-  `unsendable_in({"to": "someone@example.test"}, DRAFT)` returns `('someone@example.test',)`, because
-  a recipient address is not text any content-class judged as outbound -- so `guarded_call` would
-  refuse this call as `other` and the content-class category would never surface. The chokepoint is
-  stricter than the scene this demo needs.
+**Why the recipient is a bare domain.** `Draft` carries `recipient_domain` and never a full address,
+so `{"to": "someone@example.test"}` is refused by the chokepoint -- measured, `unsendable_in`
+returns `('someone@example.test',)`, because an address is not text any content-class judged as
+outbound. That is a **recorded limit from Task 12**, not a workaround invented here: see
+`tests/gates/test_hook.py::test_a_realistic_send_meets_the_rule_as_a_wall_and_that_is_recorded_not_fixed`,
+which pins it and says the answer is a reviewed routing surface on `Draft` or an explicit allowlist,
+decided deliberately when a real send tool exists rather than by relaxing the predicate. Until then a
+demo that routes through the gate must name what the gate reviewed. Routing this call through the
+chokepoint does **not** change which category surfaces: it is `content:advises_on_merits` either way.
 """
 from pathlib import Path
 from tempfile import mkdtemp
@@ -31,8 +35,9 @@ from chaperone.audit.gateway import Gateway
 from chaperone.audit.store import AuditStore
 from chaperone.evals.judge import QualityScores, score_quality
 from chaperone.gates.checker import Checker, Verdict
-from chaperone.gates.engine import decide, denial_result
+from chaperone.gates.engine import denial_result
 from chaperone.gates.handoff import build_handoff
+from chaperone.gates.hook import guarded_call
 from chaperone.policy.act_classes import ActContext
 from chaperone.policy.types import Draft, Message, Record, ViolationClass
 
@@ -59,11 +64,14 @@ def main() -> None:
 
     store = AuditStore(Path(mkdtemp()) / "audit.jsonl")
     gateway = Gateway(store, principal="conversation-agent", tier=2)
-    decision = decide(DRAFT, RECORD, CONTEXT, checker)
-    gateway.call("send_message", {"to": "someone@example.test"}, decide=lambda: decision,
-                 execute=lambda: "sent", effectful=True)
+    entered: list[dict] = []
+    registry = {"send_message": lambda **kw: entered.append(kw) or "sent"}
+    result = guarded_call(gateway, "send_message", {"to": "example.test"},
+                          DRAFT, RECORD, CONTEXT, checker, registry)
+    decision = result.decision
 
-    print(f"PERMISSION LANE-> BLOCK {denial_result(decision)['category']}")
+    print(f"PERMISSION LANE-> BLOCK {denial_result(decision)['category']}, "
+          f"send_message entered {len(entered)} times")
     handoff = build_handoff(DRAFT, RECORD, decision,
                             alternative="I cannot offer a view on the merits. Here are the round facts and the data room.",
                             rounds=0)

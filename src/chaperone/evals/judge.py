@@ -3,11 +3,17 @@
 **The rubric carries no legal criterion, and that absence is the point** (design spec 9.4). A quality
 rubric has no reason to encode a constraint carve-out, so this one does not, and a reader who is not
 told that will reasonably suspect it was stripped to make the demo land. It was not: the three
-dimensions below are the ones a quality judge would carry anyway, and
-`test_the_judge_rubric_contains_no_legal_criterion` asserts the silence so nobody can quietly add a
-criterion and nobody can claim one was removed. The six terms it refuses map onto the constraint
-vocabulary this project enforces elsewhere -- "merit", "negotiat" and "forward-looking" onto the
-three content-classes, "compliance", "permitted" and "allowed" onto the permission lane's own words.
+dimensions below are the ones a quality judge would carry anyway, and two tests assert the silence
+so nobody can quietly add a criterion and nobody can claim one was removed. The six terms they
+refuse map onto the constraint vocabulary this project enforces elsewhere -- "merit", "negotiat" and
+"forward-looking" onto the three content-classes, "compliance", "permitted" and "allowed" onto the
+permission lane's own words.
+
+**Two tests, because the constant is not what the judge is asked.** `RUBRIC` is interpolated into a
+larger f-string, so a criterion written straight into `build_judge_messages` leaves the constant
+untouched -- measured, not supposed: a mutant doing exactly that passed every test in this module's
+first revision. `test_the_assembled_judge_prompt_carries_no_legal_criterion` asserts over the built
+messages, which is what the model receives, and it is the one carrying 9.4's property.
 
 **Design spec 1: an eval score is a measurement, not an authorization.** `demo/day2.py` exists to
 show the two lanes disagreeing on one draft, and the disagreement is the thesis rather than a bug in

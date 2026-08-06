@@ -15,18 +15,24 @@ of what the committed suite reaches, measured by running `decide` over it rather
   `act:jurisdiction_not_consented`, `act:figure_not_in_record`. `act:no_approval_token` and
   `act:send_cap_exceeded` are **not** attempted, and an `Attempt` cannot express them: both are
   predicates over `ActContext`, which `drive` takes once and shares across every attempt, so varying
-  them needs a different caller rather than a different attempt.
-- **One of the three content-classes is attempted**: `content:forward_looking_return`.
-  `content:advises_on_merits` -- which 10.5 names first -- and `content:negotiates_terms` are not in
-  the committed suite; the first appears in `demo/day2.py` instead.
+  them needs a different caller rather than a different attempt. **So 10.5's conversion of act-class
+  escape rate into a per-class property test is three-fifths done, and those are the three.**
+- **Two of the three content-classes are attempted**: `content:forward_looking_return` and
+  `content:advises_on_merits`, the draft 10.5 names first. `content:negotiates_terms` is not in the
+  committed suite. Both denials come from the lexical tripwire table -- a measured detector, not a
+  construction -- so nothing here is claimable beyond act-classes.
 - **Neither predicate Task 12 added is reachable from here.** `drive` uses one name for both the
   reviewed draft and the call, so `_decide_for`'s tool-identity check cannot fire; and it passes
   `args={}`, for which `unsendable_in` returns `()` by construction, so the argument binding cannot
-  fire either. An adversary that cannot attempt an escape says nothing about whether it is closed.
+  fire either. An adversary that cannot attempt an escape says nothing about whether it is closed;
+  `demo/day2.py` drives the argument surface that this does not.
 - Every committed attempt carries `cited_fields=()`, so `validate_citations` contributes nothing and
   the figure finding arrives from `evaluate_act_classes`'s figures path alone.
 
-Read the suite as a per-class property test over the classes it names, and as silence about the rest.
+The counts above are prose and prose drifts, so
+`test_the_scripted_suite_reaches_exactly_the_classes_it_names` asserts the exact class each attempt
+reaches. Read the suite as a per-class property test over the classes it names, and as silence about
+the rest.
 """
 from __future__ import annotations
 
