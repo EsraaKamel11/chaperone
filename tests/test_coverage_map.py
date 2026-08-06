@@ -118,10 +118,16 @@ def test_the_declared_act_detector_is_bound_to_the_module_that_implements_it():
     - **declared implies implemented**, behaviourally: every class in `ACT_COVERAGE` is emitted by
       the real predicate on an input differing from a compliant one in exactly one field. A
       deleted branch fails here.
-    - **implemented implies declared**, structurally: every `ViolationClass` member the module
-      constructs is in `ACT_COVERAGE`. A branch added with no map entry fails here, which the
-      behavioural direction structurally cannot see -- nobody writes the triggering input for a
-      detector they have forgotten to declare.
+    - **named implies declared**, structurally: every `ViolationClass` member the module **names**
+      is in `ACT_COVERAGE`. A branch added with no map entry fails here, which the behavioural
+      direction structurally cannot see -- nobody writes the triggering input for a detector they
+      have forgotten to declare.
+
+    "Names", not "emits", and the distinction is the assertion's bound rather than a quibble: an
+    `ast.Attribute` walk sees a member written down, and cannot see whether the branch around it
+    ever runs. So a member named in dead code fails this too. That is the direction to fail in --
+    a spurious failure sends someone to read one function, where the reverse lets a detector go
+    undeclared -- but it is not a claim that the module emits exactly these.
 
     The structural half is a walk over statically visible attribute access, in the manner of
     `tools/static_audit.py` and with the same bound: `getattr(ViolationClass, name)` would evade
