@@ -156,7 +156,18 @@ def main() -> int:
     if not isinstance(tool_input, dict):
         return _block(f"refusing an edit whose tool_input is a {type(tool_input).__name__}")
 
-    path = (tool_input.get("file_path") or "").replace("\\", "/")
+    # Absent is not empty, and the sibling guard already applies that rule to `body`. The shape is
+    # fixed rather than guessed: `.claude/settings.json` wires this hook behind `"matcher":
+    # "Write|Edit"`, and both tools require `file_path` -- so a payload without one is a shape they
+    # cannot produce, and treating it as "no policy file named, nothing to refuse" meant the one
+    # payload this guard could not read was the one payload it never examined.
+    path_value = tool_input.get("file_path")
+    if not isinstance(path_value, str) or not path_value.strip():
+        return _block(
+            "refusing an edit whose payload carries no usable 'file_path'. Write and Edit both "
+            "supply one, so its absence means this guard cannot tell what is being edited."
+        )
+    path = path_value.replace("\\", "/")
     content = tool_input.get("content") or tool_input.get("new_string") or ""
 
     if "src/chaperone/policy/" in path:

@@ -38,8 +38,11 @@ that will not import -- into fail-open paths, and each is closed below rather th
 
   Same category as the model call not porting: the deterministic half is the portable half, and the
   stateful half is not. **So "the same policy is enforced at two layers" is true of the predicates
-  and false of the coverage** -- the honest claim is that every predicate this layer runs reaches
-  the in-process verdict, and that one predicate does not run here at all.
+  and false of the coverage.** The honest claim is that every predicate this layer runs reaches the
+  in-process verdict, and that exactly one class -- counted by reading `UNENFORCEABLE_HERE`, not
+  from memory -- is undecidable here. An earlier draft of this sentence said "one predicate does
+  not run here at all" while a second, closable gap was open; the count was recalled rather than
+  measured, and it was wrong.
 """
 from __future__ import annotations
 
@@ -57,9 +60,10 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from chaperone.policy.act_classes import ActContext, evaluate_act_classes
+from chaperone.policy.arguments import unsendable_in
 from chaperone.policy.citations import validate_citations
 from chaperone.policy.tripwires import evaluate_tripwires
-from chaperone.policy.types import Draft, Message, Record, ViolationClass
+from chaperone.policy.types import Draft, Finding, Message, Record, ViolationClass
 
 CONSENTED = frozenset({"US", "UK"})
 GRANTED = frozenset({"send_message", "send_reply", "draft_message", "read_policy"})
@@ -70,7 +74,25 @@ GRANTED = frozenset({"send_message", "send_reply", "draft_message", "read_policy
 #: count gets an allow where the in-process gate denies. Declared as a set rather than prose so the
 #: predicate-parity test can assert it, and so widening it is an edit somebody has to make on
 #: purpose.
+#:
+#: **This set holds only what state makes impossible.** It briefly also covered unconsumed payload
+#: keys, which was wrong twice over: refusing them is a pure function of the payload and needs no
+#: state at all, and a subset declaration that lists a *closable* gap reads as exhaustive while
+#: being incomplete -- worse than no declaration. That gap is closed below, not declared here.
 UNENFORCEABLE_HERE = frozenset({ViolationClass.SEND_CAP_EXCEEDED})
+
+#: Every key of `tool_input` this module reads. Anything else is an argument no predicate here
+#: consumes, and it is checked as outbound content rather than ignored: nine consumed keys and a
+#: silent pass on the rest meant `{"extra_text": "Returns are guaranteed."}` rode through on an
+#: otherwise-compliant payload while the in-process gate denied it -- design spec 6.3 false again,
+#: one layer over from where it was first false.
+#:
+#: A test derives this set from this module's own AST rather than trusting the literal, so a key
+#: read here and forgotten here cannot exist.
+CONSUMED_KEYS = frozenset({
+    "body", "cited_fields", "jurisdiction", "domain", "tool_name", "record",
+    "approval_token", "tier", "sent_count", "send_cap",
+})
 
 
 def _say(line: str) -> None:
@@ -159,8 +181,19 @@ def main() -> int:
     # is the opposite of what design spec 6.3 claims. A test derives this list from `decide`'s own
     # source rather than restating it, so the next omission fails rather than passing quietly --
     # bounded to predicates `decide` calls by bare name, since that is what the AST walk can see.
+    # Same order as `_decide_for`, so `findings[0]` is the same finding both layers report. The
+    # unconsumed-key check runs first there too, and uses this identical `unsendable_in` -- the
+    # predicate is pure and lives in `policy/` precisely so the two layers cannot hold two rules.
+    unsendable = unsendable_in({k: v for k, v in tool_input.items() if k not in CONSUMED_KEYS}, draft)
+    unbound = () if not unsendable else (Finding(
+        ViolationClass.OTHER,
+        f"the call carries {len(unsendable)} argument value(s) the gate did not judge as "
+        f"outbound, beginning {unsendable[0]!r}",
+        None,
+    ),)
     findings = (
-        evaluate_act_classes(draft, record, context)
+        unbound
+        + evaluate_act_classes(draft, record, context)
         + validate_citations(draft, record)
         + evaluate_tripwires(draft)
     )

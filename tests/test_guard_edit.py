@@ -303,6 +303,21 @@ def test_a_payload_the_guard_cannot_evaluate_refuses_the_edit():
     assert result.returncode == 2
 
 
+def test_an_edit_naming_no_file_refuses_rather_than_examining_nothing():
+    """Absent is not empty, and the sibling guard already applies that rule to `body`.
+
+    `(tool_input.get("file_path") or "")` produced `""`, no policy prefix matched, and the edit
+    passed unexamined -- so the one payload this guard could not read was the one payload it never
+    checked, while carrying an import that would have been refused. The shape is fixed rather than
+    guessed: `.claude/settings.json` wires this hook behind `"matcher": "Write|Edit"` and both
+    tools supply `file_path`, so the blast radius is only shapes they cannot produce.
+    """
+    assert _run({"tool_input": {"content": "import os\n"}}).returncode == 2
+    assert _run({"tool_input": {"file_path": "   ", "content": "import os\n"}}).returncode == 2
+    assert _run({"tool_input": {"file_path": 5, "content": "import os\n"}}).returncode == 2
+    assert _run({}).returncode == 2
+
+
 def test_a_guard_that_cannot_explain_itself_still_refuses():
     """The verdict travels in the exit code, so losing stderr must not lose the verdict."""
     handle = os.open(os.devnull, os.O_RDONLY)

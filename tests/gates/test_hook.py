@@ -14,6 +14,7 @@ from chaperone.gates.checker import Checker, Verdict
 from chaperone.gates.engine import decide, denial_result
 from chaperone.gates.hook import guarded_call, pre_tool_use
 from chaperone.policy.act_classes import ActContext
+from chaperone.policy.arguments import sendable_text, unsendable_in
 from chaperone.policy.types import Draft, Message, Record, ViolationClass
 from tools import policy_hook
 
@@ -334,29 +335,62 @@ def test_a_guard_that_cannot_explain_itself_still_blocks():
     assert (malformed.returncode, policy.returncode) == (2, 2)
 
 
-def test_the_hook_runs_every_pure_predicate_the_engine_consults():
-    """The drift detector: derived from `decide`'s own source, so it catches the *next* omission.
+#: The predicates the out-of-process layer is known to owe, as of the last time this was measured.
+#: The derivation below is what catches the *next* one; this floor is what stops the derivation
+#: itself shrinking to nothing while still passing. `assert pure` alone could not see that: if
+#: `_decide_for` ever reached a predicate attribute-style, the set contracts, the non-emptiness
+#: holds, and the detector quietly stops watching the predicate it was written for.
+_PREDICATE_FLOOR = frozenset({
+    "evaluate_act_classes", "validate_citations", "evaluate_tripwires", "unsendable_in",
+})
+
+
+def _pure_predicates_reachable_from(entry) -> set[str]:
+    """Every `policy/` function the in-process gate reaches, following calls through `gates/`.
+
+    Transitive, and rooted at the layer's real entry point rather than at `decide`. Rooting it at
+    `decide` was correct until `_decide_for` was introduced in front of it, at which point the
+    detector was watching a function neither in-process layer calls first any more -- so the
+    argument binding added in that same commit was invisible to it. A guard made stale by the
+    change that needed guarding.
+    """
+    seen, pending, pure = set(), [entry], set()
+    while pending:
+        function = pending.pop()
+        if function in seen:
+            continue
+        seen.add(function)
+        module = inspect.getmodule(function)
+        for node in ast.walk(ast.parse(inspect.getsource(function))):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+                continue
+            target = getattr(module, node.func.id, None)
+            if not inspect.isfunction(target):
+                continue
+            if target.__module__.startswith("chaperone.policy"):
+                pure.add(target.__name__)
+            elif target.__module__.startswith("chaperone.gates"):
+                pending.append(target)
+    return pure
+
+
+def test_the_hook_runs_every_pure_predicate_the_in_process_gate_consults():
+    """The drift detector, rooted at `_decide_for` and floored so it cannot silently narrow.
 
     The out-of-process layer shipped with `evaluate_act_classes + evaluate_tripwires` and no
     `validate_citations`, so a fabricated citation denied in process and allowed out of process --
     two layers, two policies, which is the opposite of what design spec 6.3 claims. Naming the
-    three predicates in a literal list here would pin today's omission and miss tomorrow's, so the
-    set is read out of `decide`: every function it calls that lives in `policy/` is pure by the
-    static audit's own guarantee, therefore ports, therefore must appear.
+    predicates in a literal list here would pin today's omission and miss tomorrow's, so the set is
+    derived: every function the gate reaches that lives in `policy/` is pure by the static audit's
+    own guarantee, therefore ports, therefore must appear.
     """
-    from chaperone.gates import engine
+    from chaperone.gates import hook as hook_module
 
-    called = {
-        node.func.id
-        for node in ast.walk(ast.parse(inspect.getsource(engine.decide)))
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-    }
-    pure = {
-        name for name in called
-        if inspect.isfunction(getattr(engine, name, None))
-        and getattr(engine, name).__module__.startswith("chaperone.policy")
-    }
-    assert pure, "derived no pure predicates from `decide`, so this test would assert nothing"
+    pure = _pure_predicates_reachable_from(hook_module._decide_for)
+    assert pure, "derived no pure predicates, so this test would assert nothing"
+    assert _PREDICATE_FLOOR <= pure, (
+        f"the derivation narrowed and stopped watching: {sorted(_PREDICATE_FLOOR - pure)}"
+    )
 
     # Called, not merely mentioned. A substring search over the source was the first version and it
     # was satisfiable by prose: the comment beside the call in policy_hook.py names
@@ -383,8 +417,18 @@ _DEFAULTS = {"body": "We have shared the requested details.", "jurisdiction": "U
              "tool_name": "send_message", "cited_fields": [], "record": {"round_size": "10000000"},
              "approval_token": "tok", "tier": 2, "sent_count": 0, "send_cap": 50}
 
+#: Extra `tool_input` keys, which correspond to the in-process `args`: out of process the tool's
+#: arguments *are* `tool_input`, so a key no predicate consumes is exactly an argument the gate did
+#: not judge. Kept beside the corpus so both layers receive the same thing under both spellings.
+_EXTRA = "extra"
+
 _CORPUS = [
     ("a compliant draft", {}),
+    ("an unconsumed key carrying a guarantee", {_EXTRA: {"extra_text": "Returns are guaranteed."}}),
+    ("an unconsumed key nested in a container", {_EXTRA: {"attach": {"note": "Honestly, a great deal."}}}),
+    ("an unconsumed key carrying an unbacked figure", {_EXTRA: {"amount": 99_000_000}}),
+    ("prose smuggled in as a mapping key", {_EXTRA: {"Returns are guaranteed.": "The round is $10M."}}),
+    ("an unconsumed key carrying the reviewed body", {_EXTRA: {"echo": "The round is $10M."}}),
     ("a figure the record holds", {"body": "The round is $10M."}),
     ("a citation that resolves", {"body": "The round is $10M.", "cited_fields": ["round_size"]}),
     ("a guarantee of returns", {"body": "Returns are guaranteed."}),
@@ -400,7 +444,13 @@ _CORPUS = [
 _BLOCKED = re.compile(r"^blocked: (\S+) \(")
 
 
-def _in_process(row: dict):
+def _in_process(row: dict, extra: dict | None = None):
+    """The in-process verdict for one corpus row, through the layer's real entry point.
+
+    `pre_tool_use`, not `decide`: `_decide_for` sits in front of `decide` and owns the argument
+    binding, so comparing against `decide` would compare the out-of-process layer to a predicate
+    set neither in-process layer uses any more.
+    """
     draft = Draft(thread=(Message(role="investor", body=""),), body=row["body"],
                   cited_fields=tuple(row["cited_fields"]), recipient_jurisdiction=row["jurisdiction"],
                   recipient_domain="example.test", tool_name=row["tool_name"])
@@ -408,7 +458,8 @@ def _in_process(row: dict):
                          consented_jurisdictions=policy_hook.CONSENTED,
                          granted_tools=policy_hook.GRANTED,
                          sent_count=row["sent_count"], send_cap=row["send_cap"])
-    return decide(draft, Record(fields=row["record"]), context, CLEAN)
+    return pre_tool_use(row["tool_name"], extra or {},
+                        (draft, Record(fields=row["record"]), context, CLEAN))
 
 
 def test_the_two_enforcement_layers_reach_the_same_verdict_and_the_same_category():
@@ -429,20 +480,115 @@ def test_the_two_enforcement_layers_reach_the_same_verdict_and_the_same_category
     """
     verdicts = {}
     for label, overrides in _CORPUS:
-        row = {**_DEFAULTS, **overrides}
-        completed = _run_hook({"tool_input": row})
-        decision = _in_process(row)
+        extra = overrides.get(_EXTRA, {})
+        # A key this layer consumes is a policy *field* out of process and an *argument* in
+        # process, so a row naming one compares two different things and silently passes or fails
+        # for the wrong reason. Caught by this corpus on `{"body": "example.test"}`, which out of
+        # process replaced the draft body rather than arriving as an argument.
+        assert not (set(extra) & policy_hook.CONSUMED_KEYS), f"{label}: extra key is a consumed field"
+        row = {**_DEFAULTS, **{k: v for k, v in overrides.items() if k != _EXTRA}}
+        completed = _run_hook({"tool_input": {**row, **extra}})
+        outcome = _in_process(row, extra)
         assert completed.returncode in (0, 2), f"{label}: hook exited {completed.returncode}"
-        assert (completed.returncode == 2) is (not decision.allowed), (
+        assert (completed.returncode == 2) is (not outcome.allow), (
             f"{label}: out-of-process blocked={completed.returncode == 2}, "
-            f"in-process denied={not decision.allowed} ({completed.stderr.strip()})"
+            f"in-process denied={not outcome.allow} ({completed.stderr.strip()})"
         )
-        if not decision.allowed:
+        if not outcome.allow:
             match = _BLOCKED.match(completed.stderr)
             assert match, f"{label}: no parseable reason on stderr: {completed.stderr!r}"
-            assert match.group(1) == decision.findings[0].violation_class.value, label
-        verdicts[label] = decision.allowed
+            assert match.group(1) == outcome.payload["category"], label
+        verdicts[label] = outcome.allow
     assert set(verdicts.values()) == {True, False}, f"the corpus lost a whole outcome: {verdicts}"
+
+
+def test_the_consumed_key_list_is_derived_from_the_hook_rather_than_remembered():
+    """`CONSUMED_KEYS` decides which payload keys are checked as content, so a stale entry is a leak.
+
+    A key read by `main` but missing from the literal would be treated as an unconsumed argument and
+    refused -- noisy but safe. A key *in* the literal that `main` never reads is the dangerous
+    direction: it is exempted from the content check while reaching no predicate. Both fail here,
+    because the set is compared against every key the module's own AST shows it reading.
+    """
+    tree = ast.parse(GUARD.read_text(encoding="utf-8"))
+    read: set[str] = set()
+    for node in ast.walk(tree):
+        target = None
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                and node.func.attr == "get" and isinstance(node.func.value, ast.Name) \
+                and node.func.value.id == "tool_input" and node.args:
+            target = node.args[0]
+        elif isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) \
+                and node.value.id == "tool_input":
+            target = node.slice
+        elif isinstance(node, ast.Compare) and len(node.comparators) == 1 \
+                and isinstance(node.ops[0], ast.In) \
+                and isinstance(node.comparators[0], ast.Name) \
+                and node.comparators[0].id == "tool_input":
+            target = node.left
+        if isinstance(target, ast.Constant) and isinstance(target.value, str):
+            read.add(target.value)
+    assert read, "found no tool_input reads, so this test would assert nothing"
+    assert read == policy_hook.CONSUMED_KEYS
+
+
+def test_the_thread_is_reviewed_as_input_and_is_not_sendable():
+    """Reviewed is not the same as reviewed-as-outbound, and the difference is a live leak.
+
+    The reviewed surface once admitted every thread role and body on the grounds that the gate had
+    seen them. It had -- as the *incoming* conversation. With a real thread that made every investor
+    utterance shippable in the body slot, text no content-class ever judged as something being sent,
+    which is the same confusion as reviewing one object and shipping another.
+    """
+    draft = Draft(thread=(Message(role="investor", body="Honestly, is this a good deal?"),),
+                  body="The round is $10M.", cited_fields=(), recipient_jurisdiction="US",
+                  recipient_domain="example.test", tool_name="send_message")
+    assert "Honestly, is this a good deal?" not in sendable_text(draft)
+    assert "investor" not in sendable_text(draft)
+    assert unsendable_in({"body": draft.thread[0].body}, draft)
+    assert unsendable_in({"role": "investor"}, draft)
+    assert not unsendable_in({"body": draft.body}, draft)
+
+
+def test_a_routing_token_may_not_stand_in_for_the_message():
+    """Set membership is not positional binding, and the body slot is where that matters.
+
+    `example.test` is genuinely sendable -- as the recipient. Accepted in a body slot it becomes the
+    message, which no content-class judged as prose. `BODY_KEYS` binds those names to the reviewed
+    body exactly, rather than to membership.
+    """
+    draft = _draft("The round is $10M.")
+    assert unsendable_in({"body": "example.test"}, draft)
+    assert unsendable_in({"message": "US"}, draft)
+    assert not unsendable_in({"to": "example.test"}, draft)
+    assert not unsendable_in({"body": draft.body}, draft)
+
+
+def test_prose_smuggled_as_a_mapping_key_is_refused():
+    """`arg_digest` covers keys, so a key-only divergence is the audit entry the rule exists to stop.
+
+    A key that is a Python identifier is a parameter name and passes unreviewed, because that is
+    what `**args` requires of it. One that is not -- a sentence, say -- reaches a `**kwargs` tool
+    intact and is checked as content.
+    """
+    draft = _draft("The round is $10M.")
+    assert unsendable_in({"Returns are guaranteed.": draft.body}, draft)
+    assert not unsendable_in({"body_html": draft.body}, draft)
+
+
+def test_a_realistic_send_meets_the_rule_as_a_wall_and_that_is_recorded_not_fixed():
+    """A stated limit, pinned so widening the rule later is a decision rather than a concession.
+
+    `Draft` carries `recipient_domain` and never a full address, so an ordinary send -- address,
+    subject, thread id -- is refused on three unreviewed scalars. The direction is fail-closed and
+    the rule is declared, so this is not a defect today. It is where the first real send tool will
+    press, and the answer then should be a reviewed routing surface on `Draft` or an explicit
+    allowlist, decided deliberately rather than by relaxing the predicate under deadline.
+    """
+    draft = _draft("The round is $10M.")
+    args = {"to": "partner@example.test", "subject": "Following up", "thread_id": "t-9182"}
+    refused = unsendable_in(args, draft)
+    assert sorted(refused) == ["Following up", "partner@example.test", "t-9182"]
 
 
 def test_the_out_of_process_layer_enforces_a_strict_subset_and_names_the_gap():
@@ -462,9 +608,9 @@ def test_the_out_of_process_layer_enforces_a_strict_subset_and_names_the_gap():
     stateless = {k: v for k, v in row.items() if k not in ("sent_count", "send_cap")}
 
     assert _run_hook({"tool_input": stateless}).returncode == 0
-    decision = _in_process(row)
-    assert decision.allowed is False
-    assert [f.violation_class for f in decision.findings] == [ViolationClass.SEND_CAP_EXCEEDED]
+    outcome = _in_process(row)
+    assert outcome.allow is False
+    assert outcome.payload["category"] == ViolationClass.SEND_CAP_EXCEEDED.value
 
     # And with the count supplied, the layers agree again -- so the gap is the missing state, not a
     # missing predicate. Without this the test would equally suit a hook that never checks the cap.

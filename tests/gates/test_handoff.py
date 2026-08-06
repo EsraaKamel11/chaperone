@@ -79,6 +79,18 @@ def test_omitting_any_single_field_is_refused():
     assert accepted == [], f"fields that are optional and should not be: {accepted}"
 
 
+def test_a_field_the_schema_does_not_declare_is_refused():
+    """The other half of "every field is required": nothing undeclared may ride along.
+
+    A misspelled field name is otherwise a silently ignored keyword sitting beside the empty field
+    the reviewer needed -- the loose-schema failure this module is named for, arriving by addition
+    instead of by omission.
+    """
+    complete = build_handoff(DRAFT, RECORD, DECISION, alternative=None, rounds=0).model_dump()
+    with pytest.raises(ValidationError):
+        Handoff(**complete, reviewer_note="ride along")
+
+
 def test_every_field_traces_to_the_draft_the_record_or_the_decision():
     """Self-containment stated as provenance rather than as an absent-phrase check.
 

@@ -23,18 +23,20 @@ and `execute` runs `registry[tool_name]`; nothing held the two equal, so a draft
 grant, so no act-class fired, and the message left. `_decide_for` refuses the mismatch in both
 layers, from one function, because a check living in only one of them is the drift 6.3 forbids.
 
-**The arguments must be what the gate reviewed, too.** `decide` reads the `Draft` while `execute`
+**The arguments must be what the gate judged, too.** `decide` reads the `Draft` while `execute`
 passes `args` to the tool, and holding the tool identity equal is only half the binding: an
-approved draft with `args` carrying different prose ships text no layer ever judged. §4.1's
-ordering guarantee is empty unless the thing reviewed is the thing sent, so `_unreviewed_in`
-refuses any text in `args` that is not a value the gate saw. The rule is deliberately strict --
-`args` may carry only values drawn from the reviewed draft -- because the safe direction here is a
-spurious refusal, and because `Gateway.call` digests `args` into the audit log: if the reviewed
-object and the digested object can differ, the log describes a call nobody assessed.
+approved draft with `args` carrying different prose ships text no layer ever assessed. §4.1's
+ordering guarantee is empty unless the thing reviewed is the thing sent, so `unsendable_in` refuses
+any scalar in `args` outside the draft's outbound surface. The rule is deliberately strict, because
+the safe direction here is a spurious refusal, and because `Gateway.call` digests `args` into the
+audit log: if the reviewed object and the digested object can differ, the log describes a call
+nobody assessed.
 
-**Bounded, and the bound is on keys not values.** Mapping *keys* are parameter names rather than
-content and are not checked; `None` and booleans carry no text. Everything else, including numbers,
-is compared by its text and must have been reviewed.
+**`unsendable_in` lives in `policy/`, not here, and that is the point.** `tools/policy_hook.py`
+enforces the identical rule over the unconsumed keys of its payload, and it cannot import this
+module -- doing so would pull the model layer into a guard that must run with nothing installed. A
+copy in each place is the drift §6.3 forbids, so the predicate is pure, lives in `policy/`, and is
+imported by both. Its bounds -- identifier keys, permuting routing tokens -- are documented there.
 """
 from __future__ import annotations
 
@@ -45,6 +47,7 @@ from chaperone.audit.gateway import Gateway, GatewayResult
 from chaperone.gates.checker import Checker
 from chaperone.gates.engine import decide, denial_result, disposition_for
 from chaperone.policy.act_classes import ActContext
+from chaperone.policy.arguments import unsendable_in
 from chaperone.policy.types import Decision, Draft, Finding, Record, ViolationClass
 
 
@@ -52,44 +55,6 @@ from chaperone.policy.types import Decision, Draft, Finding, Record, ViolationCl
 class HookOutcome:
     allow: bool
     payload: dict | None
-
-
-def _reviewed_text(draft: Draft) -> frozenset[str]:
-    """Every string the gate actually looked at while deciding.
-
-    The draft *is* the reviewed object, so this is its full text surface: the body the content
-    classes judge, the recipient fields the act-classes judge, the cited field names, the thread the
-    checker is shown, and the tool name. Anything outside this set reached no predicate.
-    """
-    values = {draft.body, draft.recipient_domain, draft.recipient_jurisdiction}
-    values.update(draft.cited_fields)
-    for message in draft.thread:
-        values.update((message.role, message.body))
-    if draft.tool_name is not None:
-        values.add(draft.tool_name)
-    return frozenset(values)
-
-
-def _unreviewed_in(value: object, reviewed: frozenset[str]) -> tuple[str, ...]:
-    """Every scalar inside `value` that the gate did not review, walking nested containers.
-
-    `str` is tested before the container branches on purpose: a string is itself a sequence, so a
-    later check would take every body apart into characters and find each one unreviewed.
-
-    `None` and booleans are exempt because neither carries text a predicate could have judged.
-    Numbers are not exempt: an amount passed as an argument is a figure the act-classes never saw,
-    and `act:figure_not_in_record` exists precisely because an unbacked figure matters.
-    """
-    if isinstance(value, str):
-        return () if value in reviewed else (value,)
-    if isinstance(value, Mapping):
-        return tuple(item for inner in value.values() for item in _unreviewed_in(inner, reviewed))
-    if isinstance(value, (list, tuple, set, frozenset)):
-        return tuple(item for inner in value for item in _unreviewed_in(inner, reviewed))
-    if value is None or isinstance(value, bool):
-        return ()
-    text = str(value)
-    return () if text in reviewed else (text,)
 
 
 def _decide_for(
@@ -114,12 +79,12 @@ def _decide_for(
             None,
         ),)
         return Decision(False, mismatch, disposition_for(mismatch))
-    unreviewed = _unreviewed_in(args, _reviewed_text(draft))
-    if unreviewed:
+    unsendable = unsendable_in(args, draft)
+    if unsendable:
         unbound = (Finding(
             ViolationClass.OTHER,
-            f"the call carries {len(unreviewed)} argument value(s) the gate did not review, "
-            f"beginning {unreviewed[0]!r}",
+            f"the call carries {len(unsendable)} argument value(s) the gate did not judge as "
+            f"outbound, beginning {unsendable[0]!r}",
             None,
         ),)
         return Decision(False, unbound, disposition_for(unbound))

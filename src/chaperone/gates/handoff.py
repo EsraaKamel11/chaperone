@@ -22,7 +22,11 @@ class Handoff(BaseModel):
     the field the reviewer needs quietly empty, and a test drops each field in turn to hold that.
     """
 
-    model_config = ConfigDict(frozen=True)
+    # `extra="forbid"` for the same reason every field is required: a schema that quietly accepts
+    # what it was not designed to carry is how an escalation arrives holding the wrong thing. A
+    # misspelled field name is then a construction error rather than a silently ignored keyword
+    # sitting beside the empty field the reviewer needed.
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     reason_category: str
     violating_span: str
