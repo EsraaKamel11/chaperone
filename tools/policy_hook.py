@@ -60,10 +60,10 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from chaperone.policy.act_classes import ActContext, evaluate_act_classes
-from chaperone.policy.arguments import unsendable_in
+from chaperone.policy.arguments import unsendable_finding
 from chaperone.policy.citations import validate_citations
 from chaperone.policy.tripwires import evaluate_tripwires
-from chaperone.policy.types import Draft, Finding, Message, Record, ViolationClass
+from chaperone.policy.types import Draft, Message, Record, ViolationClass
 
 CONSENTED = frozenset({"US", "UK"})
 GRANTED = frozenset({"send_message", "send_reply", "draft_message", "read_policy"})
@@ -184,13 +184,7 @@ def main() -> int:
     # Same order as `_decide_for`, so `findings[0]` is the same finding both layers report. The
     # unconsumed-key check runs first there too, and uses this identical `unsendable_in` -- the
     # predicate is pure and lives in `policy/` precisely so the two layers cannot hold two rules.
-    unsendable = unsendable_in({k: v for k, v in tool_input.items() if k not in CONSUMED_KEYS}, draft)
-    unbound = () if not unsendable else (Finding(
-        ViolationClass.OTHER,
-        f"the call carries {len(unsendable)} argument value(s) the gate did not judge as "
-        f"outbound, beginning {unsendable[0]!r}",
-        None,
-    ),)
+    unbound = unsendable_finding({k: v for k, v in tool_input.items() if k not in CONSUMED_KEYS}, draft)
     findings = (
         unbound
         + evaluate_act_classes(draft, record, context)

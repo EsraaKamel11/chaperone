@@ -14,7 +14,7 @@ from chaperone.gates.checker import Checker, Verdict
 from chaperone.gates.engine import decide, denial_result
 from chaperone.gates.hook import guarded_call, pre_tool_use
 from chaperone.policy.act_classes import ActContext
-from chaperone.policy.arguments import sendable_text, unsendable_in
+from chaperone.policy.arguments import BODY_KEYS, TOO_DEEP, sendable_text, unsendable_in
 from chaperone.policy.types import Draft, Message, Record, ViolationClass
 from tools import policy_hook
 
@@ -341,7 +341,7 @@ def test_a_guard_that_cannot_explain_itself_still_blocks():
 #: `_decide_for` ever reached a predicate attribute-style, the set contracts, the non-emptiness
 #: holds, and the detector quietly stops watching the predicate it was written for.
 _PREDICATE_FLOOR = frozenset({
-    "evaluate_act_classes", "validate_citations", "evaluate_tripwires", "unsendable_in",
+    "evaluate_act_classes", "validate_citations", "evaluate_tripwires", "unsendable_finding",
 })
 
 
@@ -428,7 +428,9 @@ _CORPUS = [
     ("an unconsumed key nested in a container", {_EXTRA: {"attach": {"note": "Honestly, a great deal."}}}),
     ("an unconsumed key carrying an unbacked figure", {_EXTRA: {"amount": 99_000_000}}),
     ("prose smuggled in as a mapping key", {_EXTRA: {"Returns are guaranteed.": "The round is $10M."}}),
-    ("an unconsumed key carrying the reviewed body", {_EXTRA: {"echo": "The round is $10M."}}),
+    ("an unconsumed key carrying a routing token", {_EXTRA: {"reply_to": "example.test"}}),
+    ("an unconsumed key beside an act-class denial", {_EXTRA: {"note": "Returns are guaranteed."},
+                                                     "jurisdiction": "DE"}),
     ("a figure the record holds", {"body": "The round is $10M."}),
     ("a citation that resolves", {"body": "The round is $10M.", "cited_fields": ["round_size"]}),
     ("a guarantee of returns", {"body": "Returns are guaranteed."}),
@@ -441,7 +443,7 @@ _CORPUS = [
     ("the send budget already spent", {"sent_count": 50}),
 ]
 
-_BLOCKED = re.compile(r"^blocked: (\S+) \(")
+_BLOCKED = re.compile(r"^blocked: (\S+) \((.*)\)$")
 
 
 def _in_process(row: dict, extra: dict | None = None):
@@ -498,6 +500,9 @@ def test_the_two_enforcement_layers_reach_the_same_verdict_and_the_same_category
             match = _BLOCKED.match(completed.stderr)
             assert match, f"{label}: no parseable reason on stderr: {completed.stderr!r}"
             assert match.group(1) == outcome.payload["category"], label
+            # The detail as well as the class: the finding is built in one shared function now,
+            # and comparing categories alone would not have noticed the wording diverging back.
+            assert match.group(2) == str(outcome.payload["detail"]), label
         verdicts[label] = outcome.allow
     assert set(verdicts.values()) == {True, False}, f"the corpus lost a whole outcome: {verdicts}"
 
@@ -564,6 +569,98 @@ def test_a_routing_token_may_not_stand_in_for_the_message():
     assert not unsendable_in({"body": draft.body}, draft)
 
 
+#: Argument names a real send tool plausibly carries, none of them a body slot. Each is checked
+#: against the drafted body, because the body reappearing as a subject line or a filename is the
+#: reviewed message travelling somewhere no content-class judged it for.
+_NON_BODY_SLOTS = ("subject", "to", "cc", "bcc", "filename", "thread_id", "preview", "title",
+                   "jurisdiction", "reply_to")
+
+
+def test_the_drafted_body_may_occupy_the_body_slot_and_nowhere_else():
+    """`sendable_text` contained `draft.body`, so membership alone let it travel anywhere.
+
+    All ten names below accepted the reviewed message and delivered it -- as a subject line, a
+    filename, a preview. The docstring beside the rule claimed "no model-authored prose is in that
+    surface" while the drafted body was the one piece of model-authored prose in it: a declaration
+    reading as exhaustive while being incomplete, written in the edit that closed a real defect.
+
+    Correcting only the sentence would have left the slot semantics open, so the body is out of the
+    membership set entirely and reachable only through `BODY_KEYS`.
+    """
+    draft = _draft("The round is $10M.")
+    assert draft.body not in sendable_text(draft)
+    accepted = [name for name in _NON_BODY_SLOTS if not unsendable_in({name: draft.body}, draft)]
+    assert accepted == [], f"the drafted body is still sendable under: {accepted}"
+    # And the slot it *is* for still works, or the rule has simply become "refuse the body".
+    for name in sorted(BODY_KEYS):
+        assert not unsendable_in({name: draft.body}, draft), name
+
+
+def test_the_body_slot_pins_its_whole_subtree_not_just_its_first_level():
+    """The mapping branch took the inner name, so the pin survived exactly one level.
+
+    `{"body": "example.test"}` was refused while `{"body": {"x": "example.test"}}` was delivered:
+    `x` is not a body key, so the nested value fell back to membership and a recipient domain
+    became the message. The list branch already propagated the outer key; only the mapping branch
+    did not, which is why the two disagreed on the same smuggled value.
+    """
+    draft = _draft("The round is $10M.")
+    assert unsendable_in({"body": {"x": "example.test"}}, draft)
+    assert unsendable_in({"body": {"x": {"y": "example.test"}}}, draft)
+    assert unsendable_in({"body": ["example.test"]}, draft)
+    assert unsendable_in({"body": [{"x": "example.test"}]}, draft)
+    # The reviewed body nested under its own slot is still fine, so this is a pin and not a ban.
+    assert not unsendable_in({"body": {"x": draft.body}}, draft)
+    # A body key nested under an ordinary key is pinned by the inner name, as before.
+    assert unsendable_in({"attach": {"body": "example.test"}}, draft)
+
+
+def test_arguments_too_deep_to_examine_are_denied_rather_than_raised(tmp_path: Path):
+    """Design spec 3.4's named trap, reached by an argument shape rather than by a gate outage.
+
+    `unsendable_in` recurses, so cyclic or very deeply nested `args` raised `RecursionError` out of
+    `guarded_call`. A defensively-written executor wraps handler invocation in a catch-all, and the
+    deny then arrives at the agent relabelled "transient -- please retry the forbidden send". The
+    out-of-process layer contained it in its `BaseException` net; the in-process layer did not.
+
+    Asserted as a returned `GatewayResult` with nothing transmitted, which is the property; that no
+    exception escapes is implied by the call returning at all.
+    """
+    draft = _draft("The round is $10M.")
+    cyclic: dict = {}
+    cyclic["self"] = cyclic
+    deep: dict = {}
+    cursor = deep
+    for _ in range(3000):
+        cursor["next"] = {}
+        cursor = cursor["next"]
+
+    for label, args in (("cyclic", cyclic), ("3000 deep", deep)):
+        registry = TrackingRegistry({"send_message": lambda **kw: "sent"})
+        result = guarded_call(_gateway(tmp_path / label), "send_message", args, draft,
+                              RECORD, CONTEXT, CLEAN, registry)
+        assert result.allowed is False, label
+        assert registry.lookups == [], label
+        assert denial_result(result.decision)["category"] == "other", label
+        assert TOO_DEEP in denial_result(result.decision)["detail"], label
+
+
+def test_the_out_of_process_layer_allows_an_unconsumed_key_it_can_account_for():
+    """The half of the probe that had no committed test out of process.
+
+    Every unconsumed-key row in the corpus denied, so the suite showed the rule refusing and never
+    showed it permitting -- which a hook that refused *every* unconsumed key would also satisfy.
+    The row that was supposed to cover this was named "carrying the reviewed body" but inherited a
+    different default body, so its value was not the reviewed body and it denied like the rest.
+    """
+    base = {"body": "The round is $10M.", "jurisdiction": "US", "tool_name": "send_message",
+            "cited_fields": [], "record": {"round_size": "10000000"}, "approval_token": "tok"}
+    assert _run_hook({"tool_input": base}).returncode == 0, "the base payload is not clean"
+    assert _run_hook({"tool_input": {**base, "reply_to": "example.test"}}).returncode == 0
+    assert _run_hook({"tool_input": {**base, "body": "The round is $10M."}}).returncode == 0
+    assert _run_hook({"tool_input": {**base, "subject": "The round is $10M."}}).returncode == 2
+
+
 def test_prose_smuggled_as_a_mapping_key_is_refused():
     """`arg_digest` covers keys, so a key-only divergence is the audit entry the rule exists to stop.
 
@@ -573,7 +670,7 @@ def test_prose_smuggled_as_a_mapping_key_is_refused():
     """
     draft = _draft("The round is $10M.")
     assert unsendable_in({"Returns are guaranteed.": draft.body}, draft)
-    assert not unsendable_in({"body_html": draft.body}, draft)
+    assert not unsendable_in({"body_html": draft.recipient_domain}, draft)
 
 
 def test_a_realistic_send_meets_the_rule_as_a_wall_and_that_is_recorded_not_fixed():

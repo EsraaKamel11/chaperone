@@ -47,7 +47,7 @@ from chaperone.audit.gateway import Gateway, GatewayResult
 from chaperone.gates.checker import Checker
 from chaperone.gates.engine import decide, denial_result, disposition_for
 from chaperone.policy.act_classes import ActContext
-from chaperone.policy.arguments import unsendable_in
+from chaperone.policy.arguments import unsendable_finding
 from chaperone.policy.types import Decision, Draft, Finding, Record, ViolationClass
 
 
@@ -79,14 +79,8 @@ def _decide_for(
             None,
         ),)
         return Decision(False, mismatch, disposition_for(mismatch))
-    unsendable = unsendable_in(args, draft)
-    if unsendable:
-        unbound = (Finding(
-            ViolationClass.OTHER,
-            f"the call carries {len(unsendable)} argument value(s) the gate did not judge as "
-            f"outbound, beginning {unsendable[0]!r}",
-            None,
-        ),)
+    unbound = unsendable_finding(args, draft)
+    if unbound:
         return Decision(False, unbound, disposition_for(unbound))
     return decide(draft, record, context, checker)
 
