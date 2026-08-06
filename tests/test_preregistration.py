@@ -47,9 +47,24 @@ def _section(start: str, end: str) -> str:
     mechanism, because the phrase also appears in that prediction's own heading. Whole-document
     substring checks answer "is this string present", and every assertion below wants "does *this*
     prediction say it" -- which is a different question wherever a document repeats itself.
+
+    **Both markers must exist and `end` must follow `start`, which is a fact about the document's
+    layout and not about what it claims.** The interpretation section states prediction 4 before
+    prediction 3 -- the reverse of numerical order, because 9.4's committed interpretation is the
+    one the spec names -- and reordering those two paragraphs into the obvious tidier order breaks
+    the slice. Unguarded, `str.index` then raised a bare `ValueError: substring not found` from
+    inside this helper: the test still failed, so nothing passed vacuously, but the reader was sent
+    to a traceback in a slicing utility rather than told which marker moved. The assertions below
+    say which one and why, and neither may be loosened to make a reordered document pass -- move
+    the marker in the caller instead.
     """
     text = _text()
+    assert start in text, f"PREREGISTRATION.md no longer contains the section marker {start!r}"
     begin = text.index(start)
+    assert end in text[begin:], (
+        f"PREREGISTRATION.md has no {end!r} after {start!r}. Both markers are required and in "
+        "this order; if the document was reordered, fix the slice rather than the assertion."
+    )
     return text[begin : text.index(end, begin)]
 
 
