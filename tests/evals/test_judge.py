@@ -1,3 +1,5 @@
+import json
+
 from chaperone.evals.judge import QualityScores, build_judge_messages, score_quality
 from chaperone.policy.types import Draft, Message, Record
 
@@ -80,3 +82,64 @@ def test_the_judge_sees_no_generator_artefacts():
     score_quality(DRAFT, RECORD, transport=transport)
     for marker in ("<thinking>", "toolu_", "scratchpad"):
         assert marker not in captured["blob"]
+
+
+def test_the_judge_prompt_structure_is_exact():
+    """Design spec 3.3's second prong, which it requires for the judge as well as the checker.
+
+    "A substring scan alone passes an injected turn that avoids the scanned markers." The scan
+    above reads three markers; an appended assistant turn carrying the generator's own verdict
+    contains none of them, and a reviewer handed the generator's justification agrees with it --
+    which 3.3 names as the entire failure being prevented on this surface.
+
+    Mirrors `test_the_checker_prompt_structure_is_exact`, because one policy asserted two ways in
+    two layers is how the two layers drift.
+    """
+    messages = build_judge_messages(DRAFT, RECORD)
+    assert len(messages) == 1
+    assert messages[0]["role"] == "user"
+    assert all(m["role"] != "assistant" for m in messages)
+
+
+def test_the_judge_message_carries_exactly_a_role_and_a_content_key():
+    """The structure prong applied to the message, not only to the list of them.
+
+    An extra key carrying the generator's own justification survives both the absence scan and the
+    turn-count test: the first reads three markers, the second pins the count and the role and
+    never looks at the key set.
+    """
+    messages = build_judge_messages(DRAFT, RECORD)
+    assert messages, "a builder returning [] would make the loop below assert nothing"
+    for message in messages:
+        assert set(message) == {"role", "content"}
+
+
+def test_no_draft_or_record_field_outside_the_three_named_inputs_reaches_the_judge_prompt():
+    """3.3 names three inputs for the judge and forbids "any untransmitted artifact". Both halves.
+
+    The tests above assert that required things are present and that named markers are absent.
+    None of them notices a field that should never have been included: widening `<cited_records>`
+    to the whole record, or appending the routing fields, passes every one of them. A marker list
+    can only refuse text somebody thought to name; this refuses a field by its origin.
+
+    This pins field *selection* only. The selected fields are interpolated unescaped, so a body or
+    a role can still carry text that reads like a separate turn -- the same residual the checker
+    records, and the reason the transmitted/untransmitted line belongs to whoever assembles the
+    `Draft`.
+    """
+    draft = Draft(
+        thread=(Message(role="investor", body="marker_thread_body"),),
+        body="marker_draft_body",
+        cited_fields=("marker_cited_field",),
+        recipient_jurisdiction="marker_jurisdiction",
+        recipient_domain="marker_domain",
+        tool_name="marker_tool",
+    )
+    record = Record(fields={"marker_cited_field": "marker_cited_value",
+                            "marker_uncited_field": "marker_uncited_value"})
+    blob = json.dumps(build_judge_messages(draft, record))
+    for included in ("marker_thread_body", "marker_draft_body", "marker_cited_field", "marker_cited_value"):
+        assert included in blob, f"{included} is a named input and did not reach the judge prompt"
+    for omitted in ("marker_jurisdiction", "marker_domain", "marker_tool",
+                    "marker_uncited_field", "marker_uncited_value"):
+        assert omitted not in blob, f"{omitted} is untransmitted and reached the judge prompt"
