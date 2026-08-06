@@ -25,16 +25,20 @@ detector answers for each; and `main()` is what CI runs, so **the exit code is t
 **A run that classified nothing must never report clean**, which is the rule
 `tools/static_audit.py::_files_to_audit` already enforces for an audit that examined no files --
 and the same treatment, not a second convention: the "classified nothing" case produces a violation
-line, so it travels the same path to the same exit code as any uncovered class. The failure is not
-hypothetical. `family` reads the `act:`/`content:` prefix off a value and nothing else, so dropping
-those prefixes leaves every class unclassified, and the previous version of this module skipped
-every unclassified class and exited 0 -- reporting clean over a registry it had forgotten entirely.
+line, so it travels the same path to the same exit code as any uncovered class. "Classified
+nothing" means **no class was left to ask about**: the registry is empty, or every member of it is
+exempt. Measured, because the first version of this paragraph named the wrong trigger -- stripping
+the `act:`/`content:` prefixes reports 8 uncovered classes and no classified-nothing line at all,
+since prefixes change what a class's family is and never whether it is exempt. That scenario
+belongs to the paragraph below, and conflating the two is what a reader would have inherited.
 
 **The exemption is by identity, never by family.** `EXEMPT` below names `OTHER` and only `OTHER`.
 Exempting the `UNCLASSIFIED` *family* instead handed the same free pass to any member added with
 neither prefix: measured, a tenth member `ESCALATION_REQUIRED = "escalation_required"` exited 0
 while `content:escalation_required` exited 1, so 10.4's promise held only for a class that named
-its family -- which is precisely the class nobody forgets.
+its family -- which is precisely the class nobody forgets. Stripping every value's prefix is the
+same failure at full width: all eight classifiable classes lose their family, and every one is now
+reported rather than skipped.
 
 **What this module is.** A registry, three declarations and an exit code. It runs no detector and
 cannot observe one working. "Zero by construction" is an act-class claim and is not made here about
@@ -60,9 +64,19 @@ TRIPWIRE_COVERAGE = TRIPWIRE_CLASSES
 
 # What each family must have before it counts as covered. A table rather than a branch per family,
 # because the answer for a family **absent** from it has to be "uncovered": that is what turns an
-# unclassified class from a silent skip into a reported one, and it is what a `Family` member added
-# later inherits by default. Fail-closed in the label direction too -- rename a label in
-# `detectors_for` without renaming it here and every class is reported, loudly.
+# unclassified class from a silent skip into a reported one, and a `Family` added later inherits it
+# with no edit here -- measured, a member valued `act2:something` is reported. That default lives in
+# `uncovered_classes`'s `required is None` disjunct and nowhere else, so it is a line that can be
+# deleted rather than a property that cannot: replacing the lookup with
+# `.get(klass.family, frozenset())` restores exit 0 on both, because the empty set is a subset of
+# every detector list. `test_a_class_that_names_no_family_is_reported_rather_than_exempted` is its
+# dedicated killer.
+#
+# Fail-closed in the label direction too, and the size of the report is measured rather than
+# guessed: rename a label in `detectors_for` without renaming it here and **every class whose
+# family required that label** is reported -- `"checker"` or `"tripwires"` reports the 3 content
+# classes, `"act_classes"` the 5 act classes, out of 9 registered. Never all of them, and loud
+# either way.
 REQUIRED_DETECTORS = {
     Family.ACT: frozenset({"act_classes"}),
     Family.CONTENT: frozenset({"checker", "tripwires"}),
@@ -73,8 +87,10 @@ REQUIRED_DETECTORS = {
 # detect, and a detector for it would be a category error.
 #
 # **This is the disarm surface.** Every name added here is a class the map stops asking about, so
-# adding one is how this tool would be silenced, and `test_other_is_the_only_class_the_map_is_
-# allowed_to_exempt` fails on a second entry for that reason. CLAUDE.md's rule for
+# adding one is how this tool would be silenced. Two things watch it, and the tool is one of them:
+# `violations()` reports any exempt class whose family has a `REQUIRED_DETECTORS` entry, and
+# `test_other_is_the_only_class_the_map_is_allowed_to_exempt` pins this set by equality -- which is
+# the wider guard, because it also catches an exemption the tool cannot judge. CLAUDE.md's rule for
 # `tools/static_audit.py`'s allowed list applies here unchanged: if the map reports a class, close
 # the gap rather than exempting the class.
 EXEMPT = frozenset({ViolationClass.OTHER})
@@ -96,7 +112,9 @@ def uncovered_classes() -> list[ViolationClass]:
 
     A class whose family has no entry in `REQUIRED_DETECTORS` is uncovered rather than skipped.
     That one condition is what closed the unclassified-member hole; the `continue` on
-    `Family.UNCLASSIFIED` that it replaces **was** the hole.
+    `Family.UNCLASSIFIED` that it replaces **was** the hole. It is carried by the `required is None`
+    disjunct below -- a line, not an emergent property, and `.get(klass.family, frozenset())` in its
+    place restores the old silence, measured on both a bare tenth member and a whole new family.
     """
     uncovered = []
     for klass in ViolationClass:
@@ -117,11 +135,24 @@ def violations() -> list[str]:
     A registry with nothing to map yields a violation instead of an empty list. An empty registry
     and one holding nothing but exempt classes are the same situation -- the map asked about no
     class at all -- and reporting clean over either is forgetting every class at once.
+
+    An exemption that silences a **detectable** class is a violation too, and this is where the
+    tool sees `EXEMPT` being widened. The test is measurable rather than a matter of taste: a class
+    whose family has no `REQUIRED_DETECTORS` entry could have had no detector, so exempting it
+    costs nothing; a class whose family requires one is being dropped from a lane that exists.
+    `OTHER` is the first and reports nothing. Before this, `EXEMPT` gaining a content class left
+    `python tools/coverage_map.py` at exit 0 printing nothing, and only a test saw it -- the same
+    split between tool and suite that the identity exemption itself was written to close.
     """
+    silenced = [
+        f"exempted constraint class: {klass.value} -- the {klass.family.value} family has detectors"
+        for klass in ViolationClass
+        if klass in EXEMPT and REQUIRED_DETECTORS.get(klass.family) is not None
+    ]
     classified = [klass for klass in ViolationClass if klass not in EXEMPT]
     if not classified:
-        return [f"{ViolationClass.__name__}: no constraint class to map -- classified nothing"]
-    return [f"uncovered constraint class: {klass.value}" for klass in uncovered_classes()]
+        return silenced + [f"{ViolationClass.__name__}: no constraint class to map -- classified nothing"]
+    return silenced + [f"uncovered constraint class: {klass.value}" for klass in uncovered_classes()]
 
 
 def main() -> int:

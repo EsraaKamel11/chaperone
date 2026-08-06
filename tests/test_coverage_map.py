@@ -289,10 +289,20 @@ def test_a_run_that_classified_nothing_fails_rather_than_reporting_clean(monkeyp
     invented beside it: the "examined nothing" case produces a **violation line**, so it travels
     the same path to the same exit code as any other finding.
 
-    Both rows are reachable without a stand-in registry, which is why they are guards and not
-    curiosities: dropping the `act:`/`content:` prefixes from `ViolationClass`'s values disarms the
-    whole map, because the prefix is the only thing `family` reads -- and the second row is what a
-    registry pruned back to its plumbing class looks like.
+    **What actually reaches these rows**, measured rather than reasoned, because the sentence this
+    replaces named the wrong thing. `classified` counts members not in `EXEMPT`, so the two ways to
+    empty it are **deleting members** -- a registry pruned to nothing, or pruned back to its
+    plumbing class, which is the two rows here -- and **widening `EXEMPT`** until it swallows every
+    member, which is measured as this same line *plus* one exempted-class line per silenced class,
+    eight of them on the real registry.
+
+    It is *not* reached by stripping the `act:`/`content:` prefixes, which the previous version of
+    this docstring claimed: measured, that registry prints **8 uncovered-class lines and zero
+    classified-nothing lines**, because a prefix decides a class's family and never whether it is
+    exempt. That scenario is caught, loudly, by the identity exemption and
+    `test_a_class_that_names_no_family_is_reported_rather_than_exempted` -- a different guard from
+    this one. A justification for why a guard is reachable is a claim about behaviour, and this one
+    was refuted by a one-line mutant.
     """
     import tools.coverage_map as cm
     monkeypatch.setattr(cm, "ViolationClass", _registry("Nothing", members))
@@ -322,6 +332,33 @@ def test_a_class_that_names_no_family_is_reported_rather_than_exempted(monkeypat
     unchanged = _registry("Unchanged", _REAL_MEMBERS)
     monkeypatch.setattr(cm, "ViolationClass", unchanged)
     assert cm.main() == 0, "the real registry must still report clean, or the guard above is trivial"
+
+
+def test_an_exemption_that_silences_a_detectable_class_is_reported_by_the_tool(monkeypatch, capsys):
+    """`EXEMPT` is the disarm surface, so the tool must see it being widened.
+
+    Measured before this guard: `EXEMPT = frozenset({OTHER, NEGOTIATES_TERMS})` left
+    `python tools/coverage_map.py` at **exit 0, printing nothing** -- a content class silenced, and
+    the only thing that noticed was an equality assertion in this file. That is the same split
+    `test_a_class_that_names_no_family_is_reported_rather_than_exempted` closed one round earlier,
+    and the same argument applies unchanged: design spec 10.4's sentence is about the tool, and CI
+    runs the tool.
+
+    What separates a legitimate exemption from a silencing one is measurable rather than a matter
+    of taste: `OTHER`'s family has no entry in `REQUIRED_DETECTORS`, so there is no detector it
+    could have had; `NEGOTIATES_TERMS`'s family requires `checker` and `tripwires`, so exempting it
+    drops a class that **is** detectable. The tool reports the second and stays silent on the first.
+
+    Exact line equality, so the guard also holds that `OTHER` produces no line -- a version that
+    reported every exempt class would exit 1 on the real registry and be caught by the acceptance
+    run instead of here, which is a worse place to find it.
+    """
+    import tools.coverage_map as cm
+    monkeypatch.setattr(cm, "EXEMPT", frozenset({ViolationClass.OTHER, ViolationClass.NEGOTIATES_TERMS}))
+    assert cm.main() == 1
+    assert [line for line in capsys.readouterr().out.splitlines() if line] == [
+        "exempted constraint class: content:negotiates_terms -- the content family has detectors"
+    ]
 
 
 # --- Below this line, and ONLY below it, are limits: behaviours asserted in executable form
