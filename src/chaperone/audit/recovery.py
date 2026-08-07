@@ -80,7 +80,9 @@ def counted_sends(store: AuditStore) -> int:
     fresh rather than trusting `Gateway.log_torn`, a snapshot taken at construction. The store
     fsyncs per entry, so at most the in-flight record is missing and `+1` is the correction for the
     ordinary crash. It is a **floor, not an exact repair**: `read_all` sets `torn` for any
-    unparseable line, so two corrupted lines still add one. The residual is an under-correction of
+    unparseable line, so two corrupted lines still add one. **It is also never reclaimed:** the tear
+    stays on disk by design, so the extra send is charged for the log's whole life, including after
+    `resume` has resolved every dangling intent. The residual is an under-correction of
     an under-count, which is strictly closer to the truth than not correcting -- and the direction
     it can still err in is the one this whole module is arranged around, so it is stated rather
     than implied.
@@ -169,8 +171,14 @@ def requires_approval_for(store: AuditStore, digest: str) -> bool:
 
     The cost is a false demand for approval: two *different* undigestible sends both stop at a
     human. That is the direction an enforcement predicate is allowed to err in.
+
+    `Branch.UNKNOWN.value` rather than the literal, for the reason `counted_sends` uses
+    `Branch.ABORTED.value`: `resume` writes this word and this function looks for it, and a rename
+    that touched only the writer would leave the double-send guard silently off.
     """
     if digest.startswith(DIGEST_UNAVAILABLE):
         return True
     entries, _ = store.read_all()
-    return any(e.arg_digest == digest and e.outcome == "unknown" for e in entries)
+    return any(
+        e.arg_digest == digest and e.outcome == Branch.UNKNOWN.value for e in entries
+    )

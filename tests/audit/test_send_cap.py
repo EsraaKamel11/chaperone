@@ -91,7 +91,12 @@ def test_a_lost_log_line_would_have_made_the_cap_fail_open(tmp_path: Path):
 
 
 def test_a_dangling_intent_keeps_consuming_the_cap_before_recovery_runs(tmp_path: Path):
-    """§5.4's conservative default, stated as arithmetic: an unresolved intent is a send."""
+    """§5.4's conservative default, stated as arithmetic: an unresolved intent is a send.
+
+    Green against the count as the brief wrote it -- disclosed, not presented as a caught defect.
+    It is the baseline the two tests below are read against: without it, "the abort released one"
+    and "the unknown released none" are two numbers with nothing to be a difference from.
+    """
     gateway = _log_with_a_dangling_intent(tmp_path / "a.jsonl")
     assert gateway.sent_count() == 3
 
