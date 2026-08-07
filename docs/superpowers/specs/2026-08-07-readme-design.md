@@ -29,10 +29,21 @@ never in prose as though it exists.
 2. **Em-dash-free** in `README.md` and every `docs/*.md` reader-facing page. The lint is scoped to
    those files only. `PREREGISTRATION.md` and the superpowers specs predate the rule and are not
    rewritten.
-3. **Every claim true at push time**, mechanically guarded (§7). Matching, refinement, ladder
-   mechanics, attribution arm 1, crash-recovery branches (b) and (c), the thread-scope pass and the
-   Pydantic AI checker binding remain designed, and the README says so in a table rather than
-   implying otherwise by silence.
+3. **Every claim true at push time**, mechanically guarded (§7). What remains designed, each item
+   verified absent from the tree rather than inherited from an earlier note: matching, the refinement
+   loop, **capability-ladder promotion and demotion mechanics**, **attribution arm 1**, the
+   `recovery.resume` pass carrying crash-recovery branches (b) and (c), the thread-scope pass, and the
+   Pydantic AI checker binding. The README says so in a table rather than implying otherwise by
+   silence.
+
+   **Two different ladders, and only one of them is unbuilt.** The **attribution ladder is built**:
+   `Ladder` and `run_arm` in `src/chaperone/evals/harness.py` run arms 2, 3 and 4 over a frozen
+   corpus, with arm 1 held in `ABSENT_ARMS` and reported missing rather than filled in. What is not
+   built is the **capability ladder's** promotion and demotion mechanics, which exist as policy in
+   design spec §7. Writing "the ladder is designed, not built" would mislabel a shipped subsystem on
+   the one table whose entire purpose is exactness. Likewise the `recovery` field exists on the audit
+   entry and records branch (b) `aborted` and branch (c) `unknown`; the `recovery.resume` pass that
+   would write them does not exist (`src/chaperone/audit/recovery.py` is absent).
 4. **The empty `src/chaperone/matching/` package is deleted before push** (§8).
 5. **Numbers travel with denominators.** `3/50 eval`, never `6%`. This matches the repository's own
    convention: a rate never travels without its denominator, per the `ArmResult` docstring in
@@ -120,7 +131,12 @@ declaration in the opening paragraph.
 
 1. **The fluent breach.** The most helpful answer to a direct question scores high on quality and
    breaches a stated constraint. This is the money demo, and it evidences two of the four claims at
-   once. Claim: **measured**.
+   once. Held by the fail-closed gate, where the checker and the tripwire are two disjuncts and
+   either one blocks: `evaluate_tripwires` reaches `content:advises_on_merits` from the body alone,
+   so the block survives a checker that says nothing. Test:
+   `test_each_content_class_blocks_through_the_tripwire_alone`. Claim: **measured**, and the number
+   is the content-class escape rate in `docs/measurement.md`, carried with its denominator of 45
+   rows per split under `scope="content-classes-only"`.
 2. **The rubber stamp.** A checker that has read the generator's own justification agrees with it.
    Independence is enforced by what is left out of the prompt. Tests:
    `test_the_checker_prompt_has_no_generator_artefacts`,
@@ -139,16 +155,28 @@ whose fourth field is **designed, not built**, pointing at
 `test_the_missing_first_rung_is_named_as_absent_rather_than_built_from_another_arm`, an artifact that
 refuses to fake its own baseline.
 
-**4.4 The money demo, with verbatim CI-asserted output.** Paste `demo/day2.py`'s printed output
+**4.4 The money demo, with its output pasted verbatim.** Paste `demo/day2.py`'s printed output
 exactly, annotated line by line. One sentence on the `assert not entered` line before the print: the
 tool function is never referenced on deny. This section carries the "never share a mechanism" and "a
 score is not an authorization" claims.
+
+**Be exact about what guards that output, because the repository already is.** No test executes the
+demo; `demo/day2.py`'s own docstring says so. What guards it is a pair: `assert not entered` runs
+inside the file before the print, and `.github/workflows/ci.yml` runs the file as a step named
+`Day-2 demo`, so a regression that let the send through fails CI rather than printing a different
+number and exiting 0. That covers the **headline invariant** and not the **printed text**, which
+nothing currently byte-compares. So the README says the invariant is asserted and CI runs the demo,
+never the looser "CI-asserted output", and §7 closes the remaining half by byte-matching the paste.
 
 **4.5 The two-family table**, with the static-audit line beneath it: `tools/static_audit.py`, the
 edit-time hook, and `test_the_real_policy_package_is_pure`. This carries the "policy cannot import an
 LLM client" claim.
 
-**4.6 One verbatim `denial_result` JSON payload.** Category, `is_retryable: false`, disposition, span.
+**4.6 One verbatim `denial_result` JSON payload.** The six keys `denial_result` actually returns
+(`src/chaperone/gates/engine.py:147`), not an invented shape: `is_error`, `is_retryable`, `category`,
+`detail`, `span`, `disposition`. `is_retryable` is `False` unconditionally, and the sentence that
+earns the paste is that retryability and redraftability are two axes: whether a redraft could help is
+`disposition`, never `is_retryable`.
 
 **4.7 Headline numbers**, each with its denominator and split, prediction outcomes reported
 held-or-failed.
@@ -158,9 +186,12 @@ gate while the conversation as a whole breaches, and the checker sees the thread
 a cross-turn breach caught. Plus a whole-chain rewrite by an actor with write access defeats the audit;
 corpus and tripwire share an author; labels are synthetic.
 
-**4.9 Designed-vs-Built table.** From design spec §7.2, corrected to the tree: matching (package
-deleted, §8), the refinement loop, promotion and demotion mechanics, attribution arm 1, crash-recovery
-branches (b) and (c), the thread-scope pass, and **the Pydantic AI checker binding**. On that last row:
+**4.9 Designed-vs-Built table.** From design spec §7.2 (`Built, and not built`), **re-verified against
+the tree rather than copied**, because §7.2 predates 20-odd commits and at least one of its rows has
+since been built. Designed-not-built rows: matching (package deleted, §8), the refinement loop,
+capability-ladder promotion and demotion mechanics, attribution arm 1, the `recovery.resume` pass
+carrying branches (b) and (c), the thread-scope pass, and **the Pydantic AI checker binding**. The
+attribution ladder itself is **built** and belongs on the built side, per §1.3. On the last row:
 `pydantic-ai` and `pydantic-evals` are declared in `pyproject.toml`, but `src/` imports only
 `pydantic` itself. The checker is specified as a Pydantic AI agent and is currently built without it.
 A dependency in the manifest is not a dependency in use, and the table says so.
@@ -220,6 +251,12 @@ attacks it", so a named test that does not exist must fail CI.
 - **Extract every backticked `test_*` name and every `src/chaperone/...` path from `README.md` and
   every `docs/*.md`, and assert each resolves** against the collected suite and the tree. This converts
   the whole design's honesty from vigilance into red CI.
+- **Byte-match the demo output pasted in README §4.4 against a fresh `python demo/day2.py` run.**
+  Name resolution cannot catch a stale paste: the demo could change its wording, its verdict or its
+  counts and every backticked name in the README would still resolve. The demo is offline and keyless,
+  so running it inside a test is cheap, and this is the only mechanism that keeps a verbatim paste
+  verbatim. It also closes the half-gap the demo's own docstring records, where CI guards the headline
+  invariant but nothing guards the printed text.
 - **Extend the zero-by-construction scan to `docs/*.md`**, not just the README. `CLAUDE.md` says "in
   code, comments, docstrings, or documentation"; guarding one file of six is a hole.
 - **Retain** Task 26's organisation-token, synthetic-scenario, tier-ceiling and cross-turn-residual
@@ -227,8 +264,12 @@ attacks it", so a named test that does not exist must fail CI.
 - **Drop** Task 26's matching-ablation and smallest-production-v1 assertions.
 - **Scope the em-dash lint** to `README.md` and `docs/*.md` only.
 
-All nine test names cited in §4 and §5 were verified present in the suite at the time this spec was
-written. They are cited here so the guard has something real to check on its first run.
+Every test name cited in §4 and §5 was verified present in the suite at the time this spec was
+written, along with `denial_result`'s key list, the `ArmResult` denominator convention, `ABSENT_ARMS`,
+the `Day-2 demo` CI step, and the absence of `refine`, promotion and demotion, `recovery.py`, the
+thread-scope pass and any `pydantic_ai` import under `src/`. The suite was green at that point:
+443 passed. None of this is asserted here on the strength of an earlier note; the point of the guard
+is that the next reader does not have to take that on trust either.
 
 ---
 
