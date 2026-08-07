@@ -195,9 +195,26 @@ checker's stated mean confidence, scored per cell with **Brier** and never as on
 Per cell matters. A blended score averages a well-calibrated class with a badly-calibrated one and
 reports something in between, which is exactly the cell you needed to see, hidden.
 
-**Status: prediction 4 is built and has been measured; prediction 5 is designed, not built.**
+**Status: predictions 4 and 5 are both built and have both been measured.**
 `src/chaperone/evals/discrimination.py` ranks `corpus/quality-scores.jsonl`, a blind judge's scores
-over all 160 bodies, against the labels. `evals/calibration.py` does not exist in this tree.
+over all 160 bodies, against the labels. `src/chaperone/evals/calibration.py` scores the recorded
+verdicts per class with Brier.
+
+**Prediction 5 failed, and the direction is the part to carry away.** No content-class cell showed
+observed agreement below the checker's stated confidence, so the checker was underconfident on this
+corpus rather than overconfident, and `worst_cell` reports absent rather than the least badly
+calibrated cell. The tier-2 ceiling is unmoved by that result and was never resting on it: a false
+negative at an unsupervised tier is the breach rather than a warning of one, sampled audit is
+detection rather than prevention, and demotion is triggered by a verdict, so a missed violation
+misses its own demotion. Finding no error bounds the checker's error rate from above and bounds
+nothing about a deployment rate.
+
+**The act-class cell is in the table and is excluded from the ranking.** The checker is asked about
+three content constraints and about nothing else, so on an `act:figure_not_in_record` row its "no
+content violation" answer is the answer it was asked for. Scoring it as an error would charge a
+model for a question nobody put to it, and would name an act cell as the measurement behind a
+content-class ceiling. `is_content_cell` is where that line is drawn, and the cell keeps its
+denominator either way.
 
 **The scores had to be real for this to measure anything.** Every caller of `score_quality` in this
 repository hands it a constant transport, so an AUC taken over those scores would have been exactly

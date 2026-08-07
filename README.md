@@ -259,8 +259,22 @@ arm: it ranks the quality judge's own scores against the labels, so
 judge's scores over all 160 bodies. The measured interval excludes 0.5, which the pre-registration
 pre-commits to reporting as a failed prediction rather than reframing. The **direction** of that
 exclusion is the part a reader should not assume, so it is reported with the number and the
-denominators rather than here. Prediction 5 is now the only one not adjudicated at all, because the
-calibration that decides it has not been built.
+denominators rather than here.
+
+**Prediction 5 has now been adjudicated too, and it failed in the direction a reader would not
+guess.** `src/chaperone/evals/calibration.py` scores the checker per class with Brier against the
+same recorded verdicts. Not one content-class cell showed observed agreement below the checker's
+stated confidence: on this corpus the checker was **underconfident** rather than overconfident, so
+the cell prediction 5 went looking for does not exist and `worst_cell` reports absent rather than
+handing back the least badly calibrated cell in the table.
+
+**That is not a licence to raise the ceiling, and the ceiling never rested on the size of the
+error.** A false negative at an unsupervised tier **is** the breach rather than a warning that one
+is coming; sampled audit after transmission is detection, not prevention; and demotion is itself
+triggered by a verdict, so a missed violation also misses its own demotion. All three hold at zero
+measured errors. Finding no error over a finite corpus bounds the checker's error rate from above
+and bounds nothing about a deployment rate, which is why the sentence here is *we found no error and
+still refuse the autonomy* rather than a promotion.
 
 **No rate is printed here yet, and that is a choice about denominators rather than about disclosure.**
 Every rate the ladder produces needs the denominator from the table above and the criterion-sharing
@@ -332,7 +346,7 @@ Everything on the right was verified absent from the tree, not assumed.
 | Executor chokepoint and `PreToolUse` hook | **Built** |
 | Attribution ladder over arms 2, 3 and 4 | **Built.** Arm 1 is absent and reported so. |
 | Frozen corpus, provenance labels, pre-registration | **Built** |
-| Checker calibration, Brier per cell | **Designed, not built** |
+| Checker calibration, Brier per cell | **Built.** No content cell overshot, so the worst cell is reported absent. |
 | Discrimination, AUC with confidence interval | **Built** |
 | Matching | **Designed, not built** |
 | Refinement loop | **Designed, not built** |
