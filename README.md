@@ -33,7 +33,7 @@ gate answer different questions, and the moment they share a mechanism, the syst
 that a high enough score is a permission.
 
 ```
-pytest -q                 443 passed, offline and keyless
+pytest -q                 the full suite, offline and keyless
 python demo/day2.py       one draft, two lanes, opposite verdicts
 python tools/static_audit.py   proves the policy layer imports no LLM client
 ```
@@ -334,7 +334,7 @@ judgment error it was built to argue against.
 git clone <this repo> && cd chaperone
 pip install -e ".[dev]"
 
-pytest -q                      # 443 tests, offline, no API key required
+pytest -q                      # the full suite, offline, no API key required
 python demo/day2.py            # the two-lane demo above
 python tools/static_audit.py   # the policy purity check that CI runs
 ```
