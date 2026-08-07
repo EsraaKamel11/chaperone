@@ -1,6 +1,7 @@
 """The attribution ladder, graded against the labels and never against the engine under test."""
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 
 import pytest
@@ -15,6 +16,7 @@ from chaperone.evals.corpus import (
 )
 from chaperone.evals.harness import (
     ABSENT_ARMS,
+    RECORDED_VERDICTS_PATH,
     ArmResult,
     HarnessError,
     arm_blocks,
@@ -25,6 +27,8 @@ from chaperone.evals.harness import (
     reference_comparison,
     run_arm,
     run_ladder,
+    unavailability_probe,
+    with_unavailability,
 )
 from chaperone.gates.checker import Checker, Verdict
 from chaperone.gates.engine import decide
@@ -362,3 +366,83 @@ def test_the_ladder_carries_its_own_missing_rung_beside_the_numbers():
     assert ladder.absent == ABSENT_ARMS
     assert len(ladder) == 3
     assert [result.name for result in ladder] == [arm.name for arm in build_arms(RECORDED)]
+
+
+# --------------------------------------------------------------------------------------------
+# Rung 3 on the frozen replay, and the probe that makes it informative
+# --------------------------------------------------------------------------------------------
+
+
+def test_arm_three_is_indistinguishable_from_arm_two_on_the_shipped_replay():
+    """The measurement gap the probe below exists to close, stated as a measurement.
+
+    Every one of the 160 recorded verdicts is present, so the fail-closed default never fires and
+    rung 2 -> 3 separates nothing on this artifact. Design spec 3.4's "checker unavailability fails
+    closed" is therefore held by unit tests and by a constructed single-row case, and by nothing at
+    the ladder level. Asserted rather than remembered, so it cannot quietly stop being true.
+    """
+    assert not [item_id for item_id, raw in RECORDED.items() if raw is None]
+    two, three = (run_arm(_arm(name), EVAL_ITEMS, LABELS, CONTEXT)
+                  for name in ("2-independent-checker", "3-fail-closed-gate"))
+    assert (two.escapes, two.false_blocks) == (three.escapes, three.false_blocks)
+
+
+def test_injecting_unavailability_makes_arm_three_block_rows_arm_two_lets_through():
+    """The probe earns its place only if the two rungs now disagree, and in the stated direction.
+
+    A recorded `null` is what `CheckerUnavailable` becomes on this replay: arm 2 reads it as
+    nothing to block on and allows, arm 3 fails closed and blocks. So on the injected replay arm 2
+    must escape strictly more and arm 3 must false-block at least as much -- the fail-closed trade,
+    measured at the ladder level for the first time.
+    """
+    probe = unavailability_probe(EVAL_ITEMS, LABELS, CONTEXT, fraction=0.25)
+    injected_violating = [i for i in probe.injected if i in LABELS and LABELS[i].violating]
+    assert injected_violating, "an injection that hit no violating row proves nothing"
+
+    two = probe.results["2-independent-checker"]
+    three = probe.results["3-fail-closed-gate"]
+    assert two.escapes > three.escapes
+    assert three.false_blocks >= two.false_blocks
+
+
+def test_the_probe_reports_the_fraction_and_the_rows_it_injected():
+    """A rate whose injected population is not stated is a rate nobody can reproduce."""
+    probe = unavailability_probe(EVAL_ITEMS, LABELS, CONTEXT, fraction=0.25)
+    assert probe.fraction == 0.25
+    assert set(probe.injected) <= {item.id for item in EVAL_ITEMS}
+    assert probe.name not in {arm.name for arm in build_arms(RECORDED)}
+
+
+def test_the_injection_is_a_function_of_the_row_id_and_not_of_a_clock_or_a_seed():
+    """Reproducible across processes: `corpus.py` splits on `sha256(body)` for the same reason.
+
+    Pinned against a literal measured once rather than against a second call to the function, which
+    would agree with itself under `random.sample` as readily as under a hash -- two calls in one
+    process is not the comparison, since a seeded generator is stable within a process too. This is
+    the set, so a probe reported in one run is the probe another reader can reproduce.
+    """
+    injected = tuple(sorted(k for k, v in with_unavailability(RECORDED, fraction=0.05).items() if v is None))
+    assert injected == (
+        "c0014", "c0042", "c0094", "c0106", "c0108", "c0110", "c0112", "c0144", "c0149", "c0153",
+    )
+
+
+def test_the_injection_leaves_the_frozen_artifact_and_its_loaded_mapping_untouched():
+    """No measured rate may move. The transform copies; the file is never written."""
+    before = json.loads(RECORDED_VERDICTS_PATH.read_text(encoding="utf-8"))
+    injected = with_unavailability(RECORDED, fraction=0.25)
+    assert [k for k, v in injected.items() if v is None]
+    assert not [k for k, v in RECORDED.items() if v is None]
+    assert json.loads(RECORDED_VERDICTS_PATH.read_text(encoding="utf-8")) == before
+
+
+def test_an_injection_that_selected_no_row_is_refused_rather_than_reported_as_a_clean_probe():
+    """Zero injected rows makes every assertion above vacuous while the probe reports success."""
+    with pytest.raises(HarnessError, match="selected no row"):
+        with_unavailability(RECORDED, fraction=1e-9)
+
+
+def test_a_fraction_outside_the_unit_interval_is_refused():
+    for fraction in (0.0, -0.1, 1.5):
+        with pytest.raises(HarnessError, match="fraction"):
+            with_unavailability(RECORDED, fraction=fraction)

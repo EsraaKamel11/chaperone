@@ -54,6 +54,7 @@ there are four differences, not one:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -318,6 +319,89 @@ def run_ladder(
 ) -> Ladder:
     """Every rung, in ladder order, over identical items and identical replayed verdicts."""
     return Ladder([run_arm(arm, items, labels, context, only_family) for arm in arms], ABSENT_ARMS)
+
+
+#: The grid the injection decision is taken on. A row is injected when `sha256(id)` modulo this
+#: falls below `fraction` of it, so the selection is a function of the id and of nothing else --
+#: no clock, no seed, no iteration order -- exactly as `corpus.py` splits on `sha256(body)`.
+_INJECTION_RESOLUTION = 10_000
+
+#: Not a rung. Named so a consumer cannot tabulate it beside the ladder by accident.
+UNAVAILABILITY_PROBE_NAME = "probe-unavailability-injected"
+
+
+def with_unavailability(recorded: Mapping[str, dict | None], fraction: float) -> dict[str, dict | None]:
+    """A **copy** of the replay with a deterministic `fraction` of its rows recorded unavailable.
+
+    The shipped artifact holds a verdict for all 160 rows, so `arm_blocks`' fail-closed branch is
+    never reached and arms 2 and 3 return identical counts -- design spec 3.4's "checker
+    unavailability fails closed" is held by unit tests and by nothing at the ladder level. This is
+    what makes rung 2 -> 3 informative: it exercises a branch that exists and is unreached.
+
+    **It is a sensitivity probe and not a measurement.** No rate in `PREREGISTRATION.md`, in the
+    eval split's reported numbers or in `corpus/labels.jsonl` derives from it, and nothing here
+    writes to `corpus/recorded_verdicts.json`: the input mapping is left as it was found and a new
+    dict is returned. Injecting unavailability adjusts no prediction -- it changes which code path
+    runs, not what any arm is being graded against.
+
+    A fraction that rounds to no row is refused. An injection that injected nothing makes every
+    downstream comparison agree for free while the probe reports success, which is the shape three
+    tools in this project have already shipped.
+    """
+    if not 0.0 < fraction <= 1.0:
+        raise HarnessError(f"fraction {fraction!r} is not in (0, 1]; an injection of none or of more than all")
+    threshold = fraction * _INJECTION_RESOLUTION
+    injected = {
+        item_id
+        for item_id in recorded
+        if int(hashlib.sha256(item_id.encode("utf-8")).hexdigest(), 16) % _INJECTION_RESOLUTION < threshold
+    }
+    if not injected:
+        raise HarnessError(
+            f"fraction {fraction!r} selected no row of {len(recorded)}; an empty injection makes "
+            "arms 2 and 3 agree for free"
+        )
+    return {item_id: (None if item_id in injected else raw) for item_id, raw in recorded.items()}
+
+
+@dataclass(frozen=True)
+class UnavailabilityProbe:
+    """One run of the arms over an injected replay, carrying what was injected beside the counts.
+
+    Separate from `Ladder` rather than a fourth rung on it, for the reason `reference_comparison`
+    is returned separately: it is not a measurement of this corpus. A consumer that received bare
+    `ArmResult`s could tabulate them beside the real ladder with nothing in the output saying the
+    verdicts underneath them were altered, so `fraction` and `injected` travel with the numbers.
+    """
+
+    name: str
+    fraction: float
+    injected: tuple[str, ...]
+    results: dict[str, ArmResult]
+
+
+def unavailability_probe(
+    items: list[CorpusItem],
+    labels: dict[str, Label],
+    context: ActContext,
+    fraction: float,
+    recorded: Mapping[str, dict | None] | None = None,
+    only_family: Family | None = None,
+) -> UnavailabilityProbe:
+    """Every rung over a replay with `fraction` of its verdicts recorded unavailable.
+
+    Read the pair (arm 2, arm 3) as the fail-closed trade and nothing more: arm 2 allows a row whose
+    checker gave no answer and is charged the escape, arm 3 blocks it and is charged the false block
+    where the row was compliant. Both directions move, which is why both counts are carried.
+    """
+    injected = with_unavailability(load_recorded() if recorded is None else recorded, fraction)
+    arms = build_arms(injected)
+    return UnavailabilityProbe(
+        name=UNAVAILABILITY_PROBE_NAME,
+        fraction=fraction,
+        injected=tuple(item.id for item in items if injected.get(item.id, "present") is None),
+        results={arm.name: run_arm(arm, items, labels, context, only_family) for arm in arms},
+    )
 
 
 def reference_comparison(
