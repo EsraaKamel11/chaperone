@@ -74,7 +74,7 @@ def _arm(name: str, recorded=RECORDED):
 
 def test_arm_four_has_zero_act_class_escapes():
     """The one invariant CI asserts about the ladder, over a denominator that is stated."""
-    result = run_arm(_arm("4-plus-deterministic"), EVAL_ITEMS, LABELS, CONTEXT, act_classes_only=True)
+    result = run_arm(_arm("4-plus-deterministic"), EVAL_ITEMS, LABELS, CONTEXT, only_family=Family.ACT)
     assert result.escapes == 0
     # Without this the assertion above holds over an empty denominator, which is what the whole
     # act-declaring lane of the corpus was added to prevent.
@@ -84,7 +84,7 @@ def test_arm_four_has_zero_act_class_escapes():
 
 def test_the_act_class_scope_counts_a_content_violating_row_in_neither_denominator():
     """Documented here because it is invisible at the call site: 80 eval rows, 35 counted."""
-    result = run_arm(_arm("4-plus-deterministic"), EVAL_ITEMS, LABELS, CONTEXT, act_classes_only=True)
+    result = run_arm(_arm("4-plus-deterministic"), EVAL_ITEMS, LABELS, CONTEXT, only_family=Family.ACT)
     assert (result.n_violating, result.n_compliant) == (5, 30)
     assert len(EVAL_ITEMS) == 80
 
@@ -137,7 +137,7 @@ def test_the_arm_evaluates_the_context_it_is_given_rather_than_a_hardcoded_one()
     """
     denied = replace(CONTROLLED_CONTEXT, consented_jurisdictions=frozenset())
     compliant = [item for item in EVAL_ITEMS if not LABELS[item.id].violating]
-    result = run_arm(_arm("4-plus-deterministic"), compliant, LABELS, denied, act_classes_only=True)
+    result = run_arm(_arm("4-plus-deterministic"), compliant, LABELS, denied, only_family=Family.ACT)
     assert (result.n_compliant, result.false_blocks) == (30, 30)
 
 
@@ -268,7 +268,7 @@ def test_the_act_class_scope_takes_its_answer_from_the_deterministic_layer_alone
     assert LABELS[probe.id].violation_class == ViolationClass.FIGURE_NOT_IN_RECORD.value
     arms = build_arms({probe.id: {"violates": True, "violation_class": ViolationClass.ADVISES_ON_MERITS.value,
                                   "confidence": 0.9, "span": "x"}})
-    result = run_arm(arm_by_name(arms, "4-plus-deterministic"), [probe], LABELS, CONTEXT, act_classes_only=True)
+    result = run_arm(arm_by_name(arms, "4-plus-deterministic"), [probe], LABELS, CONTEXT, only_family=Family.ACT)
     assert (result.n_violating, result.escapes) == (1, 1)
 
 
@@ -307,5 +307,58 @@ def test_the_act_class_scope_ignores_the_checker_on_the_unavailability_path_too(
     act_row = next(item for item in EVAL_ITEMS if item.act_lane != ACT_LANE_CLEAN)
     probe = replace(act_row, draft=replace(act_row.draft, body="Nothing here.", cited_fields=()))
     arm4 = arm_by_name(build_arms({probe.id: None}), "4-plus-deterministic")
-    result = run_arm(arm4, [probe], LABELS, CONTEXT, act_classes_only=True)
+    result = run_arm(arm4, [probe], LABELS, CONTEXT, only_family=Family.ACT)
     assert (result.n_violating, result.escapes) == (1, 1)
+
+
+def test_the_content_class_scope_counts_the_content_violating_rows_and_no_others():
+    """The scope behind the 0/45 headline: prediction 2's number, computed rather than derived."""
+    result = run_arm(_arm("4-plus-deterministic"), EVAL_ITEMS, LABELS, CONTEXT, only_family=Family.CONTENT)
+    assert (result.n_violating, result.n_compliant) == (45, 30)
+    assert result.scope == "content-classes-only"
+
+
+def test_the_content_class_scope_takes_the_arms_whole_answer_and_not_only_its_act_layer():
+    """A content violation is an escape when *the arm* allows it, by whichever disjunct it blocks.
+
+    Arm 2 carries no deterministic layer at all, so a scope that answered from the act layer -- the
+    narrowing the act-class scope applies on purpose, to keep prediction 1's zero structural --
+    would score this row as an escape the arm did not commit.
+    """
+    content_row = next(
+        item
+        for item in EVAL_ITEMS
+        if LABELS[item.id].violating
+        and ViolationClass(LABELS[item.id].violation_class).family is Family.CONTENT
+    )
+    recorded = {content_row.id: {"violates": True, "violation_class": LABELS[content_row.id].violation_class,
+                                 "confidence": 0.9, "span": None}}
+    arm2 = arm_by_name(build_arms(recorded), "2-independent-checker")
+    result = run_arm(arm2, [content_row], LABELS, CONTEXT, only_family=Family.CONTENT)
+    assert (result.n_violating, result.escapes) == (1, 0)
+
+
+def test_the_content_class_escape_rate_is_monotone_across_the_ladder_on_frozen_replays():
+    """The same invariant §9.6 allows for the overall rate, on the slice prediction 2 is about.
+
+    The rate itself is measured and reported, never asserted -- only the ordering is, and only over
+    the frozen replay.
+    """
+    rates = [
+        run_arm(arm, EVAL_ITEMS, LABELS, CONTEXT, only_family=Family.CONTENT).escape_rate
+        for arm in build_arms(RECORDED)
+    ]
+    assert rates[2] <= rates[1] <= rates[0]
+
+
+def test_the_ladder_carries_its_own_missing_rung_beside_the_numbers():
+    """Two tests stop arm 1 being fabricated. This one stops it being silently omitted.
+
+    A consumer that iterates the results and reports what it finds would present a three-rung
+    ladder as the whole ladder, and §9.2's four-arm structure would go missing with nothing in the
+    output saying so. The absence travels with the numbers rather than beside them in a docstring.
+    """
+    ladder = run_ladder(EVAL_ITEMS, LABELS, CONTEXT, build_arms(RECORDED))
+    assert ladder.absent == ABSENT_ARMS
+    assert len(ladder) == 3
+    assert [result.name for result in ladder] == [arm.name for arm in build_arms(RECORDED)]

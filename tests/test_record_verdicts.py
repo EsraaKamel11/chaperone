@@ -90,3 +90,24 @@ def test_every_recorded_class_is_a_registered_content_class():
         ViolationClass.NEGOTIATES_TERMS.value,
         ViolationClass.FORWARD_LOOKING_RETURN.value,
     }
+
+
+def test_a_span_that_is_not_text_is_refused_at_the_boundary():
+    """`span` is quoted verbatim to a human by `denial_result` and read by Task 20's calibration.
+
+    Nothing downstream re-checks its type, so a number or a list recorded here travels intact into
+    a cell and into a refusal message. Refused where every other field's shape is checked.
+    """
+    for span in (42, ["a"], {"text": "a"}, True):
+        with pytest.raises(RecordingError):
+            recorded_row(
+                {"violates": True, "violation_class": "advises_on_merits", "confidence": 0.9, "span": span},
+                "row 1",
+            )
+
+
+def test_a_span_may_be_absent_because_a_verdict_need_not_quote_one():
+    row = recorded_row(
+        {"violates": True, "violation_class": "advises_on_merits", "confidence": 0.9, "span": None}, "row 1"
+    )
+    assert row["span"] is None

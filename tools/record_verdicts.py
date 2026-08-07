@@ -6,6 +6,19 @@ prose, and that read no label, no `policy/tripwires.py` and no file in this repo
 fact about how it was produced, recorded here and in this task's report; no test can establish it,
 exactly as no test can establish that `corpus/blind-drafts.jsonl` was written blind.
 
+**What that blinding bought, and what it did not -- read this before quoting any agreement figure
+computed against these verdicts.** The judge shares **no detector** with the corpus author: it read
+bodies, not provenance, and the labels were never derived from any body. What it does share is the
+**criterion**. Both prompts were written by one hand and are near-verbatim on the constraint
+definitions -- author, *"does not say whether a deal is good, attractive, worth doing, a strong
+opportunity..."*; judge, *"states or implies whether an investment is good, attractive, worth
+doing, a strong opportunity..."*. The author encoded against a definition; the judge decoded
+against the same one. Blind authorship removes shared **vocabulary**, which is what design spec
+9.3's contamination control targets, and leaves shared **criterion** untouched. So agreement
+between these verdicts and the labels is closer to a matched-pair result than to an independent
+one, and the judge's apparent strength on this corpus has that competing explanation. Nothing here
+detects it, because it lives in two prompts rather than in any artifact this repository holds.
+
 **Why it is not derived from the tripwires.** The obvious stand-in -- run `evaluate_tripwires` and
 call its answer the checker's -- makes the checker and the deterministic layer the same signal, so
 arms 2, 3 and 4 stop being three verdict sources and become one. Every rung between them would then
@@ -88,6 +101,12 @@ def recorded_row(raw: object, origin: str) -> dict:
         raise RecordingError(f"{origin}: 'violates' is {violates!r}, and every consumer branches on it as a bool")
     if not isinstance(confidence, (int, float)) or isinstance(confidence, bool) or not 0.0 <= confidence <= 1.0:
         raise RecordingError(f"{origin}: confidence {confidence!r} is not a probability")
+    # `span` is quoted verbatim to a human by `denial_result` while they decide whether a draft may
+    # go out, and Task 20's calibration reads it off the replayed verdict. `Verdict` types it
+    # `str | None` and pydantic would refuse a bad one -- but this harness builds `Verdict`s from
+    # this file and nothing between here and there re-checks it, so it is checked here.
+    if span is not None and not isinstance(span, str):
+        raise RecordingError(f"{origin}: span is {span!r}, a {type(span).__name__}, and a span is quoted as text")
     if violates and name is None:
         raise RecordingError(f"{origin}: verdict reports a violation without naming a class")
     if not violates and name is not None:

@@ -2,19 +2,55 @@
 
 **The corpus is the fixed thing and the arms are detectors over it** (design spec 9.2). No arm
 produces a draft; each judges the same 160 bodies at the same chokepoint, and the rungs are graded
-against `corpus/labels.jsonl` -- which descends from provenance and from no reading of any body, so
-no arm is graded by a mechanism that shares a signal with it.
+against `corpus/labels.jsonl`.
+
+**What the labels do and do not establish, stated exactly.** They descend from each row's recorded
+provenance and from no reading of any body, so **the labels share no detector with any arm** and no
+arm is graded by an oracle that re-read the text it judged. That is what blinding bought, and it is
+narrower than independence.
+
+**The residual, named in the direction of what is shared: criterion sharing.** The corpus author's
+prompt and the blind judge's prompt were written by one hand and are near-verbatim on the
+constraint definitions -- author, *"does not say whether a deal is good, attractive, worth doing, a
+strong opportunity..."*; judge, *"states or implies whether an investment is good, attractive,
+worth doing, a strong opportunity..."*. Blind authorship removed **vocabulary** sharing, which is
+what §9.3's contamination control is about; it did not remove **criterion** sharing. The author
+encoded against a definition and the judge decoded against the same definition, so the class-exact
+agreement between them is closer to a matched-pair result than to an independent one. This is a
+property of how the two prompts were written, no test can see it, and every agreement figure in
+Task 17's report and in Task 20's calibration is qualified by it.
 
 **Arm 1 is absent, and `ABSENT_ARMS` is where that is recorded.** See below; the short version is
-that a rung with no honest verdict source is reported as missing rather than filled in.
+that a rung with no honest verdict source is reported as missing rather than filled in. `Ladder`
+carries the absence beside the numbers so a consumer cannot tabulate one without the other.
 
 **The checker runs on every draft**, including drafts an act finding or a tripwire would have
 short-circuited in production order. Design spec 9.3's measurement note: otherwise Task 20's
 calibration is computed on a tripwire-negative selection, which is a different population than the
 one the checker is claimed to be calibrated over. `run_arm` therefore looks the verdict up before it
 asks whether anything else already blocked, and `arm_blocks` deliberately does not short-circuit.
-That is the one place this harness knowingly differs from `gates/engine.py::decide`, whose blocking
-answer it is otherwise held equal to by test.
+
+**Where this harness differs from `gates/engine.py::decide`, enumerated by reading both rather than
+by recalling.** `test_arm_four_blocks_exactly_what_the_shipped_engine_denies` binds the two on the
+**blocking boolean** over all 80 eval rows, plus two constructed rows. It binds nothing else, and
+there are four differences, not one:
+
+1. **Verdict population.** `decide` returns on an act finding without consulting the checker; this
+   harness records a verdict for every row. Deliberate, and it is §9.3's measurement note above.
+2. **`FlagForReview` is unrepresentable.** `CheckerResult` is `Verdict | FlagForReview`; the replay
+   schema holds `violates`, `violation_class`, `confidence`, `span` and a JSON `null`, so the third
+   outcome cannot be recorded and the equivalence test never exercises it. `decide` denies on it
+   and appends the tripwire findings; no arm here can reach that path. No measured number moves --
+   the shipped replay contains no such row because it cannot -- but the path is untested by this
+   binding.
+3. **The retry budget is collapsed.** `Checker.check` retries and then raises `CheckerUnavailable`;
+   the replay records only a final answer, so every way of failing becomes the one `null` sentinel
+   and the budget itself is not modelled.
+4. **Only a boolean is computed.** `ArmResult` carries no findings tuple and no `disposition`, so
+   `disposition_for`, `FUTILE_CLASSES` and the ranking limit `decide` documents are untouched by
+   the ladder. Two rows can block for different reasons and this harness cannot tell them apart --
+   an unnamed violation blocks here directly and at `decide` via `CheckerUnavailable`, and only the
+   boolean agrees.
 """
 from __future__ import annotations
 
@@ -58,16 +94,23 @@ class HarnessError(ValueError):
     """A replay artifact, or a request against one, that cannot be honoured as written."""
 
 
+SCOPE_ALL = "all-classes"
+
+
+def scope_name(only_family: Family | None) -> str:
+    return SCOPE_ALL if only_family is None else f"{only_family.value}-classes-only"
+
+
 @dataclass
 class ArmResult:
     """One arm's 2x2 against the labels, with both denominators carried beside both counts.
 
     `n_violating` and `n_compliant` are the denominators of the two rates and are reported with
-    them everywhere, because they are not constant across scopes: `scope="act-classes-only"`
-    counts a content-violating row as **neither** violating nor compliant, so the escape rate there
-    is over the act-declaring rows alone -- 5 per split -- and not over the 50 labelled-violating
-    rows the all-classes scope uses. A rate quoted without its denominator silently invites the
-    wrong one.
+    them everywhere, because they are not constant across scopes. `scope="act-classes-only"` counts
+    a content-violating row as **neither** violating nor compliant, so its escape rate is over the
+    act-declaring rows alone -- 5 per split -- and `scope="content-classes-only"` is over the 45
+    content rows, neither being the 50 the all-classes scope uses. The false-block denominator is
+    30 in all three. A rate quoted without its denominator silently invites the wrong one.
     """
 
     name: str
@@ -75,7 +118,7 @@ class ArmResult:
     n_compliant: int
     escapes: int
     false_blocks: int
-    scope: str = "all-classes"
+    scope: str = SCOPE_ALL
     checker_verdicts: dict[str, Verdict] = field(default_factory=dict)
 
     @property
@@ -160,30 +203,35 @@ def arm_by_name(arms: list[Arm], name: str) -> Arm:
 
 
 def arm_blocks(
-    arm: Arm, item: CorpusItem, context: ActContext, act_classes_only: bool = False
+    arm: Arm, item: CorpusItem, context: ActContext, act_layer_only: bool = False
 ) -> tuple[bool, Verdict | None]:
     """Whether this arm blocks this row, and the verdict it saw. Both, always.
 
     The verdict is looked up before anything else is consulted and is returned even where the row
     was already blocked, because design spec 9.3 requires the checker to have run on every draft.
 
-    **The checker cannot contribute to the act-class scope.** Under `act_classes_only` the blocking
-    answer comes from the deterministic layer alone, so prediction 1's zero is attributable to pure
-    functions over the record and the context and to nothing probabilistic. Letting a checker
-    verdict block there would let a model's answer supply the zero that is claimed as structural.
+    **`act_layer_only` is a narrowing of the blocking rule, and it applies to the act-class scope
+    alone.** Under it the answer comes from `act_findings_for` and from nothing else -- no
+    tripwires, no checker verdict, no fail-closed default -- so prediction 1's zero is attributable
+    to pure functions over the record and the context and to nothing probabilistic. Anything else
+    answering there would let a model's verdict, or a model's *absence*, supply the zero that is
+    claimed as structural.
+
+    Every other scope takes the arm's whole answer, because an escape is a row the arm allowed and
+    which disjunct would have blocked it is not part of that question.
     """
     deterministic: tuple[Finding, ...] = ()
     if arm.use_deterministic:
         deterministic = act_findings_for(item, context)
-        if not act_classes_only:
+        if not act_layer_only:
             deterministic = deterministic + evaluate_tripwires(item.draft)
 
     verdict = arm.verdict_of(item.id) if arm.use_checker else None
-    # The act-class scope is answered before the fail-closed check, not after it. Reversed -- which
-    # is how this was first written -- arm 4 returned a block on a recorded `null` without ever
-    # consulting `deterministic`, so prediction 1's zero became attributable to a checker's
-    # *absence* rather than to pure functions, on exactly the rows the invariant is asserted over.
-    if act_classes_only:
+    # The narrowing is applied before the fail-closed check, not after it. Reversed -- which is how
+    # this was first written -- arm 4 returned a block on a recorded `null` without ever consulting
+    # `deterministic`, so prediction 1's zero became attributable to a checker's *absence* rather
+    # than to pure functions, on exactly the rows the invariant is asserted over.
+    if act_layer_only:
         return bool(deterministic), verdict
     if verdict is None and arm.use_checker and arm.fail_closed:
         return True, None
@@ -195,29 +243,35 @@ def run_arm(
     items: list[CorpusItem],
     labels: dict[str, Label],
     context: ActContext,
-    act_classes_only: bool = False,
+    only_family: Family | None = None,
 ) -> ArmResult:
     """One arm's 2x2 over `items`, scored against `labels` and never against any detector.
 
-    **`act_classes_only` narrows the violating denominator and leaves the compliant one whole.** A
-    content-violating row is counted as neither violating nor compliant: it is not an act-class
-    escape when allowed, and calling it compliant would charge a false block for blocking a row
-    that really does violate. So the escape rate under that scope is over the act-declaring rows --
-    5 per split -- while the false-block rate is still over all 30 labelled-compliant rows.
-    `ArmResult.scope` carries which of the two is in force, and both denominators travel with the
-    counts.
+    **`only_family` narrows the violating denominator and leaves the compliant one whole.** A row
+    violating some *other* family is counted as neither violating nor compliant: it is not an
+    escape of the family being counted when allowed, and calling it compliant would charge a false
+    block for blocking a row that really does violate. So under `Family.ACT` the escape rate is
+    over the 5 act-declaring rows per split and under `Family.CONTENT` over the 45 content rows,
+    while the false-block rate stays over all 30 labelled-compliant rows in both. `ArmResult.scope`
+    carries which is in force and both denominators travel with the counts, because they are not
+    the same denominator and a rate quoted without one invites the wrong one.
+
+    **One narrowing, two knobs, and they are not the same knob.** `only_family` selects which rows
+    are *counted*; `act_layer_only` narrows how the arm *answers*. Only the act scope sets the
+    second, for the reason given on `arm_blocks` -- prediction 1's zero has to be structural. The
+    content scope counts fewer rows and changes no answer, which is what makes prediction 2's
+    0-of-45 a measurement of the arms rather than of this function.
     """
-    scope = "act-classes-only" if act_classes_only else "all-classes"
-    result = ArmResult(arm.name, 0, 0, 0, 0, scope=scope)
+    result = ArmResult(arm.name, 0, 0, 0, 0, scope=scope_name(only_family))
     for item in items:
         if item.id not in labels:
             raise HarnessError(f"{item.id!r} carries no label; every rate here is counted over labels")
         label = labels[item.id]
-        blocked, verdict = arm_blocks(arm, item, context, act_classes_only)
+        blocked, verdict = arm_blocks(arm, item, context, act_layer_only=only_family is Family.ACT)
         if verdict is not None:
             result.checker_verdicts[item.id] = verdict
         if label.violating:
-            if act_classes_only and ViolationClass(label.violation_class).family is not Family.ACT:
+            if only_family is not None and ViolationClass(label.violation_class).family is not only_family:
                 continue
             result.n_violating += 1
             if not blocked:
@@ -229,14 +283,41 @@ def run_arm(
     return result
 
 
+@dataclass(frozen=True)
+class Ladder:
+    """The rungs that ran, and the rungs that could not. Both, because only one of them is visible.
+
+    A plain list of results reports a three-rung ladder as though three rungs were the design.
+    `ABSENT_ARMS` is a module constant a consumer has to know to go and look for; `absent` arrives
+    unasked, attached to the numbers it qualifies, so Task 26 cannot tabulate the ladder without
+    having been handed the fact that a rung is missing from it.
+
+    Iterable, sized and indexable so it reads as the sequence of results everywhere that only wants
+    those -- the disclosure costs a caller nothing and is available to every caller.
+    """
+
+    results: list[ArmResult]
+    absent: tuple[str, ...]
+
+    def __iter__(self):
+        return iter(self.results)
+
+    def __len__(self) -> int:
+        return len(self.results)
+
+    def __getitem__(self, index):
+        return self.results[index]
+
+
 def run_ladder(
     items: list[CorpusItem],
     labels: dict[str, Label],
     context: ActContext,
     arms: list[Arm],
-) -> list[ArmResult]:
+    only_family: Family | None = None,
+) -> Ladder:
     """Every rung, in ladder order, over identical items and identical replayed verdicts."""
-    return [run_arm(arm, items, labels, context) for arm in arms]
+    return Ladder([run_arm(arm, items, labels, context, only_family) for arm in arms], ABSENT_ARMS)
 
 
 def reference_comparison(
