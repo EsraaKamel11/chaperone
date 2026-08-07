@@ -181,6 +181,24 @@ earns the paste is that retryability and redraftability are two axes: whether a 
 **4.7 Headline numbers**, each with its denominator and split, prediction outcomes reported
 held-or-failed.
 
+**What this section can contain the day it is drafted.** No `RESULTS.md` exists and no arm has been
+run, so there are no measured rates yet. Inventing them is out of the question and leaving the section
+out would hide the discipline that makes the artifact interesting. So §4.7 ships in two halves:
+
+- **Now: the corpus, and the predictions recorded before it was measured.** The corpus counts are
+  knowable without running anything and are pinned cell by cell by `tests/test_preregistration.py`, so
+  they cannot go stale in silence: 160 drafts, 80 per split, 50 labelled violating and 30 labelled
+  compliant per split, with the content classes at 15 rows each per split (45 per split) and
+  `act:figure_not_in_record` at 5 per split. Four of the five act-classes carry no labelled row, and
+  the README says which and why rather than letting a reader infer a wider claim. Beside that, the
+  five pre-registered predictions, stated as predictions, with `git log` named as the only witness
+  that they preceded the numbers.
+- **At push: the outcomes**, filled in when the arms run, each reported held-or-failed.
+
+This ordering is itself the argument. A reader who has seen predictions published before results, with
+a stated interpretation for each branch, knows what the later numbers are worth. A reader handed only
+results does not.
+
 **4.8 Limits.** Cross-turn accumulation as the named residual star: every turn passes the per-draft
 gate while the conversation as a whole breaches, and the checker sees the thread but no test yet shows
 a cross-turn breach caught. Plus a whole-chain rewrite by an actor with write access defeats the audit;
@@ -209,9 +227,28 @@ field. The comprehensive piece.
 covering the six-step permission pipeline and the shadowing footgun; why the checker model is at least
 as strong as the drafter; why quality and permission are two lanes and never one. Carries the **Never
 table** of per-module "Never" clauses and the **agent-grants and blast-radius table** from design spec
-§6.1. Four rows, and "the drafting agent holds no send tool" is the cheapest strong sentence in the
-repository. The capability ladder appears here **only** as policy, with its mechanics marked
-designed-not-built.
+§6.1.
+
+**That table is design, and the page must say so.** There is no agent registry anywhere in `src/`, so
+the four-row topology (research, matching, drafting, conversation) and the sentence "the drafting
+agent holds no send tool" describe an intended arrangement rather than a shipped one. What **is**
+built is the enforcement primitive beneath it: `granted_tools` on `ActContext`, checked by a pure
+function at `src/chaperone/policy/act_classes.py`, which returns `act:tool_outside_grant` for any tool
+outside the grant, plus the two enforcement points `pre_tool_use` and `guarded_call` in
+`src/chaperone/gates/hook.py`. The page states the built primitive first and marks the topology
+**designed, not built**. Presenting a four-agent topology as though it ships would be the single
+easiest overclaim in this repository to make and the easiest for a reader to falsify, since the
+absence is one `ls src/chaperone/` away.
+
+**Do not cite the design spec's `[planned:` test names.** `test_every_tool_description_passes_the_linter`,
+`test_no_registered_tool_can_mutate_policy` and `test_the_same_policy_denies_at_both_layers` are marked
+planned in design spec §6.1 to §6.3 and were verified absent from the suite. The §7 guard would fail on
+any of them, which is the guard working. The claims they would have backed are stated as designed or
+dropped.
+
+Design spec §7.2 says demotion is built and promotion is not. Neither is: no promotion or demotion
+mechanics exist under `src/`. Both are designed-not-built rows. The capability ladder appears here
+**only** as policy.
 
 **5.3 `measurement.md`.** Pre-registration through results. Frames each number by what it does *not*
 mean beside what it does. Links to the generated `RESULTS.md`. The three-layer enforcement sentence
