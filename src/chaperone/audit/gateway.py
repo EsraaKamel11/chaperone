@@ -139,6 +139,25 @@ class Gateway:
         ))
         return seq
 
+    def sent_count(self) -> int:
+        """The cap counts intents. An unresolved intent keeps consuming it.
+
+        Design spec 3.2 keeps the cap predicate pure over `(draft, record, context)` and makes the
+        **gateway** supply the count by reading the log; this is that read, and it is the whole of
+        the state access the predicate is spared.
+
+        **Delegated rather than re-derived, and imported inside the function on purpose.**
+        `recovery.counted_sends` is where the intent/outcome pairing lives, and `recovery` imports
+        this module for `DIGEST_UNAVAILABLE`, so a module-level import here would be a cycle.
+        Re-deriving the count instead would put a second pairing beside that one, and the two would
+        disagree about the intents recovery released -- the drift being a cap that charges for a
+        send the recovery pass believes it abandoned. `store.count` is deliberately *not* used: it
+        reports a number and drops `torn`.
+        """
+        from chaperone.audit.recovery import counted_sends
+
+        return counted_sends(self.store)
+
     def call(
         self,
         tool_name: str,

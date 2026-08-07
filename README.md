@@ -352,7 +352,7 @@ Everything on the right was verified absent from the tree, not assumed.
 | Refinement loop, with futility and deadlock stops | **Built.** The redraft rides in the handoff as a proposal; it never transmits on its own. |
 | Capability ladder demotion transition and the tier-2 ceiling | **Built.** Promotion has a transition and no caller. |
 | Four-agent topology and per-agent grants | **Designed, not built** |
-| Crash-recovery `resume` pass, branches (b) and (c) | **Designed, not built** |
+| Crash-recovery `resume` pass, branches (b) and (c) | **Built.** No startup caller schedules it, and branch (c) files no handoff: the log holds a hash, never a recipient. |
 | Thread-scope pass for cross-turn accumulation | **Designed, not built** |
 | Pydantic AI binding for the checker | **Designed, not built** |
 
