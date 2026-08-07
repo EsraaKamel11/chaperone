@@ -252,6 +252,14 @@ def test_a_recall_loss_is_taken_over_what_was_reachable_and_not_over_what_the_ar
     perfect result, awarded for returning almost nothing. Recall loss is precisely what the hard
     arm is supposed to pay in this ablation, so a denominator that shrinks with the shortlist
     erases the comparison's whole subject. The denominator is `min(n_eligible, k)`.
+
+    The labels here are the only ones in this file not read off the id prefix, and they are
+    deliberately at odds with `classify`: nineteen of the twenty rows carry a hole and land in
+    needs-verification, and all twenty are labelled eligible because ground truth is a property of
+    the *latent* record and a hole is an observation defect rather than a fact about the party.
+    That is the same rule `_truth` states, applied to a population that is already degraded -- it
+    is not the fixture-validity check being skipped, which is scoped to clean records for exactly
+    this reason.
     """
     pool = [_c("g0", 30)] + [_c(f"g{i}", 120 + 12 * i, sector=None) for i in range(1, 20)]
     hard, _ = run_matching_ablation(pool, MANDATE, {c.id: True for c in pool}, k=10)
