@@ -163,6 +163,35 @@ def test_no_organisation_is_named_in_any_published_markdown(path: Path):
         )
 
 
+SOURCE_ROOT = REPO / "src" / "chaperone"
+TESTS_ROOT = REPO / "tests"
+RATIO_CLAIM = re.compile(r"(\d+) lines of tests? for every line of source")
+
+
+def _python_lines(root: Path) -> int:
+    return sum(len(p.read_text(encoding="utf-8").splitlines()) for p in root.rglob("*.py"))
+
+
+def test_the_readmes_test_to_source_ratio_holds_in_the_tree():
+    """A hand-maintained line count drifts by construction, so the README states a ratio and this
+    recomputes it.
+
+    The absolute counts were stale in the underselling direction when this was written, which is the
+    harmless direction and is exactly why nobody noticed. A ratio is the claim actually being made
+    and it survives ordinary commits, so binding it costs no red builds while still failing on the
+    day the suite stops outweighing the source.
+    """
+    stated = RATIO_CLAIM.findall(README.read_text(encoding="utf-8"))
+    assert len(stated) == 1, f"expected exactly one test-to-source ratio claim in the README, found {stated}"
+
+    source, tests = _python_lines(SOURCE_ROOT), _python_lines(TESTS_ROOT)
+    assert source, "no source lines were counted, so this guard would pass vacuously"
+    assert round(tests / source) == int(stated[0]), (
+        f"the README claims {stated[0]} lines of tests per line of source; "
+        f"the tree measures {tests} / {source} = {tests / source:.2f}"
+    )
+
+
 def test_the_readme_declares_the_scenario_synthetic():
     """A reader must not have to reach the docs to learn the data is not real."""
     opening = "\n".join(README.read_text(encoding="utf-8").splitlines()[:40]).lower()

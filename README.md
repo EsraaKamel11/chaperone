@@ -38,9 +38,11 @@ python demo/day2.py       one draft, two lanes, opposite verdicts
 python tools/static_audit.py   proves the policy layer imports no LLM client
 ```
 
-Roughly 2,400 lines of source under `src/chaperone/` against roughly 6,700 lines of tests. The tests
-are not incidental to the argument; several of the claims below are true *because* a named test
-attacks them, and those test names are cited inline so you can check any of them in one grep.
+Roughly 3 lines of tests for every line of source under `src/chaperone/`. That ratio is the claim,
+not a line count, and `tests/test_readme_claims.py` recomputes it against the tree so a
+hand-maintained number cannot drift here in silence. The tests are not incidental to the argument;
+several of the claims below are true *because* a named test attacks them, and those test names are
+cited inline so you can check any of them in one grep.
 
 ---
 
@@ -241,10 +243,23 @@ because the corpus varies the record and nothing else. So any act-class claim he
 `act:figure_not_in_record` rows per split and on nothing wider. Stating that is the difference between
 a measurement and a headline.
 
-**Status: the arms have not been run.** There is no `RESULTS.md` in this tree yet, and no rate appears
-in this README, because none has been computed. The eval split is touched once, by design, and
-publishing a figure before that would spend it. What is published now is the corpus above and the five
-predictions, which is the half that has to come first to mean anything.
+**Status: the arms have been run, once, on the eval split.** The ladder in
+`src/chaperone/evals/harness.py` was run over the eval half of the corpus against the recorded
+verdicts frozen in `corpus/recorded_verdicts.json`, and **two predictions failed.** A failed
+prediction is reported as a failed prediction, which is the clause that decides whether the
+pre-registration above was doing work or decorating.
+
+**No rate is printed here yet, and that is a choice about denominators rather than about disclosure.**
+Every rate the ladder produces needs the denominator from the table above and the criterion-sharing
+confound named under Limits, and a rate quoted without those two is worse than no rate. The outcomes
+are written up with both, held or failed, in a Results section that does not exist in this tree
+today and is written once the remaining arms have run.
+
+**Re-running spends nothing, so a reader can reproduce this now.** What was spent once was the
+judging: the blind checker read the eval bodies a single time and its verdicts were recorded. Every
+arm is a deterministic function over that frozen recording, so replaying it repeats nothing.
+`tests/evals/test_harness.py` runs the ladder over the eval items on every `pytest` invocation,
+which is also why the status above cannot quietly go stale: the run it describes happens in CI.
 
 ---
 
@@ -267,9 +282,17 @@ credentials is the answer, and it is infrastructure rather than code.
 line is a predicate failing open rather than a forensics gap. That is why entries are written
 before the effect and fsynced, and why the tests care about torn tails.
 
-**The corpus and the tripwires share an author.** The drafts were written blind, which is the
-protection that matters, but the tripwire vocabulary and the label set come from the same mind. The
-pre-registration states this and states its direction.
+**The corpus author and the blind checker share a criterion.** Blinding bought one thing precisely:
+two independent instances, neither able to read this repository, neither shown the labels or the
+tripwire list, and neither shown the other's work. That removes shared **vocabulary**. It does not
+remove shared **criterion**. Both prompts were written by one hand and are near-verbatim on the
+constraint definitions, so the author encoded against a definition and the checker decoded against
+that same definition, and the agreement between them is closer to a matched-pair result than to an
+independent one. Read it as evidence that these constraints are crisp enough to transfer between two
+instances, and not as evidence that a checker catches what a real drafter would emit. It is a
+property of how the two prompts were written rather than of the code, so nothing in this suite
+asserts it; `src/chaperone/evals/harness.py` states it beside the numbers it qualifies. The tripwire
+vocabulary and the label set come from that same hand, and the same caution applies there.
 
 **No compliant near-miss inside the tripwires' reach exists in this corpus.** So this artifact
 *cannot* measure the false-block cost of lexical tripwires. A near-zero false-block rate here is a
