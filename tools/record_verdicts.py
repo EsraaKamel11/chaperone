@@ -145,7 +145,13 @@ def record(
             f"{len(missing)} corpus rows carry no verdict {missing[:3]}, "
             f"{len(extra)} verdicts name no corpus row {extra[:3]}"
         )
-    out_path.write_text(json.dumps(rows, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    # `newline="\n"` because Python's text mode translates on Windows and `.gitattributes` pins the
+    # repository to LF -- so a rebuild on the recording platform would otherwise differ from the
+    # committed artifact in every line, and the byte-equality test that exists to catch drift would
+    # fail for a reason that is not drift. `tools/build_corpus.py` and `tools/label_corpus.py`
+    # already write this way; this is the same rule, not a third convention.
+    with out_path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(json.dumps(rows, indent=2, sort_keys=True) + "\n")
     return rows
 
 

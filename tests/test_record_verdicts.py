@@ -71,6 +71,16 @@ def test_the_committed_replay_is_a_rebuild_of_the_committed_blind_verdicts(tmp_p
     assert rebuilt.read_bytes() == RECORDED_PATH.read_bytes()
 
 
+def test_the_replay_is_written_with_the_line_ending_gitattributes_pins():
+    """Otherwise the byte-equality test above passes only on the platform that recorded the file.
+
+    `.gitattributes` normalizes to LF on checkout while Python's text mode writes CRLF on Windows,
+    so a rebuild on a clean clone would differ from the committed artifact in every line and the
+    test that exists to catch drift would fail for a reason that is not drift.
+    """
+    assert b"\r\n" not in RECORDED_PATH.read_bytes()
+
+
 def test_every_recorded_class_is_a_registered_content_class():
     recorded = json.loads(RECORDED_PATH.read_text(encoding="utf-8"))
     named = {row["violation_class"] for row in recorded.values() if row is not None}
