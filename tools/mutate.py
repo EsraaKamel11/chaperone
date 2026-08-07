@@ -184,6 +184,17 @@ MUTANTS: list[Mutant] = [
         "        if canonical not in draft_figures:",
         "        if False:",
     ),
+    # "Null passes" -- design spec 8.3's first named wrong answer, in the one line that implements
+    # the right one. A candidate whose cheque size nobody recorded stops being a distinct state and
+    # becomes an eligible one, so a party the mandate would exclude is surfaced with no bucket, no
+    # named field and nothing said. The anchor carries its `if` line because the bare `append` call
+    # appears twice in the function and differs only by indentation.
+    Mutant(
+        "a_missing_eligibility_field_passes_the_filter",
+        SRC / "matching" / "filters.py",
+        '    if candidate.check_size_max is None:\n        missing.append("check_size_max")',
+        "    if candidate.check_size_max is None:\n        pass",
+    ),
 ]
 
 
