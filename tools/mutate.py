@@ -208,6 +208,51 @@ MUTANTS: list[Mutant] = [
         '("geography", mandate.geography, 0.20)',
         '("geography", mandate.geography, 0.0)',
     ),
+    # The gateway's interface contract on `requires_approval_for`, as the one line that carries it.
+    # Removing it restores exactly the body `task-24-brief.md` handed over: equality only, which
+    # answers `False` for a re-attempt whose arguments could not be canonicalised, because that
+    # digest hashes `repr(args)` and `repr` is not stable across object identity or key insertion
+    # order. Design spec 5.4(c) calls this mechanism "what prevents the double-send", so a survivor
+    # here means the suite pins the mechanism's *name* and not its effect.
+    Mutant(
+        "the_unavailable_digest_stops_demanding_approval",
+        SRC / "audit" / "recovery.py",
+        "    if digest.startswith(DIGEST_UNAVAILABLE):",
+        "    if False:",
+    ),
+    # The send cap read off a torn log. `AuditStore.count` reports a number and drops `torn`, and
+    # this is the term that puts the lost record back. Without it the count comes back one short
+    # after a crash and the cap permits one send too many -- design spec 5.3's enforcement predicate
+    # failing open, which is the whole reason durability is not housekeeping here.
+    Mutant(
+        "the_cap_forgets_the_record_the_tear_took",
+        SRC / "audit" / "recovery.py",
+        "    return intents - released + (1 if torn else 0)",
+        "    return intents - released",
+    ),
+    # One outcome resolves one intent. The replacement is the set-membership pairing, written out:
+    # every intent sharing a digest is resolved by the first outcome carrying it. A re-attempted
+    # send digests to the same value as the attempt that crashed, so the mutant reports the
+    # dangling intent as complete -- branch (a) over an intent nobody resolved.
+    Mutant(
+        "one_outcome_resolves_every_intent_sharing_its_digest",
+        SRC / "audit" / "recovery.py",
+        "        elif entry.kind == \"outcome\" and pending.get(entry.arg_digest):\n"
+        "            paired[pending[entry.arg_digest].pop()][1] = entry\n",
+        "        elif entry.kind == \"outcome\":\n"
+        "            for index in pending.get(entry.arg_digest, []):\n"
+        "                paired[index][1] = entry\n"
+        "            pending[entry.arg_digest] = []\n",
+    ),
+    # Design spec 5.4(b) is a conjunction, and this is the conjunct a brief-following implementer
+    # drops: `stale_after_seq` arrives in the signature and is never read. The mutant releases an
+    # intent that may still be in flight from the cap on a probe answer that means "not yet".
+    Mutant(
+        "the_release_branch_stops_checking_staleness",
+        SRC / "audit" / "recovery.py",
+        "        absent = _probe(side_effect_absent, entry) if entry.seq <= stale_after_seq else None",
+        "        absent = _probe(side_effect_absent, entry)",
+    ),
 ]
 
 
