@@ -18,6 +18,13 @@ argument this repository is making.
 | **Detection only** | Caught after the fact, not prevented. |
 | **Designed, not built** | The mechanism is specified and absent from this tree. |
 
+**A value may carry a qualifier**, written after a comma: "measured, with an unquantified residual",
+"detection only, with a stated limit", "structural invariant, witnessed by `git log` rather than by
+the suite". The qualifier is not decoration and it is not hedging. It is where an entry names the part
+of its own claim that the mechanism does not reach, and several of the most useful entries below are
+useful precisely because of what their qualifier admits. The base value is always one of the five, and
+`tests/test_readme_claims.py` asserts it.
+
 Count the **measured** rows against the **zero by construction** rows before reading further. Most
 failure modes in a system like this one are measured, and a document that labels them all as
 guarantees is telling you it has not looked closely.

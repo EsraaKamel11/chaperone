@@ -42,6 +42,21 @@ def _unwrapped(text: str) -> str:
     return re.sub(r"\s+", " ", text.lower())
 
 
+IGNORED_DIRS = frozenset({".git", ".superpowers", "__pycache__", ".venv", "venv", "node_modules"})
+
+
+def _all_markdown() -> list[Path]:
+    """Every markdown file that would publish, not only the reader-facing five.
+
+    `docs/superpowers/` ships with this repository, so a guard scoped to `docs/*.md` would leave the
+    design documents unchecked while claiming to cover the repository. `.superpowers/` is excluded
+    because it is gitignored build output and does not publish.
+    """
+    return sorted(
+        p for p in REPO.rglob("*.md") if not any(part in IGNORED_DIRS for part in p.parts)
+    )
+
+
 def _defined_test_names() -> set[str]:
     names: set[str] = set()
     for path in (REPO / "tests").rglob("test_*.py"):
@@ -130,15 +145,22 @@ FORBIDDEN_TOKEN_DIGESTS = frozenset({
 })
 
 
-def test_no_organisation_is_named_in_the_reader_facing_docs():
+@pytest.mark.parametrize("path", _all_markdown(), ids=lambda p: str(p.relative_to(REPO)))
+def test_no_organisation_is_named_in_any_published_markdown(path: Path):
     """CLAUDE.md: no organisation name appears anywhere in this repository.
 
-    The scenario is synthetic, and an artifact that names a real firm while describing constraint
-    violations on synthetic data invites a reader to believe the data is not synthetic.
+    Scoped to every markdown file that publishes rather than to the reader-facing five, because the
+    docstring's claim is about the repository and a guard narrower than its own claim is the exact
+    shape of overclaim this suite exists to catch. `docs/superpowers/` ships, so it is checked.
+
+    The failure message names no token. A guard that printed the forbidden word on failure would
+    publish it into every CI log, which is the thing it was written to prevent.
     """
-    for word in re.findall(r"[A-Za-z0-9]+", _reader_facing_text().lower()):
+    for word in re.findall(r"[A-Za-z0-9]+", path.read_text(encoding="utf-8").lower()):
         digest = hashlib.sha256(word.encode()).hexdigest()
-        assert digest not in FORBIDDEN_TOKEN_DIGESTS, "a forbidden organisation token appears in the reader-facing docs"
+        assert digest not in FORBIDDEN_TOKEN_DIGESTS, (
+            f"a forbidden organisation token appears in {path.relative_to(REPO)}"
+        )
 
 
 def test_the_readme_declares_the_scenario_synthetic():
@@ -190,6 +212,55 @@ def test_absent_subsystems_are_not_described_as_built():
     assert not built_now, (
         f"these are now built and the designed-vs-built table still lists them as designed: {built_now}"
     )
+
+
+CANONICAL_CLAIMS = (
+    "zero by construction",
+    "structural invariant",
+    "measured",
+    "detection only",
+    "designed, not built",
+)
+
+CLAIM = re.compile(r"\*\*Claim: ([^*]+)\*\*")
+
+
+def test_every_claim_value_in_the_catalog_is_one_of_the_five():
+    """The catalog declares a five-value vocabulary, so drift in it is drift in the thesis.
+
+    The ratio of measured rows to zero-by-construction rows is the argument this repository makes.
+    A vocabulary that quietly grows a sixth value, or that softens "measured" into something warmer
+    on the entries where the result is inconvenient, breaks that argument without breaking anything
+    a reader can see. Em-dashes had a test and this did not, which was the wrong way round.
+
+    A qualifier after the base value is allowed and is documented as allowed: it is where an entry
+    names what its own mechanism does not reach.
+    """
+    catalog = REPO / "docs" / "failure-modes.md"
+    values = [v.strip().rstrip(".").lower() for v in CLAIM.findall(catalog.read_text(encoding="utf-8"))]
+    assert values, "no claim values found in the catalog, so this guard is passing vacuously"
+
+    unrecognised = sorted(
+        {v for v in values if not any(v.startswith(base) for base in CANONICAL_CLAIMS)}
+    )
+    assert not unrecognised, f"claim values outside the five-value vocabulary: {unrecognised}"
+
+
+def test_zero_by_construction_is_claimed_only_on_act_class_entries():
+    """The one claim that is a guarantee, restricted to the one family that can support it.
+
+    Complements the line-level scan above: this checks the catalog's own claim fields rather than
+    incidental prose, so a content-class entry cannot acquire the strong claim by being written
+    carefully enough to keep the words on separate lines.
+    """
+    catalog = (REPO / "docs" / "failure-modes.md").read_text(encoding="utf-8")
+    for section in re.split(r"\n### ", catalog)[1:]:
+        heading, _, body = section.partition("\n")
+        claims = [c.strip().lower() for c in CLAIM.findall(body)]
+        if any(c.startswith("zero by construction") for c in claims):
+            assert "act" in heading.lower() or "act:" in body.lower(), (
+                f"entry '{heading.strip()}' claims zero by construction without being an act-class entry"
+            )
 
 
 @pytest.mark.parametrize("path", READER_FACING, ids=lambda p: p.name)
