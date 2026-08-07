@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from chaperone.policy.canonical import CanonicalizationError, figures_in, normalize_money
+from chaperone.policy.eligibility import jurisdiction_consented
 from chaperone.policy.types import Draft, Finding, Record, ViolationClass
 
 
@@ -23,7 +24,10 @@ def evaluate_act_classes(draft: Draft, record: Record, context: ActContext) -> t
     if context.tier >= 2 and context.approval_token is None:
         findings.append(Finding(ViolationClass.NO_APPROVAL_TOKEN, f"tier {context.tier} requires an approval token", None))
 
-    if draft.recipient_jurisdiction not in context.consented_jurisdictions:
+    # The predicate is shared with matching's filters rather than restated there; see
+    # `chaperone.policy.eligibility`. The finding stays here, because the act-class this lane is
+    # named for is this module's.
+    if not jurisdiction_consented(draft.recipient_jurisdiction, context.consented_jurisdictions):
         findings.append(Finding(ViolationClass.JURISDICTION_NOT_CONSENTED, draft.recipient_jurisdiction, None))
 
     if draft.tool_name is not None and draft.tool_name not in context.granted_tools:
