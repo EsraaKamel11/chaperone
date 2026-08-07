@@ -196,9 +196,15 @@ above enforceable rather than advisory, and it is the part that exists today.
 
 ## 7. The capability ladder
 
-**Policy, not mechanism.** No promotion or demotion code exists under `src/`. Tiers appear as an
-`ActContext` field that act-class predicates read, and `act:no_approval_token` fires when tier 2 or
-above lacks a token. The transitions between tiers are designed and unbuilt.
+**One transition, and a ceiling.** `src/chaperone/gates/ladder.py` holds the demotion transition, the
+per-surface tier verbs, and the tier-2 content ceiling that `CONTENT_CEILING` names. **No promotion is
+wired to any outcome**, and `test_nothing_under_src_wires_an_outcome_to_promotion` holds that by AST
+scan rather than by memory. Tiers otherwise appear as an `ActContext` field that act-class predicates
+read, and `act:no_approval_token` fires when tier 2 or above lacks a token.
+
+A surface the ceiling table does not name is refused rather than given the top tier. The expression
+that shipped first returned tier 3, the unsupervised rung, for every input that was not the exact
+`Surface.CONVERSATION` member, and `Surface` subclasses `str`.
 
 Tier verbs are defined **per task class**, because "send outward" is meaningless for a read-only
 surface.

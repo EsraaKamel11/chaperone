@@ -231,6 +231,8 @@ DESIGNED_VS_BUILT = {
     "src/chaperone/evals/calibration.py": "Checker calibration",
     "src/chaperone/evals/discrimination.py": "Discrimination",
     "src/chaperone/audit/recovery.py": "Crash-recovery",
+    "src/chaperone/gates/refine.py": "Refinement loop",
+    "src/chaperone/gates/ladder.py": "Capability ladder",
 }
 
 
