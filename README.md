@@ -250,9 +250,17 @@ two different documents, which is worth stating so the count can be checked rath
 is among the five in [PREREGISTRATION.md](PREREGISTRATION.md), and the other is the design spec's
 earlier prediction that the best arm's false-block rate would strictly rise, which the
 pre-registration supersedes and pre-commits to reporting as failed if equality landed. Equality
-landed. Two of the five are not adjudicated at all yet, because the arms that decide them have not
-run. "A failed prediction is reported as a failed prediction" is the pre-registration's own clause,
-and it is the one that decides whether that document was doing work or decorating.
+landed. "A failed prediction is reported as a failed prediction" is the pre-registration's own
+clause, and it is the one that decides whether that document was doing work or decorating.
+
+**Prediction 4 has since been adjudicated on its own, and it failed too.** Discrimination needs no
+arm: it ranks the quality judge's own scores against the labels, so
+`src/chaperone/evals/discrimination.py` measures it from `corpus/quality-scores.jsonl`, a blind
+judge's scores over all 160 bodies. The measured interval excludes 0.5, which the pre-registration
+pre-commits to reporting as a failed prediction rather than reframing. The **direction** of that
+exclusion is the part a reader should not assume, so it is reported with the number and the
+denominators rather than here. Prediction 5 is now the only one not adjudicated at all, because the
+calibration that decides it has not been built.
 
 **No rate is printed here yet, and that is a choice about denominators rather than about disclosure.**
 Every rate the ladder produces needs the denominator from the table above and the criterion-sharing
@@ -325,7 +333,7 @@ Everything on the right was verified absent from the tree, not assumed.
 | Attribution ladder over arms 2, 3 and 4 | **Built.** Arm 1 is absent and reported so. |
 | Frozen corpus, provenance labels, pre-registration | **Built** |
 | Checker calibration, Brier per cell | **Designed, not built** |
-| Discrimination, AUC with confidence interval | **Designed, not built** |
+| Discrimination, AUC with confidence interval | **Built** |
 | Matching | **Designed, not built** |
 | Refinement loop | **Designed, not built** |
 | Capability ladder promotion and demotion mechanics | **Designed, not built** |

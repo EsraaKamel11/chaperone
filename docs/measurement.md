@@ -195,8 +195,16 @@ checker's stated mean confidence, scored per cell with **Brier** and never as on
 Per cell matters. A blended score averages a well-calibrated class with a badly-calibrated one and
 reports something in between, which is exactly the cell you needed to see, hidden.
 
-**Status: predictions 4 and 5 are designed, not built.** `evals/calibration.py` and
-`evals/discrimination.py` do not exist in this tree.
+**Status: prediction 4 is built and has been measured; prediction 5 is designed, not built.**
+`src/chaperone/evals/discrimination.py` ranks `corpus/quality-scores.jsonl`, a blind judge's scores
+over all 160 bodies, against the labels. `evals/calibration.py` does not exist in this tree.
+
+**The scores had to be real for this to measure anything.** Every caller of `score_quality` in this
+repository hands it a constant transport, so an AUC taken over those scores would have been exactly
+0.5 by construction and prediction 4's null would have passed having discriminated nothing. That is
+the same defect class as a checker graded against a label derived from the checker.
+`test_the_shipped_scores_are_not_one_repeated_value` is what keeps it from coming back, and it
+asserts that the instrument has a scale rather than asserting where any label falls on it.
 
 ---
 
