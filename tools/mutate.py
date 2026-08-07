@@ -129,12 +129,20 @@ MUTANTS: list[Mutant] = [
         "            pass",
     ),
     # Re-derived: the brief's anchor predates the torn-line terminator that now sits between the
-    # `open` and the write. **Known to be platform-conditional**, which is why the mutant below it
-    # exists. On POSIX a text-mode append is byte-identical to a binary one, so the only thing that
-    # kills this on Linux is `test_the_store_opens_in_binary_append_mode`, which greps the module
-    # source for `"ab"` -- a proxy. On win32 the platform really translates and
-    # `test_the_bytes_on_disk_are_newline_terminated_with_no_carriage_returns` kills it on the
-    # bytes. Measured both ways and reported rather than asserted away.
+    # `open` and the write.
+    #
+    # **Semantically equivalent on POSIX, and that is stated rather than hidden.** Measured on
+    # win32, two tests kill it: `test_the_store_opens_in_binary_append_mode`, which greps the
+    # module source for `"ab"`, and `test_the_bytes_on_disk_are_newline_terminated_with_no_carriage
+    # _returns`, which reads the bytes. Deselecting the first leaves the second still killing it
+    # here. On Linux -- where CI runs -- a text-mode append emits the same bytes as a binary one,
+    # so the second cannot discriminate and only the source-substring proxy remains.
+    #
+    # It is kept because it is honest about a real difference on one platform, and **not** relied
+    # on for finding D. Finding D's platform-independent half is `fsync_removed` (buffered lines
+    # lost on a crash) and `torn_line_terminator_dropped` (an append that absorbs the record before
+    # it), both of which die to effects everywhere. Strengthening the proxy is not available: on
+    # POSIX there is no observable difference for a test to assert.
     Mutant(
         "binary_append_becomes_text_append",
         SRC / "audit" / "store.py",
