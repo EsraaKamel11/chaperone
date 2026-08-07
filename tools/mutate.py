@@ -195,6 +195,19 @@ MUTANTS: list[Mutant] = [
         '    if candidate.check_size_max is None:\n        missing.append("check_size_max")',
         "    if candidate.check_size_max is None:\n        pass",
     ),
+    # A rigged baseline, which is design spec 1's named failure and the one the matching ablation
+    # is least able to survive: if the weighted arm is weak because someone made it weak, the
+    # comparison proves nothing. One axis priced at zero is how that happens without looking like
+    # it -- and `test_the_weighted_arm_is_tuned_not_a_strawman`, which scans the arm's source for
+    # the five constraint names, stays green through it, because the name is still there. Measured:
+    # under this mutant that test passes and only the behavioural pair fails. This entry is what
+    # keeps the pair from being deleted as a duplicate of the scan.
+    Mutant(
+        "the_weighted_arm_stops_pricing_one_constraint",
+        SRC / "matching" / "ablation.py",
+        '("geography", mandate.geography, 0.20)',
+        '("geography", mandate.geography, 0.0)',
+    ),
 ]
 
 
