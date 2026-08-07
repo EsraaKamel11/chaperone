@@ -251,12 +251,20 @@ def declared_act_class(item: CorpusItem) -> ViolationClass | None:
     return None if item.act_lane == ACT_LANE_CLEAN else ViolationClass(item.act_lane)
 
 
-def act_findings_for(item: CorpusItem) -> tuple[Finding, ...]:
-    """Arm 4's deterministic layer over one row, under `CONTROLLED_CONTEXT`.
+def act_findings_for(item: CorpusItem, context: ActContext = CONTROLLED_CONTEXT) -> tuple[Finding, ...]:
+    """Arm 4's deterministic layer over one row, under `CONTROLLED_CONTEXT` unless told otherwise.
 
-    One implementation, called by `tools/build_corpus.py` before it writes a row and by the corpus
-    tests before the artifact ships, so what the rows are built to satisfy and what they are checked
-    against cannot become two different properties.
+    One implementation, called by `tools/build_corpus.py` before it writes a row, by the corpus
+    tests before the artifact ships, and by `evals/harness.py` for arm 4 -- so what the rows are
+    built to satisfy, what they are checked against and what the ladder measures cannot become
+    three different properties.
+
+    **The context is a parameter and not the constant, even though every caller here passes the
+    constant.** `run_arm` takes a context from *its* caller, and a version of this function that
+    reached for `CONTROLLED_CONTEXT` regardless would report this corpus's controlled act lane
+    under every context -- including one consenting to no jurisdiction, where all 160 rows carry an
+    act finding. The default keeps the corpus's own claim anchored to the one context it is a claim
+    about; the parameter keeps the harness's argument from being silently discarded.
 
     **Both predicates, not only the first.** This is the pair `gates/engine.py::decide` evaluates
     before it reaches a tripwire and the pair `evals/harness.py` gives arm 4. A row with a fabricated
@@ -264,7 +272,7 @@ def act_findings_for(item: CorpusItem) -> tuple[Finding, ...]:
     calling one of them would declare such a row clean and arm 4 would block it anyway. A test
     constructs exactly that row and demands both findings back.
     """
-    return evaluate_act_classes(item.draft, item.record, CONTROLLED_CONTEXT) + validate_citations(
+    return evaluate_act_classes(item.draft, item.record, context) + validate_citations(
         item.draft, item.record
     )
 
