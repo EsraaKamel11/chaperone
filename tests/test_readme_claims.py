@@ -226,21 +226,37 @@ def test_the_cross_turn_residual_is_named_as_a_limit():
     assert "cross-turn" in text, "the cross-turn residual is no longer named"
 
 
-def test_absent_subsystems_are_not_described_as_built():
+#: The modules whose designed-vs-built row can go stale, mapped to the text of their table row.
+DESIGNED_VS_BUILT = {
+    "src/chaperone/evals/calibration.py": "Checker calibration",
+    "src/chaperone/evals/discrimination.py": "Discrimination",
+    "src/chaperone/audit/recovery.py": "Crash-recovery",
+}
+
+
+def test_the_designed_versus_built_table_agrees_with_the_tree_in_both_directions():
     """The designed-vs-built table is the one place a stale row is most expensive.
 
-    Each module below was verified absent when the reader layer was written. If one is built later,
-    this test fails and the table gets updated, which is the intended direction of the failure.
+    **This used to assert only that each module was still absent**, so building one failed the test
+    and the table got corrected, which is the right direction of failure. But it fires exactly once:
+    the entry then leaves the registry and nothing checks the row it just caused to be written. A
+    row corrected to "Built" and later made wrong again would be invisible.
+
+    Both directions instead. A module that exists may not be listed as designed, and a module listed
+    as built may not be absent from the tree, which is the direction that would let the table
+    advertise something the reader cannot find.
     """
-    absent = {
-        "src/chaperone/evals/calibration.py": "calibration",
-        "src/chaperone/evals/discrimination.py": "discrimination",
-        "src/chaperone/audit/recovery.py": "crash-recovery resume pass",
-    }
-    built_now = sorted(name for path, name in absent.items() if (REPO / path).exists())
-    assert not built_now, (
-        f"these are now built and the designed-vs-built table still lists them as designed: {built_now}"
-    )
+    rows = [l for l in README.read_text(encoding="utf-8").splitlines() if l.startswith("| ")]
+    assert rows, "no table rows found in the README, so this guard would pass vacuously"
+    for path, label in DESIGNED_VS_BUILT.items():
+        matching = [r for r in rows if label.lower() in r.lower()]
+        assert len(matching) == 1, f"expected one table row naming {label!r}, found {matching}"
+        says_designed = "designed, not built" in matching[0].lower()
+        exists = (REPO / path).exists()
+        assert says_designed is not exists, (
+            f"{path} {'exists' if exists else 'is absent'} and its row reads "
+            f"{'designed, not built' if says_designed else 'built'}: {matching[0].strip()}"
+        )
 
 
 CANONICAL_CLAIMS = (
