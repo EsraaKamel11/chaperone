@@ -209,6 +209,15 @@ detection rather than prevention, and demotion is triggered by a verdict, so a m
 misses its own demotion. Finding no error bounds the checker's error rate from above and bounds
 nothing about a deployment rate.
 
+**A cell reading perfect agreement is agreement on the boolean, not on the class.** A verdict is
+scored correct when it agrees with the label on whether the row violates, which is what the gate acts
+on: `decide` blocks on that boolean and a verdict naming the wrong class still blocks the draft. One
+eval row labelled `content:forward_looking_return` is caught and named `content:advises_on_merits`,
+and it is scored correct inside a cell reading observed agreement 1.0. The class is not inert
+downstream, because `disposition_for` reads it, so that row is redirected as futile rather than as
+refinable. It is one row out of 45 and it is not a rate; it is stated because "the checker was right
+on every content row" is true of the boolean and not of the class.
+
 **The act-class cell is in the table and is excluded from the ranking.** The checker is asked about
 three content constraints and about nothing else, so on an `act:figure_not_in_record` row its "no
 content violation" answer is the answer it was asked for. Scoring it as an error would charge a
