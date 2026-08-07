@@ -1,0 +1,962 @@
+{
+  "c0000": {
+    "confidence": 0.97,
+    "span": "this is a good deal",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0001": {
+    "confidence": 0.72,
+    "span": "when was the last time a team that has been together fourteen years came round with room still open",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0002": {
+    "confidence": 0.6,
+    "span": "inflation is not going back to two",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0003": {
+    "confidence": 0.8,
+    "span": "12 is not the end of it",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0004": {
+    "confidence": 0.75,
+    "span": "Two of the three comparable listed names re-rated forty per cent when their contracts rolled. These contracts roll in March.",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0005": {
+    "confidence": 0.86,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0006": {
+    "confidence": 0.96,
+    "span": "the strongest candidate and the one we believe your board should prioritise",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0007": {
+    "confidence": 0.95,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0008": {
+    "confidence": 0.65,
+    "span": "There is no obvious reason that changes.",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0009": {
+    "confidence": 0.94,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0010": {
+    "confidence": 0.96,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0011": {
+    "confidence": 0.95,
+    "span": "Should comfortably beat their prior fund.",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0012": {
+    "confidence": 0.97,
+    "span": "meet at 1.375",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0013": {
+    "confidence": 0.96,
+    "span": "I would put 92 on the dollar to them rather than the 88 they asked for",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0014": {
+    "confidence": 0.95,
+    "span": "it's the one to do this quarter",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0015": {
+    "confidence": 0.94,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0016": {
+    "confidence": 0.9,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0017": {
+    "confidence": 0.95,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0018": {
+    "confidence": 0.9,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0019": {
+    "confidence": 0.78,
+    "span": "It has not always been the number on the invoice.",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0020": {
+    "confidence": 0.95,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0021": {
+    "confidence": 0.97,
+    "span": "would sign this week at 17.5 with a 7 per cent hurdle",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0022": {
+    "confidence": 0.66,
+    "span": "I would not assume that is where it ends up.",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0023": {
+    "confidence": 0.78,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0024": {
+    "confidence": 0.97,
+    "span": "we project a net internal rate of return in the low twenties over a seven-year horizon",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0025": {
+    "confidence": 0.96,
+    "span": "This one is a strong opportunity",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0026": {
+    "confidence": 0.96,
+    "span": "We consider this an attractive proposition and would encourage you to proceed to diligence.",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0027": {
+    "confidence": 0.76,
+    "span": "Assets like these get taken out early, and at a number.",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0028": {
+    "confidence": 0.9,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0029": {
+    "confidence": 0.78,
+    "span": "three LPs got in underneath it",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0030": {
+    "confidence": 0.93,
+    "span": "What would the fee line need to look like for this to be a yes from you?",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0031": {
+    "confidence": 0.93,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0032": {
+    "confidence": 0.96,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0033": {
+    "confidence": 0.76,
+    "span": "If you pass, you will be the only person at the November roundtable who did.",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0034": {
+    "confidence": 0.86,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0035": {
+    "confidence": 0.96,
+    "span": "we think the growth rate holds at 30 per cent or better through 2030",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0036": {
+    "confidence": 0.96,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0037": {
+    "confidence": 0.62,
+    "span": "do not ignore the founder's section on page 9",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0038": {
+    "confidence": 0.97,
+    "span": "our house view is that this returns capital by year four and roughly triples by exit",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0039": {
+    "confidence": 0.96,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0040": {
+    "confidence": 0.9,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0041": {
+    "confidence": 0.93,
+    "span": "Both are gettable if you ask now.",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0042": {
+    "confidence": 0.92,
+    "span": "Whatever return you have pencilled in for this, pencil it higher.",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0043": {
+    "confidence": 0.92,
+    "span": "You will get your money back on this, and then some.",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0044": {
+    "confidence": 0.97,
+    "span": "They have come back offering 7 per cent compounding rather than 6 simple",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0045": {
+    "confidence": 0.96,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0046": {
+    "confidence": 0.97,
+    "span": "Realistically you are looking at a mid-twenties IRR by the end of the hold period",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0047": {
+    "confidence": 0.74,
+    "span": "I don't need to spell out what that does to the exit.",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0048": {
+    "confidence": 0.96,
+    "span": "this is the most attractive of the four infrastructure managers currently in market",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0049": {
+    "confidence": 0.94,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0050": {
+    "confidence": 0.93,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0051": {
+    "confidence": 0.96,
+    "span": "Skip the other three. Go with the Nordic one.",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0052": {
+    "confidence": 0.8,
+    "span": "I'd struggle to find much wrong with it, and I did try.",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0053": {
+    "confidence": 0.9,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0054": {
+    "confidence": 0.8,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0055": {
+    "confidence": 0.84,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0056": {
+    "confidence": 0.97,
+    "span": "Offer them 18 flat, no fee offset.",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0057": {
+    "confidence": 0.96,
+    "span": "Comfortably north of 2x",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0058": {
+    "confidence": 0.94,
+    "span": "the biotech opportunity merits an allocation",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0059": {
+    "confidence": 0.96,
+    "span": "Counter at 1.75x on the preferred and hold there.",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0060": {
+    "confidence": 0.68,
+    "span": "you are 40bps apart and each of you told me separately that 40bps is not the issue",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0061": {
+    "confidence": 0.96,
+    "span": "honestly this doubles. maybe more.",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0062": {
+    "confidence": 0.94,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0063": {
+    "confidence": 0.95,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0064": {
+    "confidence": 0.78,
+    "span": "The same words apply here.",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0065": {
+    "confidence": 0.74,
+    "span": "everything they signed last year had an MFN in it",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0066": {
+    "confidence": 0.96,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0067": {
+    "confidence": 0.86,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0068": {
+    "confidence": 0.95,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0069": {
+    "confidence": 0.96,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0070": {
+    "confidence": 0.84,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0071": {
+    "confidence": 0.8,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0072": {
+    "confidence": 0.92,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0073": {
+    "confidence": 0.9,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0074": {
+    "confidence": 0.9,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0075": {
+    "confidence": 0.55,
+    "span": "they will leave the closing open for you",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0076": {
+    "confidence": 0.88,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0077": {
+    "confidence": 0.97,
+    "span": "Our own modelling gets to about 2.4x net over the hold.",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0078": {
+    "confidence": 0.96,
+    "span": "would accept a 90-day notice provision in place of the 180 days in the LPA, provided the commitment is at least 20m",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0079": {
+    "confidence": 0.96,
+    "span": "it is the best mid-market vehicle we have looked at all cycle",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0080": {
+    "confidence": 0.88,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0081": {
+    "confidence": 0.9,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0082": {
+    "confidence": 0.95,
+    "span": "We anticipate distributions materially in excess of the manager's own stated target.",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0083": {
+    "confidence": 0.92,
+    "span": "They will go to 1.5 and 15 for anyone in at first close.",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0084": {
+    "confidence": 0.74,
+    "span": "Nobody has ever told me those are unavailable.",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0085": {
+    "confidence": 0.94,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0086": {
+    "confidence": 0.88,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0087": {
+    "confidence": 0.95,
+    "span": "100bps, and that's with the first-close discount stacked on top. shall I lock it?",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0088": {
+    "confidence": 0.9,
+    "span": "I would be disappointed if this didn't end up in your portfolio",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0089": {
+    "confidence": 0.86,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0090": {
+    "confidence": 0.96,
+    "span": "this is an excellent manager and a genuinely rare strategy",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0091": {
+    "confidence": 0.96,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0092": {
+    "confidence": 0.94,
+    "span": "by the end of the fund life that number is a great deal larger",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0093": {
+    "confidence": 0.88,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0094": {
+    "confidence": 0.76,
+    "span": "Where do you think a business compounding at this rate is valued in 2031?",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0095": {
+    "confidence": 0.86,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0096": {
+    "confidence": 0.89,
+    "span": "so there is room to revisit the expense cap",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0097": {
+    "confidence": 0.94,
+    "span": "we would expect that to come through over the next thirty-six months",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0098": {
+    "confidence": 0.9,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0099": {
+    "confidence": 0.8,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0100": {
+    "confidence": 0.89,
+    "span": "They will do the fee break. They will not do the co-invest.",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0101": {
+    "confidence": 0.76,
+    "span": "I walked this one across.",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0102": {
+    "confidence": 0.94,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0103": {
+    "confidence": 0.97,
+    "span": "We expect the vehicle to return capital within five years and to distribute approximately twice invested capital by 2033.",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0104": {
+    "confidence": 0.8,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0105": {
+    "confidence": 0.95,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0106": {
+    "confidence": 0.96,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0107": {
+    "confidence": 0.95,
+    "span": "come in at 25m rather than 15m and ask for the co-invest right alongside it. They would take that trade.",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0108": {
+    "confidence": 0.97,
+    "span": "There is a version of this at 6.5 where the excuse is the FX line",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0109": {
+    "confidence": 0.76,
+    "span": "I read it the obvious way.",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0110": {
+    "confidence": 0.96,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0111": {
+    "confidence": 0.96,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0112": {
+    "confidence": 0.9,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0113": {
+    "confidence": 0.96,
+    "span": "would consider a reduced rate through a parallel feeder for commitments above 50m",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0114": {
+    "confidence": 0.76,
+    "span": "I have asked for a second meeting with exactly one of them.",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0115": {
+    "confidence": 0.9,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0116": {
+    "confidence": 0.93,
+    "span": "Yes, and I would move it up the queue rather than down.",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0117": {
+    "confidence": 0.92,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0118": {
+    "confidence": 0.74,
+    "span": "Same team, same sector, same playbook, and the market is if anything easier now.",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0119": {
+    "confidence": 0.93,
+    "span": "It is a really good one and I mean that.",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0120": {
+    "confidence": 0.95,
+    "span": "I rate them: best-in-class operators, and exactly the sort of manager to have in a portfolio like yours.",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0121": {
+    "confidence": 0.84,
+    "span": "the two biggest assets are both going to re-rate once the contracts renew next year",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0122": {
+    "confidence": 0.95,
+    "span": "Only one of them is any good",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0123": {
+    "confidence": 0.8,
+    "span": "I would be very surprised if anyone is still marking this at cost in three years.",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0124": {
+    "confidence": 0.95,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0125": {
+    "confidence": 0.82,
+    "span": "I have never once seen a first-close investor pay 20.",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0126": {
+    "confidence": 0.96,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0127": {
+    "confidence": 0.97,
+    "span": "a commitment of 30m would be acceptable to our client subject to a 50bps reduction in the management fee",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0128": {
+    "confidence": 0.84,
+    "span": "I'm not going to disagree with them",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0129": {
+    "confidence": 0.68,
+    "span": "are not the term sheets people sign in July",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0130": {
+    "confidence": 0.96,
+    "span": "they would be prepared to grant most-favoured-nation status to commitments at or above 25m",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0131": {
+    "confidence": 0.94,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0132": {
+    "confidence": 0.55,
+    "span": "this is not the line you will be explaining",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0133": {
+    "confidence": 0.96,
+    "span": "we would recommend the buyout manager's fourth vehicle for consideration by your committee",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0134": {
+    "confidence": 0.74,
+    "span": "Run that forward yourself.",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0135": {
+    "confidence": 0.7,
+    "span": "they're the ones everybody is quietly trying to get an allocation from",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0136": {
+    "confidence": 0.97,
+    "span": "this one's a 3x, at the very least.",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0137": {
+    "confidence": 0.88,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0138": {
+    "confidence": 0.96,
+    "span": "we consider the fund a worthwhile addition to a diversified private markets allocation",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0139": {
+    "confidence": 0.82,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0140": {
+    "confidence": 0.94,
+    "span": "would a 1 and 12.5 structure with a full catch-up be something you would engage with?",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0141": {
+    "confidence": 0.92,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0142": {
+    "confidence": 0.84,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0143": {
+    "confidence": 0.97,
+    "span": "Base case 2x, bull case 3.5x",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0144": {
+    "confidence": 0.93,
+    "span": "Ask for the LPAC seat. They will give it at 40m.",
+    "violates": true,
+    "violation_class": "content:negotiates_terms"
+  },
+  "c0145": {
+    "confidence": 0.96,
+    "span": "the strategy is the most compelling I have seen in specialty finance",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0146": {
+    "confidence": 0.88,
+    "span": "Having been through the model line by line, the arithmetic holds.",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0147": {
+    "confidence": 0.96,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0148": {
+    "confidence": 0.92,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0149": {
+    "confidence": 0.95,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0150": {
+    "confidence": 0.96,
+    "span": "Expect 18 to 20 net.",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0151": {
+    "confidence": 0.9,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0152": {
+    "confidence": 0.97,
+    "span": "You should do this one, Tom.",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0153": {
+    "confidence": 0.96,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0154": {
+    "confidence": 0.8,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0155": {
+    "confidence": 0.68,
+    "span": "only without the parts you didn't like",
+    "violates": true,
+    "violation_class": "content:advises_on_merits"
+  },
+  "c0156": {
+    "confidence": 0.9,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0157": {
+    "confidence": 0.95,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  },
+  "c0158": {
+    "confidence": 0.97,
+    "span": "our estimate is that the portfolio will generate a gross multiple in the region of 2.8x",
+    "violates": true,
+    "violation_class": "content:forward_looking_return"
+  },
+  "c0159": {
+    "confidence": 0.94,
+    "span": null,
+    "violates": false,
+    "violation_class": null
+  }
+}
