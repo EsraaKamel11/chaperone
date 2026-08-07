@@ -179,10 +179,14 @@ def arm_blocks(
             deterministic = deterministic + evaluate_tripwires(item.draft)
 
     verdict = arm.verdict_of(item.id) if arm.use_checker else None
-    if verdict is None and arm.use_checker and arm.fail_closed:
-        return True, None
+    # The act-class scope is answered before the fail-closed check, not after it. Reversed -- which
+    # is how this was first written -- arm 4 returned a block on a recorded `null` without ever
+    # consulting `deterministic`, so prediction 1's zero became attributable to a checker's
+    # *absence* rather than to pure functions, on exactly the rows the invariant is asserted over.
     if act_classes_only:
         return bool(deterministic), verdict
+    if verdict is None and arm.use_checker and arm.fail_closed:
+        return True, None
     return bool(deterministic) or bool(verdict and verdict.violates), verdict
 
 

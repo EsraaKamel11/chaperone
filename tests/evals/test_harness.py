@@ -293,3 +293,19 @@ def test_a_replayed_violation_that_names_no_class_is_blocked_by_the_harness_and_
         assert arm_blocks(arm_by_name(build_arms(recorded), name), probe, CONTEXT)[0] is True
     checker = Checker("opus-tier", "sonnet-tier", lambda _m: unnamed, retries=0)
     assert decide(probe.draft, probe.record, CONTEXT, checker).allowed is False
+
+
+def test_the_act_class_scope_ignores_the_checker_on_the_unavailability_path_too():
+    """The same leak as the test above, through the door the fail-closed check opens first.
+
+    Arm 4 is fail-closed, so a recorded `null` returned a block before the deterministic layer was
+    consulted at all -- and prediction 1's zero, the one rate CI asserts, was then attributable to
+    a checker's *absence* rather than to pure functions over the record and the context. The probe
+    is the same act-declaring row whose body states no figure, with the verdict recorded absent
+    instead of violating.
+    """
+    act_row = next(item for item in EVAL_ITEMS if item.act_lane != ACT_LANE_CLEAN)
+    probe = replace(act_row, draft=replace(act_row.draft, body="Nothing here.", cited_fields=()))
+    arm4 = arm_by_name(build_arms({probe.id: None}), "4-plus-deterministic")
+    result = run_arm(arm4, [probe], LABELS, CONTEXT, act_classes_only=True)
+    assert (result.n_violating, result.escapes) == (1, 1)
