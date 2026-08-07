@@ -1,6 +1,6 @@
 # README and docs design
 
-**Design document. Status: designed, not written.** This spec governs `README.md`, five `docs/` pages,
+**Design document. Status: designed, not written.** This spec governs `README.md`, four `docs/` pages,
 and a new guard test. It **supersedes the README instructions in
 `docs/superpowers/plans/2026-08-05-chaperone.md` Task 26 Steps 1 and 2**, which mandate content the
 tree cannot back: the matching ablation, the "smallest production v1" framing, and a demo calling
@@ -46,7 +46,7 @@ never in prose as though it exists.
 
 ## 2. The shape
 
-A lean `README.md` of roughly 400 lines, plus five `docs/` pages carrying the depth. The README is the
+A lean `README.md` of roughly 400 lines, plus four `docs/` pages carrying the depth. The README is the
 ninety-second read; the pages are the hour. This is chosen over a single long file because the reader
 who is confirmed will not scroll a monolith, and the thesis must not drown in a table of contents.
 
