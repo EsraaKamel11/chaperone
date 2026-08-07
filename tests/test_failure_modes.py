@@ -110,7 +110,7 @@ def test_the_gateways_own_log_is_tamper_evident_rather_than_append_only_by_namin
     gateway = _gateway(tmp_path)
     gateway.call("send_message", {"to": "x"}, decide=lambda: DENY, execute=lambda: "sent")
     gateway.call("send_message", {"to": "y"}, decide=lambda: ALLOW, execute=lambda: "sent")
-    path = gateway.store._path
+    path = tmp_path / "audit.jsonl"
 
     lines = path.read_bytes().rstrip(b"\n").split(b"\n")
     tampered = json.loads(lines[0])
