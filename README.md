@@ -1,11 +1,32 @@
 # chaperone
 
-An agent carrying a conversation under stated constraints has a problem that better prompting does not
-solve: the most helpful next sentence and the permitted next sentence are not always the same sentence,
-and they diverge exactly where the stakes are highest. This repository is a working enforcement layer
-for that divergence, built so that one family of constraint is impossible to violate and the other is
-measured rather than asserted. Everything here is a synthetic scenario. No real organisation, person,
-or record appears anywhere in it.
+An agent carrying an outbound conversation on behalf of an organisation will be asked, in the most
+natural way possible, to do things that organisation has publicly stated it does not do. The most
+helpful next sentence and the permitted next sentence are not the same sentence, and they diverge
+exactly where the stakes are highest. This repository is a working enforcement layer for that
+divergence, built so that one family of constraint is impossible to violate and the other is measured
+rather than asserted.
+
+**The scenario.** A synthetic capital-introduction firm, running a fundraise, whose agent drafts
+outbound messages to investors. The firm publishes three constraints on itself: it does not advise on
+the merits of an investment, it does not negotiate terms, and it does not make forward-looking return
+statements. It also operates under ordinary data constraints, contacting people only in jurisdictions
+where it has consent and not exceeding agreed contact volumes.
+
+Those constraints are not hypothetical pressure. An agent drafting into a live raise gets asked
+*"honestly, is this a good deal?"* and *"would they take eight instead of ten?"*. Both questions are
+natural, both are frequent, and the fluent answer to either one breaks a published constraint. That is
+the whole difficulty: the failure is not a jailbreak or an adversarial prompt, it is an ordinary
+question answered well.
+
+The domain is chosen because its constraints are unusually crisp, not because the pattern is specific
+to it. Any agent on a regulated or reputationally exposed surface has the same shape of problem.
+
+**What this is not.** It is not a compliance product, it encodes no legal advice, and no expertise in
+securities regulation, broker-dealer rules, or any other regulated field is claimed by it or rests on
+it. It is an enforcement architecture, demonstrated on a scenario whose constraints happen to be
+legible. Everything here is synthetic: no real organisation, person, record, or correspondence appears
+anywhere in this repository, and every number in it belongs to this artifact alone.
 
 The thesis in one line: **an eval score is not an authorization.** A quality judge and a permission
 gate answer different questions, and the moment they share a mechanism, the system has quietly decided
@@ -32,9 +53,11 @@ lives there. These are the three that matter most.
 
 ### 1. The fluent breach
 
-**The failure.** A recipient asks a direct question. The most useful possible answer is fluent,
-well grounded, exactly on topic, and breaches a stated constraint. Nothing about it looks like a
-failure: it scores well on every quality axis, because on every quality axis it *is* good.
+**The failure.** An investor asks *"honestly, is this a good deal?"*. The most useful possible answer
+is fluent, well grounded, exactly on topic, and advises on the merits, which the firm has publicly
+said it does not do. Nothing about it looks like a failure: it scores well on every quality axis,
+because on every quality axis it *is* good. A reviewer reading only the draft sees a strong reply, and
+a quality eval agrees with them.
 
 **The mechanism.** A fail-closed gate in which the model checker and a set of deterministic tripwires
 are two disjuncts, and either one blocks. `evaluate_tripwires` in
@@ -143,6 +166,7 @@ two different epistemic situations, and collapsing them is the error the reposit
 | **The question** | Did an act occur outside its bounds? | Does this text do a forbidden thing? |
 | **Decided by** | A pure function over the record and the context | A model checker, plus lexical tripwires |
 | **The classes** | `act:no_approval_token`, `act:jurisdiction_not_consented`, `act:tool_outside_grant`, `act:figure_not_in_record`, `act:send_cap_exceeded` | `content:advises_on_merits`, `content:negotiates_terms`, `content:forward_looking_return` |
+| **Where they come from** | Consent, approval, grants and volume: the operating constraints | The firm's three published statements about what it does not do |
 | **What can be claimed** | **Zero by construction.** The violation is impossible, not improbable. | **Measured, never guaranteed.** A rate, with its denominator. |
 | **Autonomy ceiling** | Deterministic gating, so higher tiers are defensible | Tier 2, per-message approval |
 
