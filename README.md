@@ -245,9 +245,14 @@ a measurement and a headline.
 
 **Status: the arms have been run, once, on the eval split.** The ladder in
 `src/chaperone/evals/harness.py` was run over the eval half of the corpus against the recorded
-verdicts frozen in `corpus/recorded_verdicts.json`, and **two predictions failed.** A failed
-prediction is reported as a failed prediction, which is the clause that decides whether the
-pre-registration above was doing work or decorating.
+verdicts frozen in `corpus/recorded_verdicts.json`, and **two predictions failed.** They come from
+two different documents, which is worth stating so the count can be checked rather than taken: one
+is among the five in [PREREGISTRATION.md](PREREGISTRATION.md), and the other is the design spec's
+earlier prediction that the best arm's false-block rate would strictly rise, which the
+pre-registration supersedes and pre-commits to reporting as failed if equality landed. Equality
+landed. Two of the five are not adjudicated at all yet, because the arms that decide them have not
+run. "A failed prediction is reported as a failed prediction" is the pre-registration's own clause,
+and it is the one that decides whether that document was doing work or decorating.
 
 **No rate is printed here yet, and that is a choice about denominators rather than about disclosure.**
 Every rate the ladder produces needs the denominator from the table above and the criterion-sharing
