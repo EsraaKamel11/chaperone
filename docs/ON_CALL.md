@@ -1,7 +1,15 @@
 # On-call note: which signal lies, and how
 
 Read this beside [PERTURBATIONS.md](PERTURBATIONS.md), which shows what each safeguard did under one
-broken input, and [measurement.md](measurement.md), which is where every number below comes from.
+broken input, and [measurement.md](measurement.md) section 7, which publishes every figure quoted
+below with its denominator and its split.
+
+That sentence used to read "where every number below comes from" while three of the figures here
+were published nowhere else in the repository, and section 7 read "Pending. No arm has been run and
+no rate has been computed." A citation a reader cannot follow is worse in this document than in any
+other, because following it is the whole point. Both ends are fixed: every figure below now resolves
+in section 7, and `src/chaperone/evals/calibration.py` and `src/chaperone/evals/discrimination.py`
+recompute all of them from the shipped artifacts offline.
 
 Nothing here is a rate to act on. Every figure is a measurement over a frozen synthetic corpus of
 160 drafts, and it bounds what this artifact observed, not what a deployment would.
@@ -26,11 +34,19 @@ exactly as true as the two inputs it was handed, and there are three ways it is 
   known residuals: a bare digit run in prose can satisfy a small numeric citation, and a currency
   symbol is not part of a canonical value. Those residuals are misses, not false blocks, so this
   lane's failures are not all in the loud direction.
-- **A context field nothing populates.** `act:send_cap_exceeded` is a predicate over `sent_count`,
-  and every caller in this tree hands it a literal zero (`demo/day2.py`,
-  `src/chaperone/evals/corpus.py`). `Gateway.sent_count()` computes the real number off the log and
-  is called from `tests/audit/test_send_cap.py` and from nowhere else. **If you are on call for a
-  send cap, no cap is being enforced on the shipped path.**
+- **A live predicate over an input nothing feeds.** `act:send_cap_exceeded` is a predicate over
+  `sent_count`, and **no shipped path hands it a count derived from the log.**
+  `Gateway.sent_count()` is the function that derives one, and it is called from
+  `tests/audit/test_send_cap.py` and from nowhere else. Enumerated by grep rather than by memory,
+  because the first version of this bullet said "every caller hands it a literal zero" and that was
+  refutable in two ways. Three in-tree callers do pass a literal zero
+  (`src/chaperone/evals/corpus.py`, `demo/day2.py`, `tools/perturbation_log.py`); the fourth,
+  `tools/policy_hook.py`, takes the count out of the tool payload and **falls back to zero when the
+  payload omits it**, which is the permissive direction. So the hook layer does run the cap
+  predicate, against whatever count the caller asserted about itself. That module declares the class
+  in `UNENFORCEABLE_HERE` for exactly this reason: it holds no log, so it cannot decide the cap and
+  says so rather than letting silence imply parity. **If you are on call for a send cap: the
+  predicate is live and its input is not.**
 
 So: a false block points at the record or the canonicalizer. A block that never came can also mean
 the context was assembled out of a constant.
@@ -51,11 +67,15 @@ What the table does hold:
 - **Zero boolean errors over the 90 content rows, both splits combined.** Zero measured bounds
   nothing about deployment. By the rule of three the error rate is bounded from above at about 3.33%
   and from below at nothing at all, and a bound is not a rate.
-- **Every unit of measured miscalibration sits in `act:figure_not_in_record`**, where the checker's
-  answer is not the question it was asked. It is put three content constraints and nothing else, so
-  on an act row its "no content violation" is right for the question asked and counted wrong against
-  the label. `is_content_cell` is where that line is drawn, and it is why the act cell is in the
-  table and out of the ranking.
+- **All the miscalibration worth acting on sits in `act:figure_not_in_record`**, where the checker's
+  answer is not the question it was asked: that cell is Brier 0.8591 at n=5 on the eval split,
+  against content cells between 0.0082 and 0.0284. **Not "every unit of it"** -- the content cells
+  are underconfident, which is measured miscalibration too, and a sentence claiming otherwise is
+  contradicted by the heading above it and by the next bullet down. It is small, it is in the
+  cautious direction, and it is not what you are paged about. The act cell is put in the table and
+  kept out of the ranking by `is_content_cell`, because the checker is given three content
+  constraints and nothing else, so on an act row its "no content violation" is right for the
+  question asked and counted wrong against the label.
 - **A blended figure is a description of no cell.** Over the eval split the row-weighted Brier is
   0.0689, sitting between an act cell near 0.86 and content cells near 0.02. If somebody hands you
   one number for the checker, ask which cell it came from.
@@ -91,7 +111,7 @@ is being asked to authorize an action, and that is the objection.
 
 ---
 
-## The audit chain lies only under tampering, and `verify` will not tell you about a tear
+## The audit chain misreports under tampering, under a tear it was not told about, and when it is gone
 
 `verify` returns `ok=False` with `broken_at=N` when the entry at index N no longer hashes to what the
 chain says. Read that as: an entry at or before N was edited, or one was removed. The relabelled
@@ -123,10 +143,11 @@ anything other than exactly that lands in the same conservative branch
 (`src/chaperone/audit/recovery.py`).
 
 **The guard is unarmed outside the test suite, and this is the first thing to know before you rely on
-it.** Nothing schedules `resume`. Nothing consults `requires_approval_for` before a send. `sent_count`
-has no caller that feeds an `ActContext`. The mechanism is built, tested and not wired in, so a note
-telling you that a re-attempt will stop at a human would be describing something that will not
-happen. Wire it in, or treat a re-attempt as unguarded.
+it.** Nothing schedules `resume`. Nothing consults `requires_approval_for` before a send. No caller
+feeds an `ActContext` a send count derived from the log, per the third bullet at the top of this
+page. The mechanism is built, tested and not wired in, so a note telling you that a re-attempt will
+stop at a human would be describing something that will not happen. Wire it in, or treat a
+re-attempt as unguarded.
 
 When it is wired in, the second thing to know is that the demand does not go away. A durable
 `unknown` makes `requires_approval_for` answer true for that digest **permanently**: the log is

@@ -250,9 +250,92 @@ asserts that the instrument has a scale rather than asserting where any label fa
 
 ## 7. Results
 
-**Pending.** No arm has been run and no rate has been computed. The eval split is touched once by
-design, and publishing a figure before the measurement layer is complete would spend that once.
+**Three of the five predictions are adjudicated and are reported here with their denominators. Two
+are not, and section 7.4 says which and why.** An earlier version of this section read "Pending. No
+arm has been run and no rate has been computed", which was false against the tree it shipped in and
+contradicted section 5 two headings above. It is corrected rather than softened: the same
+false-claim class was already corrected once in the README, and a page that denies its own results
+exist is worse than a page with no results, because the on-call note cites this one.
 
-When the arms run, this section carries each prediction's outcome reported **held or failed**, each
-rate with its denominator and split, and the calibration table per cell. A failed prediction is
-reported as a failed prediction.
+Every figure below is reproducible from the shipped artifacts with no network and no key.
+`src/chaperone/evals/calibration.py` and `src/chaperone/evals/discrimination.py` compute them from
+`corpus/recorded_verdicts.json`, `corpus/quality-scores.jsonl` and `corpus/labels.jsonl`.
+
+### 7.1 Prediction 1: act-class escape rate on arm 4 is exactly zero. **Held.**
+
+0 escapes over 5 act-declaring rows in the eval split, false blocks 0 over 30 labelled-compliant
+rows. This is the one rate CI asserts, because pure functions decide it:
+`test_arm_four_has_zero_act_class_escapes` and `test_act_class_escape_rate_is_zero_over_the_scripted_suite`.
+Arms 2 and 3 escape 5 of 5 on the same scope, which is what makes the arm 4 figure a measurement of
+the deterministic layer rather than of the corpus.
+
+It says nothing about content classes, and the denominator is 5.
+
+### 7.2 Prediction 5: checker calibration. **Failed.**
+
+The prediction was that at least one content-class cell would show observed agreement below the
+checker's stated mean confidence. **No cell does.** The checker was **underconfident** on this
+corpus, `worst_cell` reports absent, and
+`test_a_checker_that_overshoots_nowhere_has_no_worst_cell_rather_than_a_least_bad_one` is what keeps
+that from degrading into "the least badly calibrated cell".
+
+Eval split, per cell, with the denominator beside the numbers:
+
+| Cell | n | Mean confidence | Observed agreement | Brier |
+|---|---|---|---|---|
+| `content:advises_on_merits` | 15 | 0.930 | 1.0 | 0.0082 |
+| `content:forward_looking_return` | 15 | 0.883 | 1.0 | 0.0284 |
+| `content:negotiates_terms` | 15 | 0.891 | 1.0 | 0.0233 |
+| compliant | 30 | 0.911 | 1.0 | 0.0105 |
+| `act:figure_not_in_record` | 5 | 0.926 | 0.0 | 0.8591 |
+
+Both splits combined: **0 boolean errors over the 90 content rows**, and the act cell is n=10 at
+Brier 0.8610. By the rule of three, zero errors in 90 bounds the error rate from above at about
+**3.33%** and from below at nothing at all. Finding no error bounds the checker and bounds nothing
+about a deployment rate.
+
+**The act cell is in the table and out of the ranking**, per `is_content_cell`: the checker is put
+three content constraints and nothing else, so on an act row its "no content violation" is the
+answer to the question it was asked, and charging it as an error would name an act cell as the
+measurement behind a content-class ceiling.
+
+**One blended figure, published once, as the argument against blending.** Section 5 pre-registers
+Brier as scored per cell and **never as one blended number**, and this is the only place in the
+repository that prints a blended one. Over the eval split's 80 rows the row-weighted Brier is
+**0.0689** -- a number sitting between an act cell at 0.8591 and content cells between 0.0082 and
+0.0284, and therefore **a description of no cell in the table**. It is here so that a reader who is
+handed it elsewhere can recognise it, and it is the reason the pre-registration forbids it. The
+all-rows figure is 0.0750 and the dev-split figure is 0.0810; none of the three describes a cell
+either.
+
+### 7.3 Prediction 4: discrimination. **Failed.**
+
+The prediction was a 95% interval containing 0.5 and excluding 0.75. The measured AUC of the quality
+judge's mean score for violating against compliant drafts is **0.224**, interval **(0.156, 0.300)**
+over 100 violating and 60 compliant rows, at the seed `discrimination.py` records so the interval
+reproduces from the shipped code and scores alone. The interval **excludes 0.5**, which the
+pre-registration pre-commits to reporting as a failed prediction rather than reframing.
+
+**The direction is the part a reader would guess wrong.** The exclusion is from *below*: violating
+drafts scored **lower** on quality, not higher. The 2x2 at the 0.7 pass threshold is 35 violating
+drafts passing quality and 65 failing it, against 49 compliant passing and 11 failing.
+
+**35 of 100 violating drafts passed the quality threshold**, which is the operationally useful half
+of this result: a high quality score on a blocked draft is ordinary, not anomalous.
+
+The maxim the prediction tests is normative and survives either direction. A judge that correlates
+with violations, in either sign, is still a probabilistic instrument being asked to authorize an
+action, and a low score is not evidence of a violation any more than a high one is evidence of
+compliance.
+
+### 7.4 Predictions 2 and 3 are not published here, and the reason is denominators
+
+Both are content-class rates. Every rate the ladder produces needs the denominator from the table in
+section 2 and the criterion-sharing confound from section 3 travelling with it, and a content-class
+rate quoted without those two is worse than no rate. The ladder itself runs on every `pytest`
+invocation in `tests/evals/test_harness.py`, so the arms are not unrun; what is withheld is the
+published figure, and it is withheld deliberately rather than pending.
+
+The ordering `arm4 <= arm3 <= arm2` is asserted over the frozen replays by
+`test_escape_rate_is_monotone_across_the_ladder_on_frozen_replays`, and is a reported observation
+rather than an assertion on any live re-run.
