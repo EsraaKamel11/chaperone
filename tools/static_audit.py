@@ -126,8 +126,23 @@ def audit_tree(src: Path) -> list[str]:
     )
 
 
-def main() -> int:
-    violations = audit_tree(Path(__file__).resolve().parents[1] / "src" / "chaperone")
+def main(root: Path | None = None) -> int:
+    """The audit CI runs. Anything other than 0 fails the build, so the exit code is the property.
+
+    `root` defaults to this checkout's package and exists so a test can point the real enforcement
+    at a tree it controls, exactly as `tools/scan_secrets.py`'s `main` does. Both directions of the
+    exit code are asserted through here rather than through `audit_tree`: `return 0` in place of the
+    line below left every other test in this repository green.
+
+    The default is computed here rather than bound to a module constant, and that is the difference
+    between the anchor being tested and being asserted. A constant reading `Path.cwd()` binds at
+    import, when the working directory is still the repository root, so a test that merely changes
+    directory and calls `main()` cannot see it. The anchor test reimports this module under the
+    changed directory for that reason, which is what makes the anchor an effect rather than a claim.
+    """
+    if root is None:
+        root = Path(__file__).resolve().parents[1] / "src" / "chaperone"
+    violations = audit_tree(root)
     for line in violations:
         print(line)
     return 1 if violations else 0

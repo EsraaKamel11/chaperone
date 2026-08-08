@@ -8,9 +8,15 @@ from tools.scan_secrets import ROOT, main, scan_tree
 # The exit code is the property: `.github/workflows/ci.yml` runs this as its first enforcement step
 # and `.claude/settings.json` wires it behind `Stop`, so `return 1 if findings else 0` becoming
 # `return 0` disarms both. Nothing referenced `main` at all, so that edit -- and `_TEXT_SUFFIXES =
-# set()`, which makes the scan examine nothing -- left the whole suite green. Same treatment the
-# three sibling tools already get: `tests/test_static_audit.py` asserts `main() == 0` on the real
-# tree and `main() == 1` on a planted violation.
+# set()`, which makes the scan examine nothing -- left the whole suite green.
+#
+# The sentence that stood here claimed `tests/test_static_audit.py` "asserts `main() == 0` on the
+# real tree and `main() == 1` on a planted violation". **The second half did not exist**, and it was
+# written in the commit that closed this exact gap one tool over: a coverage claim with no coverage
+# behind it, measured -- `return 1 if violations else 0` becoming `return 0` in `static_audit` left
+# that file at 19 passed. It is true as of the commit correcting this line, and the three sibling
+# tools now each assert both directions through `main`: `tests/test_static_audit.py`,
+# `tests/test_coverage_map.py` and `tests/test_lint_descriptions.py`.
 # --------------------------------------------------------------------------------------------
 
 _PLANTED = 'api_secret = "Zk3Lq9Xv2Rt8Wn5Yb1Hs4Jd7Fg0Mc6P"\n'  # allowlist-secret
