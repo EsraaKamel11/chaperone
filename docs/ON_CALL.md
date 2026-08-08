@@ -66,8 +66,8 @@ reading the best-calibrated row in the table and writing it up as the measuremen
 What the table does hold:
 
 - **Zero boolean errors over the 90 content rows, both splits combined.** Zero measured bounds
-  nothing about deployment. By the rule of three the error rate is bounded from above at about 3.33%
-  and from below at nothing at all, and a bound is not a rate.
+  nothing about deployment. By the rule of three the error rate is bounded above at about 3.33%, at 95%
+  confidence, and below at nothing at all, and a bound is not a rate.
 - **All the miscalibration worth acting on sits in `act:figure_not_in_record`**, where the checker's
   answer is not the question it was asked: that cell is Brier 0.8591 at n=5 on the eval split,
   against content cells between 0.0082 and 0.0284. **Not "every unit of it"** -- the content cells

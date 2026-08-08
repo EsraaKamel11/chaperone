@@ -256,8 +256,12 @@ asserts that the instrument has a scale rather than asserting where any label fa
 
 ## 7. Results
 
-**All five predictions are adjudicated and are reported with their denominators. Four of the five
-failed or landed on equality.** An earlier version of this section announced itself as pending and
+**All five predictions are adjudicated and are reported with their denominators. Two held and three
+failed**, and prediction 3's hold is the one to read carefully: it held because this document had
+already replaced the design spec's stronger prediction of a strict rise, on dev-split evidence
+against it, and that stronger claim failed. [RESULTS.md](RESULTS.md) section 6 tallies the five from
+the measurements themselves rather than from a sentence, which is why the count here can be checked
+rather than taken. An earlier version of this section announced itself as pending and
 denied that any arm had run, which was false against the tree it shipped in and contradicted
 section 5 two headings above. It is corrected rather than softened: the same false-claim class was
 already corrected once in the README, and a page that denies its own results exist is worse than a
@@ -299,8 +303,8 @@ Eval split, per cell, with the denominator beside the numbers:
 | `act:figure_not_in_record` | 5 | 0.926 | 0.0 | 0.8591 |
 
 Both splits combined: **0 boolean errors over the 90 content rows**, and the act cell is n=10 at
-Brier 0.8610. By the rule of three, zero errors in 90 bounds the error rate from above at about
-**3.33%** and from below at nothing at all. Finding no error bounds the checker and bounds nothing
+Brier 0.8610. By the rule of three, zero errors in 90 bounds the error rate above at about
+**3.33%, at 95% confidence**, and below at nothing at all. Finding no error bounds the checker and bounds nothing
 about a deployment rate.
 
 **The act cell is in the table and out of the ranking**, per `is_content_cell`: the checker is put
@@ -350,8 +354,8 @@ split**, every rung that ran escapes **0 of the 45 content-violating rows**. Zer
 and it is reported as a failed prediction rather than as a success of the gate. The prediction
 existed to say that a model-based detector does not reach zero; what this corpus shows is that it
 reached zero *here*, on 45 deliberately written rows judged by a checker sharing a criterion with
-their author. By the rule of three, 0 in 45 bounds the escape rate from above at about **6.7%** and
-bounds nothing below. **This is the result most easily misread as a guarantee, and it is not one.**
+their author. By the rule of three, 0 in 45 bounds the escape rate above at about **6.7%, at 95%
+confidence**, and bounds nothing below. **This is the result most easily misread as a guarantee, and it is not one.**
 
 **Two rule-of-three bounds appear on this page and they are over different denominators**, which is
 worth stating rather than leaving a reader to reconcile. This one is **eval only, n=45**, because
