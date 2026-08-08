@@ -5,6 +5,16 @@ generator is a document that becomes wrong the moment any cell moves. Byte equal
 which is affordable here for one reason worth stating: **no row renders a rate.** Every cell is a
 boolean, an enum value or a count that pure code decides, so asserting the bytes asserts no
 probabilistic quantity, and design spec 9.6's rule is untouched.
+
+**Two tests in this module touch the committed `docs/PERTURBATIONS.md`, and the coupling is named
+here because nothing enforces it.** `test_the_generator_writes_to_the_repository_...` perturbs that
+file and restores it in a `finally`, and
+`test_the_committed_perturbation_log_is_what_the_generator_produces` reads it. That is safe under
+serial execution and **not safe under `pytest-xdist` or any parallel runner**, which this repository
+does not use. The `finally` covers an exception and an assertion failure; it does not cover the
+process being killed. The residual failure is loud rather than silent in every case: a stranded
+perturbation leaves the binding test red and `git status` dirty, and `git checkout` recovers the
+file. Anyone adding a parallel runner has to read this paragraph first.
 """
 from __future__ import annotations
 
