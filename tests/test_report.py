@@ -18,21 +18,34 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from chaperone.evals.corpus import CONTROLLED_CONTEXT, CORPUS_PATH, LABELS_PATH, load_corpus, load_labels
-from chaperone.evals.harness import ArmResult, build_arms, load_recorded, run_ladder
+from chaperone.evals.harness import ArmResult, Ladder, build_arms, load_recorded, run_ladder
 
 from chaperone.evals.calibration import Cell, worst_cell
+from chaperone.policy.tripwires import evaluate_tripwires
 from chaperone.policy.types import Family, ViolationClass
 
-from chaperone.evals.discrimination import load_quality_scores, quality_means, run_discrimination
+from chaperone.evals.discrimination import (
+    DiscriminationResult,
+    load_quality_scores,
+    quality_means,
+    run_discrimination,
+)
 
+import tools.report as report
 from tools.report import (
     ABSENT_RATE,
+    PROBE_FRACTION,
+    deterministic_layer_section,
+    matching_section,
     DOCUMENT_PATH,
     NO_CELL_OVERSHOT,
     calibration_section,
     ladder_section,
     rate_cell,
+    predictions_section,
     render,
     write_report,
 )
@@ -205,7 +218,12 @@ def test_every_table_publishing_a_rate_publishes_the_denominator_it_was_taken_ov
     assert rate_bearing, "no table publishes a rate, so this guard would be vacuous"
 
     for header, body in rate_bearing:
-        named_column = any(cell.strip().lower().startswith("n") for cell in header)
+        # Exact, or an "n <thing>" denominator column. `startswith("n")` let a header called
+        # "Notes" or "Name" satisfy the denominator rule for a whole table.
+        named_column = any(
+            cell.strip().lower() == "n" or cell.strip().lower().startswith("n ")
+            for cell in header
+        )
         inline = all("(n=" in row for row in body if PUBLISHED_RATE.search(row))
         assert named_column or inline, (
             f"a table publishing a rate carries no denominator: {header} / {body[:1]}"
@@ -332,4 +350,257 @@ def test_the_calibration_denominators_reconcile_with_the_split_they_are_claimed_
     )
     assert sum(n for k, n in counts.items() if k in CONTENT_CLASSES) == content_rows, (
         "the content cells do not total the corpus's content-violating rows"
+    )
+
+
+def _ladder(scope: str, rows: list[tuple[str, int, int, int, int]]) -> Ladder:
+    return Ladder([ArmResult(n, nv, nc, e, fb, scope=scope) for n, nv, nc, e, fb in rows],
+                  ("1-self-policing",))
+
+
+def _measurements(**overrides):
+    """The shipped adjudication inputs, with any one of them replaced.
+
+    Constructed rather than loaded, because the property under test is that the outcome word tracks
+    the measurement, and the shipped measurement produces only one of the two words per prediction.
+    The values here are the shipped ones; `overrides` is what flips a verdict.
+    """
+    base = dict(
+        act=_ladder("act-classes-only", [("2-independent-checker", 5, 30, 5, 0),
+                                         ("3-fail-closed-gate", 5, 30, 5, 0),
+                                         ("4-plus-deterministic", 5, 30, 0, 0)]),
+        content=_ladder("content-classes-only", [("2-independent-checker", 45, 30, 0, 0),
+                                                 ("3-fail-closed-gate", 45, 30, 0, 0),
+                                                 ("4-plus-deterministic", 45, 30, 0, 0)]),
+        everything=_ladder("all-classes", [("2-independent-checker", 50, 30, 5, 0),
+                                           ("3-fail-closed-gate", 50, 30, 5, 0),
+                                           ("4-plus-deterministic", 50, 30, 0, 0)]),
+        cells=[Cell("content:advises_on_merits", 15, 0.930, 1.0, 0.0082),
+               Cell("content:forward_looking_return", 15, 0.883, 1.0, 0.0284),
+               Cell("content:negotiates_terms", 15, 0.891, 1.0, 0.0233)],
+        disc=DiscriminationResult(table={}, auc=0.224, ci_low=0.156, ci_high=0.300,
+                                  prediction_held=False, n_violating=100, n_compliant=60),
+    )
+    base.update(overrides)
+    return base
+
+
+def _outcome_of(number: str, **overrides) -> str:
+    """The Outcome cell of one prediction's row."""
+    rows = [l for l in predictions_section(**_measurements(**overrides))
+            if l.startswith(f"| {number} |")]
+    assert len(rows) == 1, f"prediction {number} is not adjudicated in exactly one row: {rows}"
+    return rows[0].split("|")[4].strip()
+
+
+#: For each prediction, a measurement that flips its verdict. Written as the input rather than as an
+#: expected string, so the assertion is that the word tracked the measurement and not that some
+#: particular sentence appeared.
+FLIPPED = {
+    "1": dict(act=_ladder("act-classes-only", [("4-plus-deterministic", 5, 30, 3, 0)])),
+    "2": dict(content=_ladder("content-classes-only", [("2-independent-checker", 45, 30, 4, 0),
+                                                       ("3-fail-closed-gate", 45, 30, 2, 0),
+                                                       ("4-plus-deterministic", 45, 30, 1, 0)])),
+    "3": dict(everything=_ladder("all-classes", [("3-fail-closed-gate", 50, 30, 5, 0),
+                                                 ("4-plus-deterministic", 50, 30, 0, 6)])),
+    "4": dict(disc=DiscriminationResult(table={}, auc=0.52, ci_low=0.44, ci_high=0.61,
+                                        prediction_held=True, n_violating=100, n_compliant=60)),
+    "5": dict(cells=[Cell("content:advises_on_merits", 15, 0.930, 0.600, 0.19),
+                     Cell("content:forward_looking_return", 15, 0.883, 1.0, 0.0284)]),
+}
+
+
+@pytest.mark.parametrize("number", sorted(FLIPPED))
+def test_each_prediction_outcome_is_derived_from_the_measurement_rather_than_written_beside_it(
+    number: str,
+):
+    """§9.4 pre-commits to reporting a failed prediction as a failed prediction, and an outcome
+    written as a literal reports whatever it was written as.
+
+    Production change that breaks this: any row whose Outcome cell is a constant string. Four of the
+    five were, so a changed replay produced `3 escapes, act-declaring rows (n=5) | **Held.**` in one
+    row and `**Failed** (True)` in another. The measured column was interpolated and the adjudication
+    was not, which is self-contradicting output in the flattering direction, in the one section that
+    exists to prevent it.
+
+    The previous guard here asked whether each row contained the word "held" or "failed". Every one
+    of those literals satisfied it. That is a proxy for the property, and `CLAUDE.md` forbids one:
+    the property is that the adjudication tracks the measurement, so the killer has to be a
+    measurement that flips the verdict.
+    """
+    shipped = _outcome_of(number)
+    flipped = _outcome_of(number, **FLIPPED[number])
+
+    assert _verdict_word(shipped) != _verdict_word(flipped), (
+        f"prediction {number}'s outcome did not move when its measurement was flipped: "
+        f"{shipped!r} against {flipped!r}"
+    )
+
+
+def _verdict_word(outcome: str) -> str:
+    """`held` or `failed`, taken from the leading adjudication of an Outcome cell."""
+    lowered = outcome.lower()
+    for word in ("held", "failed"):
+        if lowered.startswith(f"**{word}"):
+            return word
+    raise AssertionError(f"an outcome cell opens with no adjudication word: {outcome!r}")
+
+
+#: The prose constants that carry a recorded obligation, mapped to what deleting one would drop.
+#:
+#: Each of these was deletable with every test green, because the guards above read the tables and
+#: nothing read the sentences between them. Standing check 2's stricter form is the one that finds
+#: this: not *can each test fail*, but *does each rule have a killer*.
+OBLIGATION_CONSTANTS = {
+    "CEILING_IS_STRUCTURAL": "the tier-2 ceiling written as structural rather than as resting on a cell",
+    "ABSENT_ARM_REASON": "why rung 1 has no verdict source",
+    "NO_CELL_OVERSHOT": "the measured absence of an overshooting content cell",
+}
+
+
+@pytest.mark.parametrize("constant", sorted(OBLIGATION_CONSTANTS))
+def test_every_obligation_carrying_sentence_reaches_the_published_document(constant: str):
+    """A constant nothing reads is a constant that can be deleted with the suite green.
+
+    Production change that breaks this: deleting the constant, or defining it and never emitting it.
+    The second is the one that would survive a review, because the sentence is still in the file.
+    """
+    text = getattr(report, constant)
+    assert text, f"{constant} is empty, so this guard would pass vacuously"
+    assert text in render(), (
+        f"{constant} is defined but never reaches the document, so {OBLIGATION_CONSTANTS[constant]} "
+        "is carried nowhere a reader can see"
+    )
+
+
+def test_the_published_tripwire_count_is_the_count_the_detector_actually_makes():
+    """The corrected claim is that the tripwire half **fired and changed nothing**, not that it is
+    inert. That distinction rests on a number, and the number was published in two documents with
+    no test behind it.
+
+    Production changes that break this: counting only the rows the tripwires fired on *and* were
+    violating, while rendering the total as "of the 80 eval rows", which is what shipped and was
+    correct only because the compliant count happened to be zero; and dropping the section, which
+    takes the corrected claim with it.
+
+    The reference is `evaluate_tripwires` over the same corpus, which is the detector itself rather
+    than a second implementation of it.
+    """
+    items = load_corpus(CORPUS_PATH, split="eval")
+    labels = load_labels(LABELS_PATH)
+    fired = [i for i in items if evaluate_tripwires(i.draft)]
+    assert fired, "no eval row trips a tripwire, so the published claim would be vacuous"
+
+    published = "\n".join(deterministic_layer_section(items, labels, _eval_ladder()))
+
+    assert f"{len(fired)} of the {len(items)} eval rows" in published, (
+        f"the section does not publish {len(fired)} firings over {len(items)} rows: {published!r}"
+    )
+
+
+def test_the_probe_publishes_the_fraction_that_is_its_only_parameter():
+    """A probe reported without its fraction cannot be reproduced and cannot be told from the ladder.
+
+    `UnavailabilityProbe` carries `fraction` and `injected` explicitly so that a consumer handed bare
+    `ArmResult`s cannot tabulate them beside the real ladder with nothing saying the verdicts
+    underneath were altered. The shipped page published the injected *count* and not the fraction, so
+    a reader saw 13 of 80, could not derive 0.25, and could not rerun it.
+
+    Production change that breaks this: rendering `probe.results` and dropping `probe.fraction`.
+    """
+    document = render()
+    assert str(PROBE_FRACTION) in document, (
+        f"the probe's fraction {PROBE_FRACTION} is published nowhere in the document"
+    )
+
+
+def test_the_matching_ablation_publishes_both_arms_and_both_metrics():
+    """Four matching figures lived in `README.md` and nowhere else in the repository.
+
+    `tests/matching/test_ablation.py` asserts inequalities and absence-invariants, correctly, because
+    §9.6 forbids asserting a rate. So a reader's only route to the numbers was reimplementing the
+    draw from test fixtures. That is last task's defect, one section over.
+
+    Production change that breaks this: dropping the section, or publishing one arm. The second
+    assertion is the ablation's own rule, from
+    `test_under_missingness_the_hard_filter_arm_trades_recall_for_contamination`: two arms that
+    report identically is the one outcome meaning the ablation showed nothing, so a section that
+    could print it is a section that could publish a comparison that did not compare.
+    """
+    rows = [line for line in matching_section() if line.startswith("| ")]
+    assert rows, "the matching section publishes no row"
+
+    for arm in ("hard-exclusions", "weighted-features"):
+        assert any(arm in row for row in rows), f"the {arm} arm is not published"
+
+    cells = [tuple(c.strip() for c in row.strip().strip("|").split("|")[1:]) for row in rows[2:]]
+    assert len(set(cells)) == len(cells), (
+        f"two published arms report identical figures, so the ablation compared nothing: {cells}"
+    )
+
+
+#: A published rate: any decimal. Every rate in the document renders through `:.3f` or `:.4f`, and
+#: no denominator or count does, so this pattern separates the two exactly.
+DECIMAL = re.compile(r"\d+\.\d+")
+
+
+def _without_rates(text: str) -> str:
+    """The document with every rate replaced by a placeholder, and nothing else changed."""
+    return DECIMAL.sub("<rate>", text)
+
+
+def test_the_committed_results_page_is_what_the_generator_produces_apart_from_its_rates():
+    """The binding that was missing, and the half of the gap that is closable.
+
+    **What this asserts:** every heading, the section order, every line of prose, every table's
+    structure and column names, every arm name, the `absent, not run` rows, each adjudication word,
+    and every integer denominator and count. **What it does not assert:** any rate. Both sides are
+    normalized by replacing decimals with a placeholder first, so a rate that moves leaves this
+    green and a deleted confound header does not. That is design spec 9.6's line drawn where the
+    rule actually falls: the rule forbids asserting a probabilistic rate, and it does not forbid
+    asserting that a document still says what it says.
+
+    Integers are deliberately left bound. The denominators are counts over a frozen corpus that were
+    knowable before any arm ran, and
+    `test_the_calibration_denominators_reconcile_with_the_split_they_are_claimed_over` already
+    asserts counts of exactly that kind.
+
+    Production changes that break this: hand-editing the committed page, deleting the criterion-
+    sharing header, reordering the sections, dropping a column, and any generator change shipped
+    without regenerating. Before this existed, every one of those shipped green: CI regenerates the
+    page and never compares it, and every other guard in this module reads `render()` rather than
+    the committed bytes.
+
+    **The half that is not closable by any binding** is whether the generator's arithmetic is right.
+    Nothing that compares a generator to its own output can see that; it is held by the derivation
+    guards above, which flip a measurement and require the published word to move.
+    """
+    committed = DOCUMENT_PATH.read_text(encoding="utf-8")
+    assert committed.strip(), "the committed results page is empty, so this guard would be vacuous"
+
+    assert _without_rates(committed) == _without_rates(render()), (
+        "docs/RESULTS.md is not what tools/report.py produces, apart from its rates; "
+        "regenerate it with `python tools/report.py`"
+    )
+
+
+def test_the_published_tally_of_held_predictions_counts_the_rows_it_sits_above():
+    """A literal count beside derived rows is the same defect as a literal outcome beside a derived
+    measurement, one line further up.
+
+    The section opened with "One of the five held outright" while the rows were literals. Deriving
+    the outcomes moved prediction 3 to **Held**, because the pre-registered magnitude was equality
+    and equality landed, so the sentence became false on the commit that fixed the rows underneath it.
+
+    Production change that breaks this: any hardcoded tally in the summary line.
+    """
+    lines = predictions_section(**_measurements())
+    rows = [l for l in lines if l.startswith("| ") and not l.startswith("| # ")]
+    adjudicated = [r for r in rows if "---" not in r]
+    held = [r for r in adjudicated if _verdict_word(r.split("|")[4].strip()) == "held"]
+
+    summary = " ".join(l for l in lines if not l.startswith("|"))
+    assert summary.strip(), "the section publishes no summary line"
+    assert f"{len(held)} of the {len(adjudicated)}" in summary, (
+        f"the summary does not tally the {len(held)} held rows of {len(adjudicated)}: {summary!r}"
     )

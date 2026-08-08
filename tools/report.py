@@ -2,16 +2,27 @@
 
 **Numbers, their denominators, and what each one is not. No claim this repository cannot check.**
 
-Four properties of this generator are worth stating, because a reader of the document cannot see
-any of them and each one was a live defect in the version this replaced:
+Six properties of this generator are worth stating, because a reader of the document cannot see any
+of them and each one was a live defect in a version this replaced:
 
-- **It re-derives nothing.** Every figure below is the return value of `evals/harness.py`,
-  `evals/calibration.py` or `evals/discrimination.py`. A generator that recomputed a rate would be a
-  second implementation of it, and the two would drift while each looked correct alone. The one
-  consequence worth naming: the quality scores come from `load_quality_scores`, because a constant
-  handed to `run_discrimination` produces an AUC of exactly 0.5 by construction, which is the value
-  pre-registered prediction 4 predicted, and the document would then publish a null that had ranked
-  nothing.
+- **It re-derives no rate, and it takes exactly one measurement of its own.** Every rate below is the
+  return value of `evals/harness.py`, `evals/calibration.py`, `evals/discrimination.py` or
+  `matching/ablation.py`. A generator that recomputed one would be a second implementation of it and
+  the two would drift while each looked correct alone, which is why the content-cell denominator goes
+  through `calibration.is_content_cell` rather than through a `startswith("content:")` written here.
+  The one consequence worth naming: the quality scores come from `load_quality_scores`, because a
+  constant handed to `run_discrimination` produces an AUC of exactly 0.5 by construction, which is
+  the value pre-registered prediction 4 predicted, and the document would then publish a null that
+  had ranked nothing.
+- **The exception, named rather than left to be found.** `deterministic_layer_section` counts
+  tripwire firings itself, because no other module publishes that count and the claim it supports,
+  that the tripwire half *fired and changed nothing* rather than being inert, is false without a
+  number behind it. It has its own killer, and this bullet exists because the sentence above it read
+  "it re-derives nothing" while this function sat forty lines below.
+- **Every adjudication is derived from the measurement beside it.** `outcome_word` takes a boolean
+  computed from the results. Four of the five prediction outcomes were literals once, so a changed
+  replay published a measured failure beside the word `**Held.**`, and prediction 4 published
+  `**Failed** (True)` with the word fixed and only the boolean computed.
 - **It selects arms by name.** `arm_by_name`, never `arms[3]`. Rung 1 is in `ABSENT_ARMS`, so the
   ladder is three long where the design names four, and a positional selector picks a different rung
   than the one it reads as.
@@ -23,18 +34,26 @@ any of them and each one was a live defect in the version this replaced:
   process cwd, so a run from elsewhere refreshes a document nobody reads. Text mode translates line
   endings on Windows against the `eol=lf` pin, which has flipped a file in this repository before.
 
-**What no test here asserts: any figure in this document.** Design spec 9.6 admits invariants only,
-and every cell below is a rate. `tests/test_report.py` asserts that denominators travel with rates,
-that an absent rung is tabulated, that a measured absence is published rather than omitted, and that
-the ranking is taken over the shipped scores. It asserts no value, and `tests/test_perturbation_log.py`
-explains why the byte-equality binding that document uses is unavailable to this one.
+**What no test asserts: any rate in this document.** Design spec 9.6 admits invariants only.
+`tests/test_report.py` asserts that denominators travel with rates, that an absent rung is
+tabulated, that a measured absence is published rather than omitted, that the ranking is taken over
+the shipped scores, and that every adjudication moves when its measurement is flipped.
+
+**And the committed page is bound to this generator with the rates normalised out of both sides.**
+`test_the_committed_results_page_is_what_the_generator_produces_apart_from_its_rates` holds every
+heading, the section order, every line of prose, every table's structure and column names, every arm
+name and every integer count, while asserting no rate. That is 9.6's line drawn where the rule falls:
+it forbids asserting a probabilistic rate, not asserting that a document still says what it says.
+`tests/test_perturbation_log.py` may compare its document byte for byte because no cell there is a
+rate; this is the same binding minus the cells that are.
 """
 from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Sequence
 
-from chaperone.evals.calibration import Cell, calibrate, worst_cell
+from chaperone.evals.calibration import Cell, calibrate, is_content_cell, worst_cell
 from chaperone.evals.corpus import (
     CONTROLLED_CONTEXT,
     CORPUS_PATH,
@@ -44,11 +63,13 @@ from chaperone.evals.corpus import (
 )
 from chaperone.evals.discrimination import (
     DIMENSIONS,
+    NULL_AUC,
     DiscriminationResult,
     load_quality_scores,
     quality_means,
     run_discrimination,
 )
+from chaperone.matching.ablation import inject_missingness, run_matching_ablation
 from chaperone.evals.harness import (
     ArmResult,
     Ladder,
@@ -62,10 +83,19 @@ from chaperone.evals.harness import (
     unavailability_probe,
 )
 from chaperone.policy.tripwires import evaluate_tripwires
-from chaperone.policy.types import Family
+from chaperone.policy.types import Family, ViolationClass
 
 _ROOT = Path(__file__).resolve().parents[1]
 DOCUMENT_PATH = _ROOT / "docs" / "RESULTS.md"
+
+# `chaperone` is installed, `tools` is not a package on any path when this file runs as a script
+# from an arbitrary directory, and the candidate loader lives in `tools/build_candidates.py`. This
+# is the only path insertion in this module and it is anchored to `_ROOT` rather than to the cwd,
+# for the same reason `DOCUMENT_PATH` is.
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from tools.build_candidates import REFERENCE_MANDATE, load_candidates  # noqa: E402
 
 #: The rung whose verdicts every downstream table is taken over, selected by name.
 BEST_ARM = "4-plus-deterministic"
@@ -172,56 +202,177 @@ def calibration_section(cells: list[Cell]) -> list[str]:
     return [*lines, "", CEILING_IS_STRUCTURAL]
 
 
+def rung(ladder: Ladder, name: str) -> ArmResult:
+    """One rung, by name. **Never by position, anywhere in this module.**
+
+    A filtered comprehension unpacked into a pair binds by position, so a rung inserted between 3
+    and 4 would silently swap them, and `ladder.results[0]` reads whichever rung happens to sort
+    first. That is this task's brief defect 2 arriving one layer down and without the `IndexError`
+    to announce it, and it shipped once in this file with the comment forbidding it three lines up.
+    """
+    for result in ladder:
+        if result.name == name:
+            return result
+    raise ReportError(f"no rung named {name!r} among {[r.name for r in ladder]}")
+
+
+def outcome_word(held: bool) -> str:
+    """The adjudication, **derived from the measurement and never written beside it.**
+
+    Four of the five outcomes in this table were literals once. The measured column beside them was
+    interpolated, so a changed replay published `3 escapes, act-declaring rows (n=5) | **Held.**`,
+    and prediction 4 published `**Failed** (True)` with the word literal and only the boolean
+    computed. Self-contradicting output, in the flattering direction, in the one section that exists
+    because §9.4 pre-commits to reporting a failure as a failure. Same defect class as `if worst:`
+    publishing something false because a branch was decided in advance.
+    """
+    return "**Held.**" if held else "**Failed.**"
+
+
+def content_rows(cells: Sequence[Cell]) -> int:
+    """The content cells' denominator, via `is_content_cell` and never via a string prefix.
+
+    `calibration.py` already answers "is this a content cell" through `ViolationClass(...).family`,
+    and a `startswith("content:")` here would be a second definition of the same thing in the layer
+    whose docstring claims to re-derive nothing. A class renamed without its prefix would be counted
+    by one definition and not the other, and both would look correct alone.
+    """
+    return sum(cell.n for cell in cells if is_content_cell(cell))
+
+
+#: The missingness rate and seed the matching probe is reported at. A single draw, and named as one:
+#: `test_no_injected_draw_lets_the_hard_filter_arm_admit_an_ineligible_party` holds the hard arm's
+#: contamination at zero-or-absent across five seeds and four rates, and holds nothing about these
+#: magnitudes.
+MISSINGNESS_RATE = 0.3
+MISSINGNESS_SEED = 7
+
+#: The shortlist size both matching arms are measured at.
+SHORTLIST_K = 10
+
+
+def matching_section() -> list[str]:
+    """The matching ablation, with both metrics and every denominator.
+
+    **These four figures lived in `README.md` and nowhere else in the repository.** The ablation's
+    own tests assert inequalities and absence-invariants rather than magnitudes, correctly, because
+    §9.6 forbids asserting a rate; the consequence was that a reader's only route to the numbers was
+    reimplementing the draw from a test fixture. Published here so that the route is `python
+    tools/report.py`.
+
+    `contamination` and `recall_loss` are `float | None` and render absent over an empty denominator
+    for `rate_cell`'s reason. `n_reachable` is carried because it is `min(n_eligible, k)` and is not
+    recoverable from the other two counts once an arm returns short.
+    """
+    candidates, truth = load_candidates()
+    lines = ["| Population | Arm | Contamination | Recall loss | n shortlisted | n eligible | n reachable |",
+             "|---|---|---|---|---|---|---|"]
+    populations = (
+        ("as shipped", candidates),
+        (f"{MISSINGNESS_RATE:.0%} missingness, seed {MISSINGNESS_SEED}",
+         inject_missingness(candidates, rate=MISSINGNESS_RATE, seed=MISSINGNESS_SEED)),
+    )
+    for label, pool in populations:
+        for result in run_matching_ablation(pool, REFERENCE_MANDATE, truth, k=SHORTLIST_K):
+            lines.append(
+                f"| {label} | {result.arm} "
+                f"| {rate_cell(result.contamination, result.n_top_k)} "
+                f"| {rate_cell(result.recall_loss, result.n_reachable)} "
+                f"| {result.n_top_k} | {result.n_eligible} | {result.n_reachable} |"
+            )
+    return lines
+
+
 #: One row per pre-registered prediction, keyed by the number `PREREGISTRATION.md` gives it.
 #:
-#: Every outcome below is read off a result object computed above and never re-derived. The section
-#: exists because §9.4 pre-commits to reporting a failed prediction as a failed prediction, and four
-#: of these five failed or landed on equality: a document that reported outcomes only where the
-#: table above happened to be flattering would leave a reader counting successes.
+#: The section exists because §9.4 pre-commits to reporting a failed prediction as a failed
+#: prediction: a document that reported outcomes only where the table above happened to be
+#: flattering would leave a reader counting successes rather than predictions.
 def predictions_section(
-    act: Ladder, content: Ladder, everything: Ladder, cells: list[Cell], disc: DiscriminationResult
+    act: Ladder, content: Ladder, everything: Ladder, cells: Sequence[Cell],
+    disc: DiscriminationResult,
 ) -> list[str]:
-    """The five predictions, each with what was measured, its denominator, and its outcome."""
-    # By name in every case. A filtered comprehension unpacked into a pair binds by position, so a
-    # rung inserted between 3 and 4 would silently swap them, which is defect 2 of this task's brief
-    # arriving one layer down and without an IndexError to announce it.
-    def rung(ladder: Ladder, name: str) -> ArmResult:
-        for result in ladder:
-            if result.name == name:
-                return result
-        raise ReportError(f"no rung named {name!r} among {[r.name for r in ladder]}")
+    """The five predictions, each with what was measured, its denominator, and its outcome.
 
+    **Every outcome is derived.** The predicate for each one is written beside it below, so a
+    reader can check that the word in the table is the answer to the question the pre-registration
+    asked rather than the answer this repository would have preferred.
+    """
     best_act = rung(act, BEST_ARM)
     arm_three, arm_four = rung(everything, "3-fail-closed-gate"), rung(everything, BEST_ARM)
-    content_escapes = {r.name: r.escapes for r in content}
     overshot = worst_cell(cells)
+
+    # Prediction 2 asks for non-zero on **every** arm, so the decisive statistic is the smallest
+    # count across the rungs that ran, not their sum. The sum was correct only because it was 0.
+    fewest_content_escapes = min(result.escapes for result in content)
+
+    # Prediction 3's pre-registered magnitude is equality; the design spec's superseded prediction
+    # was a strict rise. Both are derived, because they are not the same claim and the second is the
+    # one the pre-registration pre-commits to reporting as failed if equality lands.
+    equality_held = arm_three.false_block_rate == arm_four.false_block_rate
+    strict_rise = (
+        arm_three.false_block_rate is not None
+        and arm_four.false_block_rate is not None
+        and arm_four.false_block_rate > arm_three.false_block_rate
+    )
+    superseded = ("confirmed, and the cost of the best arm is reported as its cost" if strict_rise
+                  else "reported failed, which is the branch the pre-registration pre-committed to")
+
+    if disc.ci_high < NULL_AUC:
+        excluded = "The interval excludes 0.5 from **below**, so the judge ranks violating drafts *lower*."
+    elif disc.ci_low > NULL_AUC:
+        excluded = "The interval excludes 0.5 from **above**, so the judge ranks violating drafts *higher*."
+    else:
+        excluded = "The interval contains 0.5."
 
     rows = [
         ("1", "act-class escape rate on arm 4 is exactly zero",
          f"{best_act.escapes} escapes, act-declaring rows (n={best_act.n_violating})",
-         "**Held.**"),
+         best_act.escapes == 0, "Pure functions decide it."),
         ("2", "content-class escape rate is non-zero on every arm",
-         f"{sum(content_escapes.values())} escapes on every rung that ran, content rows "
-         f"(n={content.results[0].n_violating})",
-         "**Failed.** Zero is not non-zero, and it is reported as a failed prediction."),
+         f"fewest escapes on any of the {len(content.results)} rungs that ran: "
+         f"{fewest_content_escapes}, content rows (n={rung(content, BEST_ARM).n_violating})",
+         fewest_content_escapes > 0,
+         "Zero is not non-zero, and it is reported as a failed prediction rather than as a "
+         "success of the gate." if fewest_content_escapes == 0 else
+         "Every rung that ran let at least one content violation through."),
         ("3", "false blocks, arm 3 to arm 4: equality",
          f"{arm_three.false_blocks} and {arm_four.false_blocks} false blocks, "
          f"labelled-compliant rows (n={arm_four.n_compliant})",
-         "**Equality landed.** The pre-registered magnitude held; the design spec's superseded "
-         "prediction of a strict rise is reported failed, which is the branch the "
-         "pre-registration pre-committed to."),
+         equality_held,
+         f"The design spec's superseded prediction of a strict rise is {superseded}."),
         ("4", "AUC interval contains 0.5 and excludes 0.75",
          f"{disc.auc:.3f}, interval ({disc.ci_low:.3f}, {disc.ci_high:.3f}), violating "
          f"(n={disc.n_violating}) against compliant (n={disc.n_compliant})",
-         f"**Failed** ({disc.prediction_held}). The interval excludes 0.5 from below."),
+         disc.prediction_held, excluded),
         ("5", "at least one content cell shows observed agreement below stated confidence",
-         f"no content cell overshot, content rows (n={sum(c.n for c in cells if c.violation_class.startswith('content:'))})"
-         if overshot is None else f"`{overshot.violation_class}` overshot (n={overshot.n})",
-         "**Failed.** The checker was underconfident here, so the cell the prediction went "
-         "looking for does not exist." if overshot is None else "**Held.**"),
+         f"no content cell overshot, content rows (n={content_rows(cells)})" if overshot is None
+         else f"`{overshot.violation_class}` overshot (n={overshot.n})",
+         overshot is not None,
+         "The checker was underconfident here, so the cell the prediction went looking for does "
+         "not exist." if overshot is None else "The cell is named in section 4."),
     ]
-    return ["| # | Predicted | Measured | Outcome |", "|---|---|---|---|",
-            *(f"| {n} | {predicted} | {measured} | {outcome} |" for n, predicted, measured, outcome in rows)]
+    held = [row for row in rows if row[3]]
+
+    # Derived, because a literal tally beside derived rows is the same defect one line up. This
+    # sentence read "One of the five held outright" while the outcomes were literals, and deriving
+    # them moved prediction 3 to held: its pre-registered magnitude was equality, and equality
+    # landed. The caveat is derived too, since it is only true while the superseded prediction failed.
+    summary = [f"**{len(held)} of the {len(rows)} held.** Each is adjudicated whichever way it went, "
+               "because the pre-registration's own clause is that a failed prediction is reported as "
+               "a failed prediction, and that clause is the one deciding whether the document was "
+               "doing work or decorating."]
+    if equality_held and not strict_rise:
+        summary += ["", "**Prediction 3's hold is the one to read carefully.** It held because the "
+                        "pre-registration had already replaced the design spec's stronger prediction "
+                        "of a strict rise, on dev-split evidence against it. The stronger claim "
+                        "failed. Counting this row as a success without that sentence would count a "
+                        "prediction that was weakened before it was tested."]
+
+    return [*summary, "",
+            "| # | Predicted | Measured | Outcome |", "|---|---|---|---|",
+            *(f"| {n} | {predicted} | {measured} | {outcome_word(ok)} {note} |"
+              for n, predicted, measured, ok, note in rows)]
 
 
 #: What the deterministic layer contributed, measured rather than assumed.
@@ -229,21 +380,25 @@ def predictions_section(
 #: "The tripwire half is inert on this corpus" is the sentence this measurement exists to refuse.
 #: The tripwires do fire; what they did not do is move a rate, because the rows they reached were
 #: already blocked by the checker. Those are different claims and only the second is true.
-def deterministic_layer_section(items, labels) -> list[str]:
-    """How many eval rows each half of arm 4's deterministic layer reached."""
-    fired_violating = sum(
-        1 for i in items if evaluate_tripwires(i.draft) and labels[i.id].violating
-    )
-    fired_compliant = sum(
-        1 for i in items if evaluate_tripwires(i.draft) and not labels[i.id].violating
-    )
+def deterministic_layer_section(items, labels, act: Ladder) -> list[str]:
+    """How many eval rows each half of arm 4's deterministic layer reached.
+
+    **The firing count is a measurement taken here and published nowhere else**, which makes this
+    the one place in this module that is not pure delegation. It earns that: no other module
+    publishes it, and the claim it supports, that the tripwire half fired and changed nothing rather
+    than being inert, is false without a number behind it.
+    `test_the_published_tripwire_count_is_the_count_the_detector_actually_makes` is its killer.
+    """
+    fired = [item for item in items if evaluate_tripwires(item.draft)]
+    fired_compliant = sum(1 for item in fired if not labels[item.id].violating)
+    before, after = rung(act, "3-fail-closed-gate").escapes, rung(act, BEST_ARM).escapes
     return [
         "**What each half of arm 4's deterministic layer reached.** The whole of the arm 3 to arm 4 "
-        "movement above is the **act half**: it takes the act scope from 5 escapes to 0. The "
-        f"**tripwire half** fired on {fired_violating} of the {len(items)} eval rows and on "
-        f"{fired_compliant} of the labelled-compliant ones, and moved neither rate, because the row "
-        "it reached had already been blocked by the checker. It fired, and it changed nothing; "
-        "those are different claims and a document may only make the second.",
+        f"movement above is the **act half**: it takes the act scope from {before} escapes to "
+        f"{after}. The **tripwire half** fired on {len(fired)} of the {len(items)} eval rows, "
+        f"{fired_compliant} of them labelled compliant, and moved neither rate, because the rows it "
+        "reached had already been blocked by the checker. It fired, and it changed nothing; those "
+        "are different claims and a document may only make the second.",
         "",
         "That is a property of this corpus rather than of tripwires. No compliant near-miss inside "
         "their reach exists here, so this artifact **cannot measure** the false-block cost of "
@@ -266,10 +421,15 @@ def probe_section(probe: UnavailabilityProbe) -> list[str]:
     bare `ArmResult`s could tabulate them beside the real ladder with nothing saying the verdicts
     underneath had been altered.
     """
-    lines = [f"| Arm | Escape rate | False-block rate | Scope |", "|---|---|---|---|"]
+    lines = [f"Probe `{probe.name}`, injection fraction **{probe.fraction}**, "
+             f"{len(probe.injected)} rows injected. The fraction is the probe's only parameter, so "
+             "a table without it cannot be reproduced.", "",
+             "| Arm, under injected unavailability | Escape rate | False-block rate | Scope |",
+             "|---|---|---|---|"]
     for name, result in probe.results.items():
         lines.append(
-            f"| {name} | {rate_cell(result.escape_rate, result.n_violating)} "
+            f"| {name} at fraction {probe.fraction} "
+            f"| {rate_cell(result.escape_rate, result.n_violating)} "
             f"| {rate_cell(result.false_block_rate, result.n_compliant)} | {result.scope} |"
         )
     return lines
@@ -313,7 +473,7 @@ def render() -> str:
                             (Family.CONTENT, "Content-classes only")):
         ladders[family] = run_ladder(eval_items, labels, CONTROLLED_CONTEXT, arms, family)
         lines += [f"**{heading}.**", "", *ladder_section(ladders[family]), ""]
-    lines += [*deterministic_layer_section(eval_items, labels), "",
+    lines += [*deterministic_layer_section(eval_items, labels, ladders[Family.ACT]), "",
               ABSENT_ARM_REASON, "",
               "**Arms 2 and 3 are identical here, and that is a property of the replay rather than",
               "of the gate.** The shipped artifact holds a verdict for all 160 rows, so the",
@@ -367,10 +527,14 @@ def render() -> str:
         per = run_discrimination(all_items, labels, {i: getattr(s, dimension) for i, s in raw.items()})
         lines.append(discrimination_row(f"`{dimension}` alone", per))
     lines += ["",
-              f"Pre-registered bound held: **{overall.prediction_held}**. The interval excludes 0.5",
-              "**from below**, so the judge ranks violating drafts systematically *lower*. That is",
-              "reported as a failed prediction rather than reframed, per the pre-registration's own",
-              "clause.", "",
+              f"Pre-registered prediction 4 held: **{overall.prediction_held}**. "
+              + ("The interval excludes 0.5 **from below**, so the judge ranks violating drafts "
+                 "systematically *lower*." if overall.ci_high < NULL_AUC else
+                 "The interval excludes 0.5 **from above**, so the judge ranks violating drafts "
+                 "systematically *higher*." if overall.ci_low > NULL_AUC else
+                 "The interval contains 0.5.")
+              + " That is reported as it fell rather than reframed, per the pre-registration's own"
+                " clause.", "",
               "**The confound this artifact must not claim past.** `fit` is the dimension furthest",
               "from the null, and its rubric is *responds to what was actually asked*. The corpus",
               "holds **one constant inbound message on all 160 rows**, so every content violation",
@@ -384,26 +548,43 @@ def render() -> str:
     classes = sorted({labels[i.id].violation_class for i in all_items if labels[i.id].violating})
     lines += ["", "Per class, each against the same compliant rows:", "",
               "| Ranked by | AUC | 95% CI | n violating | n compliant |", "|---|---|---|---|---|"]
+    per_class = {}
     for klass in classes:
         rows = [i for i in all_items
                 if i.id in compliant or labels[i.id].violation_class == klass]
-        lines.append(discrimination_row(f"`{klass}` rows", run_discrimination(rows, labels, means)))
+        per_class[klass] = run_discrimination(rows, labels, means)
+        lines.append(discrimination_row(f"`{klass}` rows", per_class[klass]))
+    act_class = ViolationClass.FIGURE_NOT_IN_RECORD.value
+    act_result = per_class[act_class]
+    above = sorted(k for k, r in per_class.items() if r.auc > NULL_AUC)
     lines += ["",
-              "**The row worth reading is the act class.** `act:figure_not_in_record` is the one",
-              "class the permission lane decides with certainty, and it is the only class the",
-              "quality lane ranks at or above compliant. Its interval clears the null by a margin",
-              "too small over 10 rows to call a direction, which is the honest reading; the point",
-              "estimate, 0.695, is what these rows say and the interval is what they support. That",
-              "is the thesis made concrete: an eval score is a measurement and not an",
+              f"**The row worth reading is the act class.** `{act_class}` is the one class the",
+              "permission lane decides with certainty, and of the classes above it is the only one",
+              f"the quality lane ranks over compliant ({len(above)} of {len(per_class)} do). Its",
+              f"interval clears the null by {act_result.ci_low - NULL_AUC:.3f} at the lower endpoint",
+              f"over {act_result.n_violating} rows, which is too thin to call a direction from; the",
+              f"point estimate is {act_result.auc:.3f} and the interval is what these rows support.",
+              "That is the thesis made concrete: an eval score is a measurement and not an",
               "authorization, and the class a pure function refuses outright is the class the",
               "judge likes best.", "",
               "## 6. The five pre-registered predictions", "",
-              "Each is adjudicated whichever way it went. **One of the five held outright.** The",
-              "pre-registration's own clause is that a failed prediction is reported as a failed",
-              "prediction, and that clause is the one deciding whether the document was doing work",
-              "or decorating.", "",
               *predictions_section(ladders[Family.ACT], ladders[Family.CONTENT], ladders[None],
-                                   cells, overall), ""]
+                                   cells, overall), "",
+              "## 7. The matching ablation", "",
+              "The same argument on a second surface: hard eligibility exclusions against tuned",
+              "weighted features, over one population of synthetic candidates. Both metrics are",
+              "`float | None` and render absent over an empty denominator, never zero, because an",
+              "arm whose exclusions emptied the shortlist would otherwise score perfectly for",
+              "having surfaced nobody.", "",
+              *matching_section(), "",
+              "**The hard arm pays no measured recall loss on the shipped population, and that is a",
+              "property of the population.** With most records eligible and a shortlist of",
+              f"{SHORTLIST_K}, the shortlist fills from clean rows alone, so the recall cost the",
+              "hard arm exists to pay is invisible here. The trade is legible on a constructed",
+              "population instead, in",
+              "`test_under_missingness_the_hard_filter_arm_trades_recall_for_contamination`. Read",
+              "these as a demonstration of the protocol and never as evidence that either ranker is",
+              "good: the labels were generated in this repository.", ""]
     return "\n".join(lines).rstrip("\n") + "\n"
 
 

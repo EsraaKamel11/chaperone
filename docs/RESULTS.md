@@ -48,7 +48,7 @@ Eval split. One verdict source per rung, over one frozen corpus.
 | 3-fail-closed-gate | 0.000 (n=45) | 0.000 (n=30) | content-classes-only |
 | 4-plus-deterministic | 0.000 (n=45) | 0.000 (n=30) | content-classes-only |
 
-**What each half of arm 4's deterministic layer reached.** The whole of the arm 3 to arm 4 movement above is the **act half**: it takes the act scope from 5 escapes to 0. The **tripwire half** fired on 1 of the 80 eval rows and on 0 of the labelled-compliant ones, and moved neither rate, because the row it reached had already been blocked by the checker. It fired, and it changed nothing; those are different claims and a document may only make the second.
+**What each half of arm 4's deterministic layer reached.** The whole of the arm 3 to arm 4 movement above is the **act half**: it takes the act scope from 5 escapes to 0. The **tripwire half** fired on 1 of the 80 eval rows, 0 of them labelled compliant, and moved neither rate, because the rows it reached had already been blocked by the checker. It fired, and it changed nothing; those are different claims and a document may only make the second.
 
 That is a property of this corpus rather than of tripwires. No compliant near-miss inside their reach exists here, so this artifact **cannot measure** the false-block cost of lexical tripwires, and the zero above is not evidence that the cost is zero. The pre-registration says so in advance, which is what stops a flattering number being read as a finding.
 
@@ -82,11 +82,13 @@ from it and nothing here is written back to the replay. It exists because rung 2
 directions at once: arm 2 allows the rows the checker could not answer and is
 charged the escapes, arm 3 blocks them and is charged the false blocks.
 
-| Arm | Escape rate | False-block rate | Scope |
+Probe `probe-unavailability-injected`, injection fraction **0.25**, 13 rows injected. The fraction is the probe's only parameter, so a table without it cannot be reproduced.
+
+| Arm, under injected unavailability | Escape rate | False-block rate | Scope |
 |---|---|---|---|
-| 2-independent-checker | 0.280 (n=50) | 0.000 (n=30) | all-classes |
-| 3-fail-closed-gate | 0.080 (n=50) | 0.100 (n=30) | all-classes |
-| 4-plus-deterministic | 0.000 (n=50) | 0.100 (n=30) | all-classes |
+| 2-independent-checker at fraction 0.25 | 0.280 (n=50) | 0.000 (n=30) | all-classes |
+| 3-fail-closed-gate at fraction 0.25 | 0.080 (n=50) | 0.100 (n=30) | all-classes |
+| 4-plus-deterministic at fraction 0.25 | 0.000 (n=50) | 0.100 (n=30) | all-classes |
 
 ## 4. Checker calibration
 
@@ -120,10 +122,7 @@ interval containing 0.5 and excluding 0.75.
 | `fluency` alone | 0.174 | (0.104, 0.248) | 100 | 60 |
 | `fit` alone | 0.140 | (0.085, 0.202) | 100 | 60 |
 
-Pre-registered bound held: **False**. The interval excludes 0.5
-**from below**, so the judge ranks violating drafts systematically *lower*. That is
-reported as a failed prediction rather than reframed, per the pre-registration's own
-clause.
+Pre-registered prediction 4 held: **False**. The interval excludes 0.5 **from below**, so the judge ranks violating drafts systematically *lower*. That is reported as it fell rather than reframed, per the pre-registration's own clause.
 
 **The confound this artifact must not claim past.** `fit` is the dimension furthest
 from the null, and its rubric is *responds to what was actually asked*. The corpus
@@ -148,26 +147,50 @@ Per class, each against the same compliant rows:
 | `content:forward_looking_return` rows | 0.108 | (0.049, 0.179) | 30 | 60 |
 | `content:negotiates_terms` rows | 0.361 | (0.244, 0.479) | 30 | 60 |
 
-**The row worth reading is the act class.** `act:figure_not_in_record` is the one
-class the permission lane decides with certainty, and it is the only class the
-quality lane ranks at or above compliant. Its interval clears the null by a margin
-too small over 10 rows to call a direction, which is the honest reading; the point
-estimate, 0.695, is what these rows say and the interval is what they support. That
-is the thesis made concrete: an eval score is a measurement and not an
+**The row worth reading is the act class.** `act:figure_not_in_record` is the one class the
+permission lane decides with certainty, and of the classes above it is the only one
+the quality lane ranks over compliant (1 of 4 do). Its
+interval clears the null by 0.002 at the lower endpoint
+over 10 rows, which is too thin to call a direction from; the
+point estimate is 0.695 and the interval is what these rows support.
+That is the thesis made concrete: an eval score is a measurement and not an
 authorization, and the class a pure function refuses outright is the class the
 judge likes best.
 
 ## 6. The five pre-registered predictions
 
-Each is adjudicated whichever way it went. **One of the five held outright.** The
-pre-registration's own clause is that a failed prediction is reported as a failed
-prediction, and that clause is the one deciding whether the document was doing work
-or decorating.
+**2 of the 5 held.** Each is adjudicated whichever way it went, because the pre-registration's own clause is that a failed prediction is reported as a failed prediction, and that clause is the one deciding whether the document was doing work or decorating.
+
+**Prediction 3's hold is the one to read carefully.** It held because the pre-registration had already replaced the design spec's stronger prediction of a strict rise, on dev-split evidence against it. The stronger claim failed. Counting this row as a success without that sentence would count a prediction that was weakened before it was tested.
 
 | # | Predicted | Measured | Outcome |
 |---|---|---|---|
-| 1 | act-class escape rate on arm 4 is exactly zero | 0 escapes, act-declaring rows (n=5) | **Held.** |
-| 2 | content-class escape rate is non-zero on every arm | 0 escapes on every rung that ran, content rows (n=45) | **Failed.** Zero is not non-zero, and it is reported as a failed prediction. |
-| 3 | false blocks, arm 3 to arm 4: equality | 0 and 0 false blocks, labelled-compliant rows (n=30) | **Equality landed.** The pre-registered magnitude held; the design spec's superseded prediction of a strict rise is reported failed, which is the branch the pre-registration pre-committed to. |
-| 4 | AUC interval contains 0.5 and excludes 0.75 | 0.224, interval (0.156, 0.300), violating (n=100) against compliant (n=60) | **Failed** (False). The interval excludes 0.5 from below. |
+| 1 | act-class escape rate on arm 4 is exactly zero | 0 escapes, act-declaring rows (n=5) | **Held.** Pure functions decide it. |
+| 2 | content-class escape rate is non-zero on every arm | fewest escapes on any of the 3 rungs that ran: 0, content rows (n=45) | **Failed.** Zero is not non-zero, and it is reported as a failed prediction rather than as a success of the gate. |
+| 3 | false blocks, arm 3 to arm 4: equality | 0 and 0 false blocks, labelled-compliant rows (n=30) | **Held.** The design spec's superseded prediction of a strict rise is reported failed, which is the branch the pre-registration pre-committed to. |
+| 4 | AUC interval contains 0.5 and excludes 0.75 | 0.224, interval (0.156, 0.300), violating (n=100) against compliant (n=60) | **Failed.** The interval excludes 0.5 from **below**, so the judge ranks violating drafts *lower*. |
 | 5 | at least one content cell shows observed agreement below stated confidence | no content cell overshot, content rows (n=45) | **Failed.** The checker was underconfident here, so the cell the prediction went looking for does not exist. |
+
+## 7. The matching ablation
+
+The same argument on a second surface: hard eligibility exclusions against tuned
+weighted features, over one population of synthetic candidates. Both metrics are
+`float | None` and render absent over an empty denominator, never zero, because an
+arm whose exclusions emptied the shortlist would otherwise score perfectly for
+having surfaced nobody.
+
+| Population | Arm | Contamination | Recall loss | n shortlisted | n eligible | n reachable |
+|---|---|---|---|---|---|---|
+| as shipped | hard-exclusions | 0.000 (n=10) | 0.000 (n=10) | 10 | 60 | 10 |
+| as shipped | weighted-features | 0.100 (n=10) | 0.100 (n=10) | 10 | 60 | 10 |
+| 30% missingness, seed 7 | hard-exclusions | 0.000 (n=10) | 0.000 (n=10) | 10 | 60 | 10 |
+| 30% missingness, seed 7 | weighted-features | 0.500 (n=10) | 0.500 (n=10) | 10 | 60 | 10 |
+
+**The hard arm pays no measured recall loss on the shipped population, and that is a
+property of the population.** With most records eligible and a shortlist of
+10, the shortlist fills from clean rows alone, so the recall cost the
+hard arm exists to pay is invisible here. The trade is legible on a constructed
+population instead, in
+`test_under_missingness_the_hard_filter_arm_trades_recall_for_contamination`. Read
+these as a demonstration of the protocol and never as evidence that either ranker is
+good: the labels were generated in this repository.
