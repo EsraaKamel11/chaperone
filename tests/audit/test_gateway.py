@@ -120,11 +120,12 @@ def test_transmit_routes_through_the_gateway_as_an_effectful_send(tmp_path: Path
 def test_the_result_names_the_seqs_of_the_entries_that_were_actually_written(tmp_path: Path):
     """Two mechanisms report the same numbers. This is the input that would separate them.
 
-    `outcome_seq` is read from `self._seq` inside the `return` expression, which Python evaluates
-    *before* the `finally` clause allocates the outcome entry's seq. They agree only because
-    `_next_seq` hands back the value it then increments -- an off-by-one on either side detaches
-    the number the caller is given from the number on disk, and a caller holding a seq that names
-    a different entry is worse than one holding none.
+    `outcome_seq` is asked for inside the `return` expression, which Python evaluates *before* the
+    `finally` clause allocates the outcome entry's seq -- so it is a prediction. They agree only
+    because both sides ask `_next_seq`, which reads the answer off the log and consumes nothing. A
+    counter that handed back a number and incremented itself agreed only while nothing else wrote
+    between the two calls, and `recovery.resume` is something else that writes; a caller holding a
+    seq that names a different entry is worse than one holding none.
     """
     gateway = _gateway(tmp_path)
 

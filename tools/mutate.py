@@ -111,14 +111,14 @@ MUTANTS: list[Mutant] = [
         "audit_entry_leaves_the_finally",
         SRC / "audit" / "gateway.py",
         '            outcome = "allowed"\n'
-        "            return GatewayResult(True, value, decision, intent_seq, self._seq)\n"
+        "            return GatewayResult(True, value, decision, intent_seq, self._next_seq())\n"
         "        finally:\n"
         '            outcome_seq = self._write("outcome", tool_name, outcome, digest, seed)\n'
         '            object.__setattr__(self, "_last_outcome_seq", outcome_seq)\n',
         '            outcome = "allowed"\n'
         '            outcome_seq = self._write("outcome", tool_name, outcome, digest, seed)\n'
         '            object.__setattr__(self, "_last_outcome_seq", outcome_seq)\n'
-        "            return GatewayResult(True, value, decision, intent_seq, self._seq)\n"
+        "            return GatewayResult(True, value, decision, intent_seq, self._next_seq())\n"
         "        finally:\n"
         "            pass\n",
     ),
@@ -243,6 +243,31 @@ MUTANTS: list[Mutant] = [
         "            for index in pending.get(entry.arg_digest, []):\n"
         "                paired[index][1] = entry\n"
         "            pending[entry.arg_digest] = []\n",
+    ),
+    # A counter cached in the gateway rather than read off the log, which is what `_next_seq` was
+    # before `recovery.resume` existed to be a second writer to the same file.
+    #
+    # **The version that caused the reported defect cached at *construction*, and that cannot be
+    # restored from one site: after the fix there is no cached seq anywhere, so re-creating it
+    # needs a write in `__init__` and a read here.** This is the single-site form -- cache on first
+    # use, then increment -- and it is a strictly weaker mutant: the crash-restart ordering
+    # populates it *after* the recovery pass, so it numbers that scenario correctly and
+    # `test_a_send_issued_after_recovery_is_not_released_from_the_cap_by_the_next_recovery` does
+    # not catch it. What does catch it is that a cached counter is not idempotent: `call` reports
+    # `outcome_seq` by asking `_next_seq` what the `finally` will allocate, and a counter that
+    # *consumes* a number on being asked detaches the seq handed to the caller from the seq on
+    # disk. Killed by `test_the_result_names_the_seqs_of_the_entries_that_were_actually_written`.
+    Mutant(
+        "the_gateway_numbers_from_a_cached_counter",
+        SRC / "audit" / "gateway.py",
+        "        entries, _ = self.store.read_all()\n"
+        "        return max((entry.seq for entry in entries), default=-1) + 1\n",
+        "        if not hasattr(self, \"_cached_seq\"):\n"
+        "            entries, _ = self.store.read_all()\n"
+        "            self._cached_seq = max((entry.seq for entry in entries), default=-1) + 1\n"
+        "        seq = self._cached_seq\n"
+        "        self._cached_seq += 1\n"
+        "        return seq\n",
     ),
     # Design spec 5.4(b) is a conjunction, and this is the conjunct a brief-following implementer
     # drops: `stale_after_seq` arrives in the signature and is never read. The mutant releases an

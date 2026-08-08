@@ -219,3 +219,26 @@ def test_the_bare_unavailable_marker_requires_approval(tmp_path: Path):
     store = AuditStore(tmp_path / "a.jsonl")
     store.append(_row(0, "outcome", "allowed", DIGEST_UNAVAILABLE))
     assert requires_approval_for(store, DIGEST_UNAVAILABLE) is True
+
+
+def test_a_seq_reported_to_the_caller_still_names_the_entry_that_was_written(tmp_path: Path):
+    """`resume` is a second writer, and `GatewayResult.outcome_seq` is read before the write.
+
+    `call` builds its result inside the `return` expression, which Python evaluates before the
+    `finally` allocates the outcome's seq; the two agree only because the allocator's position is
+    reported honestly. A **plain** call allocates nothing before that point, so its reported number
+    is whatever was left over -- and a recovery pass appending in between makes it name a different
+    entry. `test_the_result_names_the_seqs_of_the_entries_that_were_actually_written` in
+    test_gateway.py holds the same property; this is the input recovery adds to it, and a caller
+    holding a seq that names someone else's record is worse than one holding none.
+    """
+    store = AuditStore(tmp_path / "a.jsonl")
+    store.append(_row(5, "intent", "pending", "d1"))
+    gateway = Gateway(store, principal="agent", tier=2)
+    resume(store, side_effect_absent=lambda d: None, stale_after_seq=5)
+
+    result = gateway.call("read_record", {}, decide=lambda: ALLOW, execute=lambda: "v")
+
+    entries, _ = store.read_all()
+    assert result.intent_seq is None
+    assert result.outcome_seq == entries[-1].seq

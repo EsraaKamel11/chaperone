@@ -3,8 +3,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from chaperone.audit.gateway import Gateway
-from chaperone.audit.recovery import resume
+from chaperone.audit.recovery import Branch, resume
 from chaperone.audit.store import AuditStore
 from chaperone.policy.act_classes import ActContext, evaluate_act_classes
 from chaperone.policy.types import (
@@ -156,3 +158,55 @@ def test_a_torn_log_counts_the_record_the_tear_took(tmp_path: Path):
     assert evaluate_act_classes(DRAFT, RECORD, _context(torn_gateway.sent_count(), cap=3)) == (
         Finding(ViolationClass.SEND_CAP_EXCEEDED, "3/3", None),
     )
+
+
+class _StoreWhoseOutcomeWriteCanFail(AuditStore):
+    """A store whose outcome append fails while `dying` is set, leaving the intent dangling.
+
+    Not a stub for anything under test: it injects the one crash `Gateway`'s own docstring names as
+    its remaining finding-C-shaped hole -- "`store.append` can fail on a full disk; the outcome
+    entry is then lost". It is how a live in-flight intent is produced through the real `call` path
+    rather than hand-written into the log, which is the whole point of the test below.
+    """
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(path)
+        self.dying = False
+
+    def append(self, payload: dict):
+        if self.dying and payload["kind"] == "outcome":
+            raise OSError("no space left on device")
+        return super().append(payload)
+
+
+def test_a_send_issued_after_recovery_is_not_released_from_the_cap_by_the_next_recovery(
+    tmp_path: Path,
+):
+    """The ordering recovery exists for, driven end to end: crash, restart, resume, keep sending.
+
+    The gateway numbers its entries and so does `resume`. If the gateway's counter is cached at
+    construction, the sends that follow a recovery pass are numbered over the top of the entries
+    recovery just wrote -- and a live intent stops being at the log's tail. The next restart hands
+    `resume` the previous run's maximum seq as its staleness boundary, that live intent now sits at
+    or below it, the probe finds no delivery record because the send is still in flight, and
+    §5.4(b) fires: **aborted, released from the cap, for a message that may already have gone out.**
+
+    Asserted as the release, not as a seq comparison. The numbering is the mechanism; the cap is
+    what the numbering is load-bearing for.
+    """
+    store = _StoreWhoseOutcomeWriteCanFail(tmp_path / "a.jsonl")
+    store.append(dict(seq=0, kind="intent", tool="send_message", principal="agent", tier=2,
+                      scope="send_message", outcome="pending", arg_digest="crashed", seed=None))
+
+    gateway = Gateway(store, principal="agent", tier=2)
+    resume(store, side_effect_absent=lambda d: True, stale_after_seq=0)
+    boundary = max(e.seq for e in store.read_all()[0])
+
+    store.dying = True                                   # the second run dies mid-send
+    with pytest.raises(OSError):
+        _send(gateway, 9)
+    store.dying = False                                  # and the process restarts
+
+    actions = resume(store, side_effect_absent=lambda d: True, stale_after_seq=boundary)
+    assert [(a.branch, a.counts_against_cap) for a in actions] == [(Branch.UNKNOWN, True)]
+    assert gateway.sent_count() == 1

@@ -17,6 +17,17 @@ class Branch(str, Enum):
 
 @dataclass(frozen=True)
 class ResumeAction:
+    """What one unresolved intent was decided to be. A report, never a control input.
+
+    `counts_against_cap` is derived -- it is `branch is not Branch.ABORTED` and nothing else -- and
+    **the cap does not read it.** `counted_sends` derives release from the durable outcome word in
+    the log, because a field on an in-memory object cannot survive the crash the cap has to be
+    right across. It is kept because the task's interface pins it and two tests assert it directly:
+    `test_a_stale_intent_with_the_side_effect_verifiably_absent_is_aborted` on `is False` and
+    `test_an_indeterminate_intent_stays_counted_against_the_cap` on `is True`. Read it as this
+    pass's account of what it did, and read the log for what is enforced.
+    """
+
     intent_seq: int
     digest: str
     branch: Branch
@@ -86,6 +97,14 @@ def counted_sends(store: AuditStore) -> int:
     an under-count, which is strictly closer to the truth than not correcting -- and the direction
     it can still err in is the one this whole module is arranged around, so it is stated rather
     than implied.
+
+    **One fail-open this cannot close: a log that is not there counts zero.** `read_all` over a
+    missing path returns `([], False)`, so a store whose file was deleted is indistinguishable from
+    a store that has never been written, and this returns 0 for both -- the cap fully reset, with
+    no tear to see. It is not closable inside this module: telling the two apart needs state the
+    log does not hold, such as a durable high-water mark kept somewhere the same delete does not
+    reach. Named here because "the count is the log" is the design, and this is the one input that
+    makes the log lie without damaging it.
     """
     entries, torn = store.read_all()
     released = sum(
@@ -127,11 +146,16 @@ def resume(
     (c) Anything else -> `unknown`, still counted, and the digest becomes an approval key.
 
     **`stale_after_seq` marks a prefix stale: an intent is stale when `seq <= stale_after_seq`.**
-    The conjunction in (b) exists to exclude an intent that may still be running. Under the one
-    writer this log is built for, an in-flight intent sits at the tail -- `_next_seq` hands numbers
-    out in order -- so a prefix is the only shape that can exclude one. Two gateways appending to
-    one store would each allocate from their own `_seq` and the tail would stop meaning that, which
-    is a limit of the ordering rather than of this parameter. Widening the
+    The conjunction in (b) exists to exclude an intent that may still be running, and an in-flight
+    intent sits at the tail because **every writer numbers from the log as it is at write time**:
+    `Gateway._next_seq` re-derives `max + 1` on each write and this function does the same, so a
+    later record always carries a higher seq. That claim was false when this module was written --
+    the gateway cached its counter at construction, this function was the second writer that made
+    the cache stale, and sends issued after a recovery pass were numbered back over the top of it,
+    which put a live intent inside a later pass's boundary and released it from the cap. Scoping
+    the claim to "one writer" did not save it, because `resume` *is* the second writer. The
+    numbering rule is what saves it. A prefix is then the only shape that can exclude a tail;
+    widening the
     boundary therefore reaches *forward*, and the default of 0 is the narrowest release rather than
     the widest: a caller that knows where the previous run ended names that seq, and a caller that
     names nothing releases at most the log's first intent. Reading the parameter the other way --
@@ -140,6 +164,16 @@ def resume(
 
     Only branch (b) is permissive, so only branch (b) is guarded. Every other answer, including a
     probe that raises or returns something that is not exactly `True`, lands in (c).
+
+    **A non-stale intent skips the probe but still receives a durable `unknown`, and that is not
+    free.** If the send it belongs to then completes, `gateway.call`'s `finally` writes its real
+    outcome -- and `pair_intents` has already paired the intent with this `unknown`, so the genuine
+    `allowed` finds no pending intent and is discarded rather than recorded as resolving anything.
+    The consequence is not merely an untidy log: `requires_approval_for` answers `True` for that
+    digest **permanently**, for a send that in fact went through, and no later event can clear it.
+    A human must. Kept anyway, because the alternative -- writing nothing -- leaves a live intent
+    with no idempotency key at all, and an unclearable approval demand errs in the direction this
+    module is arranged around while a missing one does not.
     """
     entries, _ = store.read_all()
     actions: list[ResumeAction] = []
@@ -175,6 +209,12 @@ def requires_approval_for(store: AuditStore, digest: str) -> bool:
     `Branch.UNKNOWN.value` rather than the literal, for the reason `counted_sends` uses
     `Branch.ABORTED.value`: `resume` writes this word and this function looks for it, and a rename
     that touched only the writer would leave the double-send guard silently off.
+
+    **The same fail-open `counted_sends` names reaches here, and further.** `read_all` over a
+    missing path returns `([], False)`, so a deleted log disarms this gate completely: every digest
+    that is not marked `DIGEST_UNAVAILABLE` comes back `False` and no re-attempt is stopped. The
+    prefix rule survives a deleted log because it never consults one; the `unknown` rule does not.
+    Not closable inside this module, for the reason given there.
     """
     if digest.startswith(DIGEST_UNAVAILABLE):
         return True

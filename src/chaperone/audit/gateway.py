@@ -111,13 +111,17 @@ class Gateway:
         self.store = store
         self._principal = principal
         self._tier = tier
-        entries, torn = store.read_all()
-        # `len(entries)` is the next seq only while the log has no holes. A tear removes a record
-        # without removing its number, so counting re-issued a number already in use -- `[0, 2]`
-        # counted two and allocated 2 again -- and seq is the ordering Task 24's recovery reads to
-        # pair an intent with its outcome. The maximum is right with or without holes, and it is
-        # what `recovery.resume` uses, so the two allocators cannot disagree.
-        self._seq = max((entry.seq for entry in entries), default=-1) + 1
+        # **No seq is cached here, and that is the point.** `len(entries)` was the first wrong
+        # answer -- a tear removes a record without removing its number, so counting re-issued a
+        # number already in use (`[0, 2]` counted two and allocated 2 again). `max + 1` fixed the
+        # arithmetic and left the caching, which was the second wrong answer: `recovery.resume`
+        # appends to this same log under the same rule, so it is a second writer and any number
+        # held here is stale the moment it runs. Sends issued after a recovery pass were then
+        # numbered back over the entries recovery had just written, a live intent stopped being at
+        # the log's tail, and the next pass found it inside its staleness boundary and released it
+        # from the cap. `_next_seq` reads the number off the log at the moment of writing and is
+        # the only place that decides one.
+        _, torn = store.read_all()
         #: True when the log already held a torn record when this gateway opened it. Surfaced, not
         #: swallowed: `count` does not report `torn` either, so a caller that only ever sees a
         #: number cannot learn a record was lost. **What to do about it is Task 24's** -- the send
@@ -127,9 +131,28 @@ class Gateway:
         self.log_torn = torn
 
     def _next_seq(self) -> int:
-        seq = self._seq
-        self._seq += 1
-        return seq
+        """The next free number, read off the log. **One rule, one place, no cached counter.**
+
+        `recovery.resume` writes to this log too and applies the same `max + 1`, so a later record
+        always carries a higher seq -- which is what lets `resume` treat a prefix as stale and the
+        tail as possibly in flight. That invariant holds by derivation, not by two writers being
+        asked in a comment to agree.
+
+        No new failure class and no new cost: `store.append` already reads the whole log through
+        `_last_hash()` on every append, so this is the same read of the same file.
+
+        **Also the number `call` reports as `GatewayResult.outcome_seq`.** That is read inside the
+        `return` expression, which Python evaluates before the `finally` allocates anything, so it
+        has to be a prediction; deriving it here makes it the same prediction the `finally` will
+        make, from the same log. A cached counter got this wrong for **plain** calls in particular,
+        which allocate nothing before the return and so reported whatever was left over.
+
+        The "nothing above the `try` in `call` may raise" inventory is untouched by the `read_all`
+        this adds: every caller of this method is inside the `try` or inside the `finally` -- the
+        latter being the finding-C-shaped hole that docstring already names and bounds.
+        """
+        entries, _ = self.store.read_all()
+        return max((entry.seq for entry in entries), default=-1) + 1
 
     def _write(self, kind: str, tool: str, outcome: str, digest: str, seed: int | None) -> int:
         seq = self._next_seq()
@@ -181,7 +204,7 @@ class Gateway:
             decision = decide()
             if not decision.allowed:
                 outcome = "redirected" if decision.disposition is not Disposition.ALLOW else "denied"
-                return GatewayResult(False, None, decision, intent_seq, self._seq)
+                return GatewayResult(False, None, decision, intent_seq, self._next_seq())
             # No handler here, deliberately. `"error"` is set *before* the tool is entered and is
             # downgraded only by a clean return, so every way of leaving `execute()` other than
             # returning -- including `KeyboardInterrupt`, `SystemExit`, `GeneratorExit` and
@@ -194,7 +217,7 @@ class Gateway:
             outcome = "error"
             value = execute()
             outcome = "allowed"
-            return GatewayResult(True, value, decision, intent_seq, self._seq)
+            return GatewayResult(True, value, decision, intent_seq, self._next_seq())
         finally:
             outcome_seq = self._write("outcome", tool_name, outcome, digest, seed)
             object.__setattr__(self, "_last_outcome_seq", outcome_seq)
