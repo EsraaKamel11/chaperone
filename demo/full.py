@@ -23,10 +23,13 @@ transport is: it answers the violating body with a violation and the redraft wit
 What is computed is everything between them, and the sends go through `guarded_call`, the executor
 chokepoint, so each BLOCK is the category the gate returned rather than one printed alongside it.
 
-**The headline is asserted, not printed.** `tests/` executes no script, so `assert not entered` runs
-before each print and `.github/workflows/ci.yml` runs this file. A regression that let either send
-through, or that let scene 2's redraft transmit, fails the build rather than printing a different
-number and exiting 0.
+**The headline is asserted, not printed, and two different assertions carry it.** `assert not
+entered` runs after each `guarded_call` and before the BLOCK line. The redraft is guarded by
+`assert "allowed" not in outcomes` against the audit log, **not** by a third `assert not entered`,
+which could not fail there for the reason recorded beside it. Both `tests/test_readme_claims.py` and
+`.github/workflows/ci.yml` run this file, so a regression that let either send through, or that let
+scene 2's redraft transmit, fails the suite and the build rather than printing a different number and
+exiting 0.
 """
 from pathlib import Path
 from tempfile import mkdtemp

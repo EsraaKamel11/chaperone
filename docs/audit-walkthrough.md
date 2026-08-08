@@ -3,10 +3,16 @@
 One denied send, entry by entry.
 
 The hash chain is the least interesting thing on this page. Chains are easy to build and most readers
-have built one. **The idea worth the walkthrough is that this log is an enforcement input, not a
-report.** The send cap counts intent entries, so a lost line is not a gap in the forensics, it is a
-predicate failing open. That single fact is what forces write-ahead ordering, fsync, binary append,
-and torn-tail detection, none of which a pure record would need.
+have built one. **The idea worth the walkthrough is that this log is designed as an enforcement
+input, not as a report.** The send cap is a predicate over a count of intent entries, so a lost line
+would not be a gap in the forensics, it would be a predicate failing open. That single fact is what
+forces write-ahead ordering, fsync, binary append, and torn-tail detection, none of which a pure
+record would need.
+
+**Read the rest of this page in that tense.** `Gateway.sent_count()` derives the count and is called
+from `tests/audit/test_send_cap.py` and nowhere else, so **no shipped path hands the cap a count off
+this log**. The durability argument below is what makes the count trustworthy once it is wired in;
+it is not evidence that it is wired in. See [B0 in the failure-mode catalog](failure-modes.md).
 
 ---
 
@@ -30,11 +36,14 @@ The `arg_digest` is identical on both lines. That is what pairs them, and
 The obvious design writes one entry after the call, recording what happened. It has a hole: if the
 process dies between the effect and the write, the effect occurred and the record says nothing.
 
-For a pure audit log that is a forensics gap, recoverable from the counterparty's side. **Here it is a
-permission failure**, because `act:send_cap_exceeded` is evaluated against a count of intent entries.
-A lost line means the count comes back lower than the truth, and the cap then permits a send it should
-have refused. The log going quiet makes the system more permissive, which is the worst possible
-direction for an error in an enforcement layer.
+For a pure audit log that is a forensics gap, recoverable from the counterparty's side. **Here it
+would be a permission failure**, because `act:send_cap_exceeded` is a predicate over a count of intent
+entries. A lost line would mean the count came back lower than the truth, and the cap would then
+permit a send it should have refused. The log going quiet makes the system more permissive, which is
+the worst possible direction for an error in an enforcement layer.
+
+Conditional, because that is the state of the tree: the count is not wired to the predicate yet, per
+the note at the top of this page.
 
 So the ordering is: **write the intent, make it durable, attempt the effect, write the outcome.**
 
@@ -145,7 +154,11 @@ credentials is the real answer, and it is infrastructure rather than code.
 
 **Detection is not prevention.** The chain tells you afterwards. Nothing here stops a write.
 
-**Crash recovery is designed, not built.** The entry schema reserves a `recovery` field with branch (b)
-`aborted` and branch (c) `unknown` for a pass that reconciles pending intents after a crash. The pass
-itself, `recovery.resume`, does not exist in this tree. Until it does, a pending intent stays pending
-and continues to count toward the cap, which is the safe direction but not the complete one.
+**Crash recovery is built, and nothing schedules it.** The pass that reconciles pending intents after
+a crash is `resume` in `src/chaperone/audit/recovery.py`, with branch (b) `aborted` and branch (c)
+`unknown`, and `requires_approval_for` is the branch (c) gate. Both are tested. **Nothing schedules
+`resume` and nothing consults `requires_approval_for` before a send**, so until they are wired in a
+pending intent stays pending and continues to count toward the cap, which is the safe direction but
+not the complete one. This is the wording the [README](../README.md) and
+[docs/ON_CALL.md](ON_CALL.md) both carry; this page said the pass "does not exist in this tree",
+which was true on the commit before the one that built it.

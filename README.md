@@ -158,11 +158,13 @@ Line by line:
   agent against the same wall.
 - **`AUDIT -> 2 entries, chain verifies: True`.** Intent and outcome, hash linked. See below.
 
-**What guards this output, stated precisely.** No test executes this script. What guards it is a pair:
-`assert not entered` runs inside `demo/day2.py` before the print, and `.github/workflows/ci.yml` runs
-the file as a step named `Day-2 demo`. So a regression that let the send through fails CI rather than
-printing a different number and exiting 0. That covers the headline invariant. The exact printed text
-above is kept in step with the demo by a byte comparison in `tests/test_readme_claims.py`.
+**What guards this output, stated precisely.** Three things, and the first of them is the suite:
+`tests/test_readme_claims.py` runs `demo/day2.py` as a subprocess under `check=True`, so the script's
+own `assert not entered` is a failing test rather than a failing script. `.github/workflows/ci.yml`
+runs the file again as a step named `Day-2 demo`, which is what covers a checkout where the suite is
+not run. And the exact printed text above is kept in step with the demo by a byte comparison in the
+same test module. So a regression that let the send through fails both the suite and the build rather
+than printing a different number and exiting 0.
 
 Both transports are scripted, because the suite runs offline and keyless. The quality scores and the
 checker verdict are inputs to the script. What is computed is everything between them.
@@ -197,8 +199,11 @@ for approval rather than transmitting.** That last clause is the one worth watch
 tidy-looking version, where a redraft that now passes simply sends, is an auto-retry of a permission
 failure. `test_a_redraft_never_transmits_without_approval` holds it on effects, and
 `test_the_full_demo_runs_both_scenes_and_enters_the_send_tool_in_neither` holds that both scenes in
-this script keep the send tool unentered. The script asserts it too, before each print, and CI runs
-the file.
+this script keep the send tool unentered. The script asserts it too, and the assertion that carries
+the redraft clause is `assert "allowed" not in outcomes` against the audit log rather than a third
+`assert not entered`: `refine` is handed no registry and no gateway, so nothing it does could append
+to `entered` and that assertion could not fail there. The log can fail, which is why it is the one
+used. Both the suite and CI run the file.
 
 ---
 
@@ -213,7 +218,7 @@ two different epistemic situations, and collapsing them is the error the reposit
 | **Decided by** | A pure function over the record and the context | A model checker, plus lexical tripwires |
 | **The classes** | `act:no_approval_token`, `act:jurisdiction_not_consented`, `act:tool_outside_grant`, `act:figure_not_in_record`, `act:send_cap_exceeded` | `content:advises_on_merits`, `content:negotiates_terms`, `content:forward_looking_return` |
 | **Where they come from** | Consent, approval, grants and volume: the operating constraints | The firm's three published statements about what it does not do |
-| **What can be claimed** | **Zero by construction**, at the chokepoint, over the draft, the record and the `ActContext` the caller hands in. No model is consulted, so no confidence can lower the bar. That is a claim about the mechanism and it is exactly as true as those three inputs: for four of the five classes every field the predicate reads is set by the caller who already knows it, and for `act:send_cap_exceeded` the field is a count **nothing in this tree derives from the log**, which `tools/policy_hook.py` defaults to 0 against a `send_cap` defaulting to 10,000. **That one class is live as a predicate and unfed as an input**, so its violation is not impossible in the shipped shape; see Limits. | **Measured, never guaranteed.** A rate, with its denominator. |
+| **What can be claimed** | **Zero by construction**, at the chokepoint, over the draft, the record and the `ActContext` the caller hands in. No model is consulted, so no confidence can lower the bar. That is a claim about the mechanism and it is exactly as true as those three inputs: for four of the five classes every field the predicate reads is set by the caller who already knows it, and for `act:send_cap_exceeded` the field is a count **no shipped path derives from the log and hands to an `ActContext`**, which `tools/policy_hook.py` defaults to 0 against a `send_cap` defaulting to 10,000. **That one class is live as a predicate and unfed as an input**, so its violation is not impossible in the shipped shape; see Limits. | **Measured, never guaranteed.** A rate, with its denominator. |
 | **Autonomy ceiling** | Deterministic gating, so higher tiers are defensible | Tier 2, per-message approval |
 
 The phrase "zero by construction" appears in this repository on act-class rows and nowhere else. That

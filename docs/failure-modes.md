@@ -156,7 +156,7 @@ record, and an explicit context.
 | `act:no_approval_token` | An action at tier 2 or above proceeds without approval. | **Zero by construction** |
 | `act:jurisdiction_not_consented` | Contact reaches a jurisdiction with no consent on file. | **Zero by construction** |
 | `act:tool_outside_grant` | A tool outside the agent's grant is invoked. | **Zero by construction** |
-| `act:send_cap_exceeded` | Agreed contact volume is exceeded. | **Zero by construction**, with the caveat in B1. |
+| `act:send_cap_exceeded` | Agreed contact volume is exceeded. | **Zero by construction** of the predicate, and **no shipped path feeds its input**. See B0 before quoting this row, and B1 for the separate durability caveat. |
 
 **Test.** `test_act_class_escape_rate_is_zero_over_the_scripted_suite`;
 `test_arm_four_has_zero_act_class_escapes`. This is the one rate CI asserts, because it is the one that
@@ -166,6 +166,34 @@ is an invariant rather than an observation.
 corpus varies the record and nothing else. The measured zero rests on the 5 `act:figure_not_in_record`
 rows per split. The other four are zero by construction from the code, not from the corpus, and the
 distinction matters.
+
+### B0. The send cap's input, which nothing in this tree supplies
+
+**Failure.** The row above says "zero by construction", and this document defines that phrase as *a
+pure function decides; the failure is impossible, not improbable*. For four of the five classes every
+field the predicate reads is set by a caller who already knows it. For `act:send_cap_exceeded` the
+field is a count that has to come from the audit log, and **no shipped path derives one**.
+
+`Gateway.sent_count()` is the function that derives it, and it is called from
+`tests/audit/test_send_cap.py` and from nowhere else. Every shipped construction of an `ActContext`
+hands the cap a literal. The out-of-process hook does run the predicate, against a `sent_count` taken
+from the tool payload with a permissive default of 0 against a `send_cap` defaulting to 10,000, which
+is a count the caller asserted about itself; `tools/policy_hook.py` names the class in
+`UNENFORCEABLE_HERE` for that reason.
+
+**So the predicate is live and its input is not, and the violation is not impossible in the shipped
+shape.** The guarantee is real about the arithmetic and empty about the deployment until the count is
+wired in. This is the same sentence [the README's Limits section](../README.md) carries, and it is
+here so that a reader who meets the table first does not have to find it elsewhere.
+
+**Mechanism.** None. This is a gap, not a defence.
+
+**Test.** `test_the_send_cap_row_carries_the_qualifier_its_input_still_needs` and
+`test_the_catalog_names_the_only_caller_of_the_count_the_cap_would_need` hold the claim to the tree
+in both directions: the row must state the gap while the gap exists, and it must stop saying so on
+the commit that closes it.
+
+**Claim: designed, not built**, for the wiring. The predicate itself is built and tested.
 
 ### B1. The send cap, and the one way it fails open
 

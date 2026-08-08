@@ -40,8 +40,13 @@ exactly as true as the two inputs it was handed, and there are three ways it is 
   `Gateway.sent_count()` is the function that derives one, and it is called from
   `tests/audit/test_send_cap.py` and from nowhere else. Enumerated by grep rather than by memory,
   because the first version of this bullet said "every caller hands it a literal zero" and that was
-  refutable in two ways. Three in-tree callers do pass a literal zero
-  (`src/chaperone/evals/corpus.py`, `demo/day2.py`, `tools/perturbation_log.py`); the fourth,
+  refutable in two ways. The in-tree callers that pass a literal zero are
+  `src/chaperone/evals/corpus.py`, `demo/day2.py`, `demo/full.py` and `tools/perturbation_log.py`.
+  The count is no longer stated here, and the reason is that the sentence before this one said
+  "three" while `demo/full.py` had already become the fourth: a correction whose whole claim was
+  that it had been measured rather than recalled, gone stale in the same way.
+  `test_the_documented_callers_that_hand_the_cap_a_literal_are_the_ones_the_tree_holds` derives the
+  list from the tree and holds this line to it. The remaining caller,
   `tools/policy_hook.py`, takes the count out of the tool payload and **falls back to zero when the
   payload omits it**, which is the permissive direction. So the hook layer does run the cap
   predicate, against whatever count the caller asserted about itself. That module declares the class

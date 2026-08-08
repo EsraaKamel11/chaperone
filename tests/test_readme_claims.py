@@ -12,6 +12,7 @@ catches it on the commit that causes it.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import re
 import subprocess
@@ -343,6 +344,110 @@ def test_the_designed_versus_built_table_agrees_with_the_tree_in_both_directions
         )
 
 
+#: Where an `ActContext` is built outside the suite. The cap predicate is only as strong as this.
+SHIPPED_ROOTS = ("src", "tools", "demo")
+
+#: Names that would mean a `sent_count` came from the audit log rather than from a literal.
+_LOG_DERIVED = ("sent_count()", "counted_sends")
+
+
+def _shipped_act_context_sites() -> dict[str, str]:
+    """`{repo-relative path: the expression passed as sent_count}` for every shipped construction.
+
+    Measured from each file's AST rather than by grep, because the enumeration this binds went
+    stale exactly once already: a note enumerated "three in-tree callers", `demo/full.py` became
+    the fourth, and the correction sentence outlived its own correctness.
+    """
+    sites: dict[str, str] = {}
+    for root in SHIPPED_ROOTS:
+        for path in sorted((REPO / root).rglob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if not isinstance(node, ast.Call):
+                    continue
+                name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+                if name != "ActContext":
+                    continue
+                for keyword in node.keywords:
+                    if keyword.arg == "sent_count":
+                        sites[path.relative_to(REPO).as_posix()] = ast.unparse(keyword.value)
+    return sites
+
+
+def test_the_send_cap_row_carries_the_qualifier_its_input_still_needs():
+    """A row claiming the phrase must also say whether its inputs are fed in the shipped tree.
+
+    `failure-modes.md` defines "zero by construction" as *the failure is impossible, not
+    improbable*. The send-cap row carried it unqualified in effect: the qualifier pointed at B1,
+    which is about a **lost log line** under-counting, and B1 nowhere says that no shipped path
+    feeds `sent_count` at all. A reader following the pointer arrives at a durability argument and
+    leaves believing the class is decided.
+
+    The fact is measured here in both directions. Wire the cap up -- pass `gateway.sent_count()` or
+    `counted_sends(...)` into a shipped `ActContext` -- and this goes red, which is the day the
+    qualifier stops being true and has to come off.
+    """
+    sites = _shipped_act_context_sites()
+    assert sites, "no shipped ActContext construction was found, so this guard measures nothing"
+    derived = {path: expr for path, expr in sites.items() if any(n in expr for n in _LOG_DERIVED)}
+    assert derived == {}, (
+        f"a shipped caller now derives the send count from the log ({derived}); the send-cap "
+        "qualifier in docs/failure-modes.md and README.md Limits describes a tree that has moved"
+    )
+
+    catalog = (REPO / "docs" / "failure-modes.md").read_text(encoding="utf-8")
+    row = [l for l in catalog.splitlines() if l.startswith("| `act:send_cap_exceeded`")]
+    assert len(row) == 1, f"expected one act:send_cap_exceeded row, found {row}"
+    lowered = _unwrapped(row[0])
+    assert "zero by construction" in lowered, "the send-cap row no longer carries a claim value"
+    assert "unfed" in lowered or "no shipped" in lowered, (
+        f"the send-cap row claims zero by construction without stating that its input is unfed "
+        f"in the shipped tree: {row[0]}"
+    )
+
+
+def test_the_documented_callers_that_hand_the_cap_a_literal_are_the_ones_the_tree_holds():
+    """An enumeration that says it was done by grep, held to a fresh one.
+
+    `docs/ON_CALL.md` lists the shipped callers that pass a literal zero. The list was right when
+    it was written and `demo/full.py` joined them afterwards, so a sentence whose whole point was
+    that it had been measured rather than recalled had itself gone stale.
+    """
+    measured = {
+        path for path, expr in _shipped_act_context_sites().items() if expr.strip() == "0"
+    }
+    assert measured, "no shipped caller passes a literal send count, so this guard measures nothing"
+
+    on_call = (REPO / "docs" / "ON_CALL.md").read_text(encoding="utf-8")
+    paragraph = [p for p in on_call.split("\n\n") if "literal zero" in p]
+    assert len(paragraph) == 1, f"expected one paragraph naming the literal-zero callers, found {len(paragraph)}"
+    named = set(SOURCE_PATH.findall(paragraph[0]))
+    assert measured <= named, (
+        f"callers hand the cap a literal and are not named on the page: {sorted(measured - named)}"
+    )
+
+
+def test_the_catalog_names_the_only_caller_of_the_count_the_cap_would_need():
+    """The qualifier's supporting fact, measured rather than restated.
+
+    `Gateway.sent_count()` is the one function that derives the cap's input from the log. If it
+    acquires a caller outside `tests/audit/test_send_cap.py`, the claim that the predicate is
+    unfed is no longer true and every page repeating it is wrong on the same commit.
+    """
+    here = Path(__file__).resolve()
+    callers = {
+        path.relative_to(REPO).as_posix()
+        for root in (*SHIPPED_ROOTS, "tests")
+        for path in (REPO / root).rglob("*.py")
+        # This module names the call in `_LOG_DERIVED` in order to look for it, which is not a read
+        # of the count. Excluded by path rather than by pattern, so no other file gets the exemption.
+        if path.resolve() != here and "sent_count()" in path.read_text(encoding="utf-8")
+    }
+    assert callers == {"tests/audit/test_send_cap.py"}, (
+        f"the derived send count is now read from {sorted(callers)}; the unfed-input caveat in "
+        "README.md, docs/failure-modes.md and docs/ON_CALL.md describes a tree that has moved"
+    )
+
+
 CANONICAL_CLAIMS = (
     "zero by construction",
     "structural invariant",
@@ -431,6 +536,112 @@ def test_the_full_demo_runs_both_scenes_and_enters_the_send_tool_in_neither():
     assert "stopped_for=resolved" in out, "scene 2 did not resolve"
     assert re.search(r"refinement_rounds=[1-9]", out), (
         f"scene 2's handoff carries no completed refinement round:\n{out}"
+    )
+
+
+#: Denials of coverage that the tree refutes, in the spellings that were actually on the page. Each
+#: was written when it was true and each is paired below with the measurement that refutes it, so
+#: this is a fact check rather than a list of banned words.
+REFUTED_DENIALS = (
+    "no test executes this script",
+    "tests/ executes no script",
+    "nothing in this tree derives from the log",
+)
+
+#: Where those sentences lived: the reader-facing pages and the scripts' own docstrings, since the
+#: origin of two of them was `demo/day2.py` and a guard scoped to the pages alone would have left
+#: the sentence in the file the pages were quoting.
+DENIAL_SCOPE = (*READER_FACING, *sorted((REPO / "demo").glob("*.py")))
+
+
+def _subprocess_targets() -> set[str]:
+    """The scripts this module launches, read from its own AST rather than from memory."""
+    targets: set[str] = set()
+    for node in ast.walk(ast.parse(Path(__file__).read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Call) and getattr(node.func, "attr", None) == "run":
+            unparsed = ast.unparse(node)
+            targets.update(name for name in ("day2.py", "full.py") if name in unparsed)
+    return targets
+
+
+@pytest.mark.parametrize("path", DENIAL_SCOPE, ids=lambda p: p.name)
+def test_no_page_or_script_repeats_a_denial_of_coverage_the_tree_refutes(path: Path):
+    """Two sentences that outlived the state they described, and the fact that refutes each.
+
+    *"No test executes this script"* sat under a heading promising precision while this module ran
+    `demo/day2.py` under `check=True` a hundred lines below, and the README contradicted itself
+    twice more on the same page. *"Nothing in this tree derives from the log"* was refuted by
+    `recovery.counted_sends`, which `tools/perturbation_log.py` calls in shipped, non-test code.
+
+    The refuting facts are measured first, so this cannot degrade into a word ban that stays green
+    after the coverage it describes is deleted. Take the subprocess run out of this module and the
+    first assertion fails, which is the day the sentence becomes true again and may be restored.
+    """
+    assert _subprocess_targets() == {"day2.py", "full.py"}, (
+        "this module no longer runs both demo scripts, so 'no test executes this script' is no "
+        "longer a false sentence and this guard is asserting the wrong thing"
+    )
+    derivers = {
+        p.relative_to(REPO).as_posix()
+        for root in SHIPPED_ROOTS
+        for p in (REPO / root).rglob("*.py")
+        if "counted_sends(" in p.read_text(encoding="utf-8")
+    }
+    assert derivers - {"src/chaperone/audit/recovery.py"}, (
+        "no shipped module outside recovery.py derives a count from the log any more, so "
+        "'nothing in this tree derives from the log' is no longer a false sentence"
+    )
+
+    # Backticks stripped as well as whitespace collapsed. The origin sentence was written
+    # "`tests/` executes no script", so a guard matching the bare words would have passed over the
+    # very file it was written for -- caught here by reinstating the sentence and watching it not
+    # fail, which is the reason the cycle requires watching it fail.
+    text = _unwrapped(path.read_text(encoding="utf-8")).replace("`", "")
+    present = [phrase for phrase in REFUTED_DENIALS if phrase in text]
+    assert not present, f"{path.name} carries denials the tree refutes: {present}"
+
+
+#: "`X` does not exist in this tree", in the spellings the pages actually use. The symbol is
+#: captured so the sentence can be checked against the tree rather than read.
+ABSENCE_CLAIM = re.compile(
+    r"`([A-Za-z_][A-Za-z0-9_.]*)`[^.!?]{0,160}?"
+    r"(?:does not exist|is absent from|exists nowhere|is not in)[^.!?]{0,40}?in this tree"
+)
+
+
+def _top_level_definitions() -> set[str]:
+    """Every function and class defined at module level under `src/`."""
+    names: set[str] = set()
+    for path in (REPO / "src").rglob("*.py"):
+        for node in ast.parse(path.read_text(encoding="utf-8")).body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(node.name)
+    return names
+
+
+@pytest.mark.parametrize("path", READER_FACING, ids=lambda p: p.name)
+def test_no_reader_facing_page_says_a_symbol_is_absent_that_the_tree_defines(path: Path):
+    """The denial that goes stale on the commit that builds the thing it denies.
+
+    `docs/audit-walkthrough.md` said *the pass itself, `recovery.resume`, does not exist in this
+    tree* while `resume` and `requires_approval_for` were both built, tested, and described
+    correctly on two other pages. Nobody reads a page for the sentence that used to be true.
+
+    Matched on the terminal name rather than on the dotted path, so `recovery.resume` is checked
+    against `def resume`. That is deliberately loose in the direction of a spurious finding: a page
+    denying `foo.bar` while some unrelated module defines `bar` fails here and has to be reworded.
+    A guard that erred the other way would be the guard this one replaces.
+    """
+    defined = _top_level_definitions()
+    assert defined, "no definitions were parsed, so this guard would pass vacuously"
+    # Whitespace collapsed so a wrapped sentence still matches, but **not** lowercased: a class name
+    # is compared against `ast`'s own spelling, and `LadderState` lowercased matches nothing.
+    text = re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+    stale = [
+        symbol for symbol in ABSENCE_CLAIM.findall(text) if symbol.split(".")[-1] in defined
+    ]
+    assert not stale, (
+        f"{path.name} says these do not exist in this tree, and src/ defines them: {stale}"
     )
 
 

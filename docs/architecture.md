@@ -22,7 +22,10 @@ let the stronger claim leak onto the weaker family:
 - **Act-classes** ask whether an act occurred outside its bounds. Was there an approval token at this
   tier? Is this jurisdiction consented? Is this tool in the grant? Does this figure appear in the
   record? Is the send cap exceeded? Every one is a pure function over the draft, the record, and the
-  context. The violation is impossible, not improbable.
+  context. The violation is impossible, not improbable **for the four whose inputs a shipped caller
+  supplies**. The fifth, `act:send_cap_exceeded`, is a live predicate over a count no shipped path
+  derives from the log, so in the shipped shape its violation is not impossible; see
+  [B0 in the failure-mode catalog](failure-modes.md).
 - **Content-classes** ask whether a piece of text does a forbidden thing. Does it advise on the merits,
   negotiate terms, or make a forward-looking return claim? No pure function decides these. A model
   checker decides, with lexical tripwires as a second disjunct, and the result is a measured rate.
