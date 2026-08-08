@@ -187,18 +187,87 @@ def test_the_demo_output_pasted_in_the_readme_matches_a_fresh_run():
     )
 
 
-@pytest.mark.parametrize("path", READER_FACING, ids=lambda p: p.name)
+#: How close the phrase and a content-class name have to sit before this reads as one claim about
+#: the other. Wide enough to survive a markdown wrap or a docstring reflow; narrow enough that a
+#: file mentioning both several paragraphs apart is not accused of anything.
+CLAIM_WINDOW = 120
+
+
+def zero_by_construction_beside_a_content_class(text: str) -> list[str]:
+    """The excerpts where "zero by construction" sits within `CLAIM_WINDOW` of a content class.
+
+    Whitespace-collapsed first, because the check it replaces was per-line while `_unwrapped`
+    already existed in this module and six other assertions used it: the same sentence wrapped
+    across a line break evaded a guard the file below it did not.
+    """
+    flat = _unwrapped(text)
+    hits = []
+    for match in re.finditer("zero by construction", flat):
+        window = flat[max(0, match.start() - CLAIM_WINDOW): match.end() + CLAIM_WINDOW]
+        if "content:" in window:
+            hits.append(window)
+    return hits
+
+
+#: Everything the rule applies to. `CLAUDE.md` says the phrase is forbidden outside act-classes
+#: "in code, comments, docstrings, or documentation", and the guard read the six reader-facing
+#: pages only -- so adding *"content:negotiates_terms is zero by construction"* to any docstring
+#: under `src/` broke the repository's one non-negotiable and broke no test. The phrase already
+#: appears in `src/chaperone/gates/engine.py` and `tools/coverage_map.py`, both correctly, and
+#: nothing read either.
+CLAIM_SCOPE = [
+    *READER_FACING,
+    *[p for p in _tracked("src/*.py", "tools/*.py", "demo/*.py") if p.suffix == ".py"],
+]
+
+
+def test_the_claim_scan_reads_the_source_tree_and_not_only_the_pages():
+    """The scope is the guard, so the scope is asserted rather than assumed."""
+    scanned = {p.suffix for p in CLAIM_SCOPE}
+    assert scanned == {".md", ".py"}, f"the claim scope covers only {scanned}"
+    assert any(p.name == "engine.py" for p in CLAIM_SCOPE), (
+        "src/chaperone/gates/engine.py carries the phrase and is not in scope"
+    )
+    assert any(p.name == "coverage_map.py" for p in CLAIM_SCOPE), (
+        "tools/coverage_map.py carries the phrase and is not in scope"
+    )
+
+
+def test_a_wrapped_claim_beside_a_content_class_is_detected():
+    """The detector itself, on text this repository does not contain.
+
+    A tree scan alone cannot show that the rule catches anything: it is green on a clean tree and
+    green on a broken detector. These are the two shapes that got past the version this replaces --
+    a line break between the phrase and the class, and the phrase inside a docstring.
+    """
+    assert zero_by_construction_beside_a_content_class(
+        '"""Whether the draft negotiates terms.\n\ncontent:negotiates_terms is zero by\n'
+        'construction here, decided by a pure function.\n"""'
+    )
+    assert zero_by_construction_beside_a_content_class(
+        "act:send_cap_exceeded is zero by construction. So is content:advises_on_merits."
+    )
+    assert zero_by_construction_beside_a_content_class(
+        "The claim is zero by construction.\n" + "filler line\n" * 40 + "content:negotiates_terms\n"
+    ) == [], "the window is not bounded, so any file naming both is accused"
+    assert zero_by_construction_beside_a_content_class(
+        "act:tool_outside_grant is zero by construction, decided by a pure function."
+    ) == []
+
+
+@pytest.mark.parametrize("path", CLAIM_SCOPE, ids=lambda p: str(p.relative_to(REPO)))
 def test_zero_by_construction_is_never_claimed_beside_a_content_class(path: Path):
-    """CLAUDE.md forbids the phrase outside act-classes, in documentation as much as in code.
+    """CLAUDE.md forbids the phrase outside act-classes, in code as much as in documentation.
 
     Guarding the README alone would leave five of six reader-facing files unguarded, which is where
     the claim is most likely to drift: a docs page has room to explain, and explaining is where an
-    act-class guarantee gets generalised into a sentence about the whole gate.
+    act-class guarantee gets generalised into a sentence about the whole gate. Guarding the pages
+    alone left every docstring in the tree unguarded, which is the other half of the same rule.
     """
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-        lowered = line.lower()
-        if "zero by construction" in lowered and "content:" in lowered:
-            pytest.fail(f"{path.name}:{number} claims zero by construction beside a content class")
+    hits = zero_by_construction_beside_a_content_class(path.read_text(encoding="utf-8"))
+    assert not hits, (
+        f"{path.relative_to(REPO)} claims zero by construction beside a content class: {hits[0]!r}"
+    )
 
 
 # SHA-256 of lowercased organisation tokens that must never appear. Digests rather than words, so
@@ -217,22 +286,81 @@ FORBIDDEN_TOKEN_DIGESTS = frozenset({
 })
 
 
-@pytest.mark.parametrize("path", _all_markdown(), ids=lambda p: str(p.relative_to(REPO)))
-def test_no_organisation_is_named_in_any_published_markdown(path: Path):
+#: The longest organisation name this can recognise, in words. Single-token hashing could never
+#: match a multi-word name at all, so a two-word firm was outside the guard by construction while
+#: the guard's own docstring claimed the repository.
+MAX_NAME_WORDS = 3
+
+
+def forbidden_hits(text: str, digests: frozenset[str] = FORBIDDEN_TOKEN_DIGESTS) -> list[str]:
+    """The digests of any forbidden name appearing in `text`, as words rather than as characters.
+
+    Normalised to lowercase alphanumeric runs joined by single spaces, then hashed at every length
+    up to `MAX_NAME_WORDS`. Normalising is what makes punctuation, casing and a line break between
+    the words irrelevant, so "Acme  Holdings", "ACME-Holdings" and a name wrapped across two lines
+    all reduce to the same string before hashing.
+
+    Digests are returned, never the matching text. A guard that printed the forbidden word on
+    failure would publish it into every CI log, which is the thing it was written to prevent.
+    """
+    tokens = re.findall(r"[a-z0-9]+", text.lower())
+    hits = []
+    for length in range(1, MAX_NAME_WORDS + 1):
+        for start in range(len(tokens) - length + 1):
+            digest = hashlib.sha256(" ".join(tokens[start:start + length]).encode()).hexdigest()
+            if digest in digests:
+                hits.append(digest)
+    return hits
+
+
+def test_a_multi_word_organisation_name_is_recognised_however_it_is_spelled():
+    """The detector, driven on names this repository does not contain.
+
+    Synthetic digests rather than the committed ones, because the committed list must never be
+    reversible from the suite -- and because a scan over a clean tree is equally green with a
+    working detector and a broken one. The multi-word case had **no** killer and could not have
+    had one: the guard hashed single `[A-Za-z0-9]+` tokens, so a two-word name was unmatchable.
+    """
+    two_words = hashlib.sha256(b"northwind partners").hexdigest()
+    one_word = hashlib.sha256(b"northwind").hexdigest()
+    digests = frozenset({two_words})
+
+    assert forbidden_hits("Advised by Northwind Partners in 2024.", digests) == [two_words]
+    assert forbidden_hits("Advised by NORTHWIND   partners.", digests) == [two_words]
+    assert forbidden_hits("Advised by Northwind\nPartners.", digests) == [two_words]
+    assert forbidden_hits("Northwind-Partners advised.", digests) == [two_words]
+    assert forbidden_hits("Northwind advised. Partners followed.", digests) == [], (
+        "two words in separate sentences are not the name; normalisation must not join them"
+    )
+    assert forbidden_hits("Northwind advised.", digests) == []
+    assert forbidden_hits("Northwind advised.", frozenset({one_word})) == [one_word]
+
+
+#: Everything git tracks that is worth reading as text. `CLAUDE.md` says *anywhere in this
+#: repository*, and the guard read `*.md` only -- so `corpus/drafts.jsonl` and
+#: `corpus/blind-drafts.jsonl`, 160 synthetic messages about deals and rounds and the likeliest
+#: place a real firm name would land, were never scanned, and neither were `src/`, `tests/` or
+#: `tools/`.
+COMMITTED_TEXT = _tracked("*.md", "*.py", "*.jsonl", "*.json", "*.yml", "*.toml")
+
+
+@pytest.mark.parametrize("path", COMMITTED_TEXT, ids=lambda p: str(p.relative_to(REPO)))
+def test_no_organisation_is_named_anywhere_this_repository_commits(path: Path):
     """CLAUDE.md: no organisation name appears anywhere in this repository.
 
-    Scoped to every markdown file that publishes rather than to the reader-facing five, because the
-    docstring's claim is about the repository and a guard narrower than its own claim is the exact
-    shape of overclaim this suite exists to catch. `docs/superpowers/` ships, so it is checked.
+    Scoped to every tracked text file rather than to the published markdown, because the rule is
+    about the repository and a guard narrower than its own claim is the exact shape of overclaim
+    this suite exists to catch.
 
-    The failure message names no token. A guard that printed the forbidden word on failure would
-    publish it into every CI log, which is the thing it was written to prevent.
+    **This is the whole of the enforcement.** `tools/guard_edit.py` also checks, at edit time, but
+    only when `CHAPERONE_FORBIDDEN_TOKENS` is set in the environment, and the shipped configuration
+    sets it nowhere. `tests/test_guard_edit.py` exhibits that unarmed state as a limit rather than
+    leaving it to be inferred. Setting the variable in a committed file would put the forbidden
+    names *into* the repository, which is why the digests are committed and the words are not.
     """
-    for word in re.findall(r"[A-Za-z0-9]+", path.read_text(encoding="utf-8").lower()):
-        digest = hashlib.sha256(word.encode()).hexdigest()
-        assert digest not in FORBIDDEN_TOKEN_DIGESTS, (
-            f"a forbidden organisation token appears in {path.relative_to(REPO)}"
-        )
+    assert COMMITTED_TEXT, "no tracked text files were enumerated, so this guard scans nothing"
+    hits = forbidden_hits(path.read_text(encoding="utf-8", errors="replace"))
+    assert not hits, f"a forbidden organisation name appears in {path.relative_to(REPO)}"
 
 
 SOURCE_ROOT = REPO / "src" / "chaperone"

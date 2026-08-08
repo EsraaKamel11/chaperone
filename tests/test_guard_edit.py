@@ -225,12 +225,43 @@ def test_a_forbidden_organisation_token_is_blocked_anywhere():
     assert "organisation" in result.stderr
 
 
-def test_no_token_list_means_no_organisation_check():
+def test_the_edit_time_organisation_check_is_unarmed_in_the_shipped_configuration():
+    """A stated limit, in executable form, because its absence otherwise reads as a pass.
+
+    `CHAPERONE_FORBIDDEN_TOKENS` is set nowhere outside this file, so in the configuration that
+    ships, this half of the organisation rule does nothing at all. Two assertions say so: the
+    guard allows a write naming an organisation when the variable is empty, and
+    `.claude/settings.json` -- the file that wires this hook -- sets no environment at all.
+
+    **The variable is deliberately not set in a committed file, and this is a refusal rather than
+    an omission.** Doing so would write the forbidden organisation names into the repository, which
+    is exactly what the rule forbids and why the committed-file scan stores SHA-256 digests and
+    never prints a name on failure. The enforcement that *is* armed is that scan,
+    `test_no_organisation_is_named_anywhere_this_repository_commits`, over every tracked text file.
+
+    Making the absence a refusal in the hook was considered and rejected: the hook runs on every
+    `Write` and `Edit`, so an unset variable would block all editing in the shipped configuration,
+    and `CLAUDE.md` forbids disabling it. A guard that refuses everything is not a guard.
+    """
     result = _run(
         {"tool_input": {"file_path": "README.md", "content": "Built for Acme Holdings.\n"}},
         env={"CHAPERONE_FORBIDDEN_TOKENS": ""},
     )
-    assert result.returncode == 0
+    assert result.returncode == 0, (
+        "the edit-time check now fires without a token list; this limit has been closed and the "
+        "documents that describe the committed-file scan as the whole enforcement are stale"
+    )
+
+    settings = json.loads(
+        (Path(__file__).resolve().parents[1] / ".claude" / "settings.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert "env" not in settings, (
+        "the shipped settings now carry an environment; if it sets CHAPERONE_FORBIDDEN_TOKENS "
+        "then the forbidden names are committed to this repository, which is the thing the rule "
+        "exists to prevent"
+    )
 
 
 def test_an_edit_payload_is_checked_as_well_as_a_write_payload():
