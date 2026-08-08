@@ -59,13 +59,26 @@ TOOL_DESCRIPTIONS: Mapping[str, str] = {
 
 #: The whole capability vocabulary. Every tool is checked against all of it except what it is
 #: granted below.
-CAPABILITY_WORDS = frozenset({"sends", "transmits", "writes", "updates"})
+#:
+#: **Indicative and gerund forms, and no bare stem.** The gerunds are here because
+#: "Sending messages on your behalf" is a promise the indicative rule walked past, and they collide
+#: with nothing in the shipped set. `transmitted` is **deliberately absent, and the coupling is the
+#: reason**: it is a substring of `draft_message`'s shipped "the transmitted thread", so adding it
+#: would flag the strongest description in the set for using this repository's own vocabulary for
+#: what a checker may read. A bare `send` or `transmit` is absent for the same kind of reason -- it
+#: would flag "it has no send capability", which is a denial, and the identifier `send_message`.
+#: Whoever widens this set must re-run the shipped-set test and expect it to be the thing that
+#: pushes back.
+CAPABILITY_WORDS = frozenset({
+    "sends", "sending", "transmits", "transmitting",
+    "writes", "writing", "updates", "updating",
+})
 
 #: What each tool may say about itself. **Absent means granted nothing**, which is why the lookup
 #: below defaults to the empty set: the tool nobody entered here is the tool this check exists for.
 GRANTED_CAPABILITIES: Mapping[str, frozenset[str]] = {
     "draft_message": frozenset(),
-    "send_message": frozenset({"transmits", "sends"}),
+    "send_message": frozenset({"transmits", "transmitting", "sends", "sending"}),
     "read_policy": frozenset(),
 }
 

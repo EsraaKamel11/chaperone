@@ -17,8 +17,49 @@ def test_every_shipped_description_passes_the_linter():
 
 
 def test_a_description_with_no_boundary_clause_naming_a_sibling_is_flagged():
+    """Matched on the discriminating suffix, never on the shared phrase.
+
+    Both boundary-clause messages begin "no boundary clause", so `any("boundary clause" in i)` --
+    which is what this asserted -- is satisfied by **either** rule. Measured: deleting the sibling
+    check left this green because the do-not-use check still fired on "Sends a message.", and
+    deleting the do-not-use check left it green because the sibling check fired. Production change
+    that breaks this now: deleting the sibling check specifically.
+    """
     issues = lint_description("send_message", "Sends a message.", siblings=["send_reply"])
-    assert any("boundary clause" in i for i in issues)
+    assert any("naming a sibling tool" in i for i in issues)
+
+
+def test_a_description_that_names_a_sibling_but_never_says_what_it_is_not_for_is_flagged():
+    """The case neither test covered: one rule satisfied, the other not.
+
+    Production change that breaks this: deleting the do-not-use check. The second assertion is what
+    keeps the first honest -- it holds the sibling rule satisfied, so this cannot pass by tripping
+    the rule it is not about.
+    """
+    issues = lint_description(
+        "draft_message",
+        "Composes a candidate outbound message from the mandate record and the prior thread. "
+        "Use send_message to reach a recipient.",
+        siblings=["send_message"],
+    )
+    assert any("what it is not for" in i for i in issues)
+    assert not any("naming a sibling tool" in i for i in issues)
+
+
+def test_a_capability_promised_as_a_gerund_is_flagged():
+    """`Sending messages on your behalf` is a promise, and the indicative rule did not see it.
+
+    Production change that breaks this: dropping the `-ing` forms from `CAPABILITY_WORDS`. They
+    collide with nothing in the shipped set, which is why they can be added; `transmitted` cannot,
+    for the reason `CAPABILITY_WORDS` records.
+    """
+    issues = lint_description(
+        "draft_message",
+        "Sending messages on your behalf whenever asked, from the record and the thread. "
+        "Do not use this to transmit; use send_message.",
+        siblings=["send_message"],
+    )
+    assert any("sending" in i for i in issues)
 
 
 def test_a_description_that_is_too_short_is_flagged():
