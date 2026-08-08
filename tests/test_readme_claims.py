@@ -341,7 +341,29 @@ def test_a_multi_word_organisation_name_is_recognised_however_it_is_spelled():
 #: `corpus/blind-drafts.jsonl`, 160 synthetic messages about deals and rounds and the likeliest
 #: place a real firm name would land, were never scanned, and neither were `src/`, `tests/` or
 #: `tools/`.
-COMMITTED_TEXT = _tracked("*.md", "*.py", "*.jsonl", "*.json", "*.yml", "*.toml")
+#: Every tracked file, with no pathspec at all. A suffix list was the first version and it was the
+#: same defect one turn later: `*.md *.py *.jsonl *.json *.yml *.toml` reached 119 of the 121 files
+#: git tracks, leaving `.gitignore` and `.gitattributes` outside a guard whose own name says
+#: "anywhere this repository commits". Enumerating everything removes the judgement call, and
+#: `errors="replace"` below means a file this cannot decode costs a garbled scan rather than a crash.
+COMMITTED_TEXT = _tracked()
+
+
+def test_the_organisation_scan_covers_every_file_this_repository_tracks():
+    """The scope is the guard, and the parametrized test below cannot assert its own scope.
+
+    An empty `COMMITTED_TEXT` gives pytest an empty parameter set, which is **one skipped case** --
+    a single `s` under `addopts = "-q"`, and indistinguishable from a pass at a glance. So dropping
+    a pattern, or `git` answering nothing, would silently remove the corpus from the scan with
+    nothing red. That is the state rejected for the markdown enumeration, and it needs the same
+    unparametrized assertion here.
+    """
+    tracked, scanned = set(_tracked()), set(COMMITTED_TEXT)
+    assert scanned, "git enumerated nothing, so the per-file scan below collects zero cases"
+    assert not tracked - scanned, (
+        f"these files are committed and are not scanned for an organisation name: "
+        f"{sorted(str(p.relative_to(REPO)) for p in tracked - scanned)}"
+    )
 
 
 @pytest.mark.parametrize("path", COMMITTED_TEXT, ids=lambda p: str(p.relative_to(REPO)))
@@ -357,8 +379,11 @@ def test_no_organisation_is_named_anywhere_this_repository_commits(path: Path):
     sets it nowhere. `tests/test_guard_edit.py` exhibits that unarmed state as a limit rather than
     leaving it to be inferred. Setting the variable in a committed file would put the forbidden
     names *into* the repository, which is why the digests are committed and the words are not.
+
+    The scope is asserted by `test_the_organisation_scan_covers_every_file_this_repository_tracks`
+    and deliberately not here: an assertion inside a parametrized body cannot fire when the
+    parameter set is empty, which is precisely the case it would be guarding against.
     """
-    assert COMMITTED_TEXT, "no tracked text files were enumerated, so this guard scans nothing"
     hits = forbidden_hits(path.read_text(encoding="utf-8", errors="replace"))
     assert not hits, f"a forbidden organisation name appears in {path.relative_to(REPO)}"
 
