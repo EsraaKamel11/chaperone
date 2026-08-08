@@ -1,4 +1,5 @@
 import ast
+import dataclasses
 import inspect
 import json
 import re
@@ -15,7 +16,7 @@ from chaperone.gates.engine import decide, denial_result
 from chaperone.gates.hook import guarded_call, pre_tool_use
 from chaperone.policy.act_classes import ActContext
 from chaperone.policy.arguments import BODY_KEYS, TOO_DEEP, sendable_text, unsendable_in
-from chaperone.policy.types import Draft, Message, Record, ViolationClass
+from chaperone.policy.types import Draft, Family, Message, Record, ViolationClass
 from tools import policy_hook
 
 RECORD = Record(fields={"round_size": "10000000"})
@@ -462,8 +463,14 @@ def test_the_hook_runs_every_pure_predicate_the_in_process_gate_consults():
     # a log it cannot read, and an approval that arrives from the caller being judged -- so the
     # out-of-process layer enforces a strict subset. Equality, not containment: a declaration that
     # may quietly grow is a declaration nobody has to justify. A test below exhibits each entry.
+    #
+    # Equality is also the direction the derived test does *not* cover. It requires every
+    # payload-decided class to be declared and would accept an over-declaration -- a class listed
+    # here that this layer can in fact decide, which understates the guard. The two run together for
+    # that reason: derivation for the omissions, this literal for the additions.
     assert policy_hook.UNENFORCEABLE_HERE == frozenset(
-        {ViolationClass.SEND_CAP_EXCEEDED, ViolationClass.NO_APPROVAL_TOKEN}
+        {ViolationClass.SEND_CAP_EXCEEDED, ViolationClass.NO_APPROVAL_TOKEN,
+         ViolationClass.FIGURE_NOT_IN_RECORD}
     )
 
 
@@ -760,7 +767,8 @@ def test_the_out_of_process_layer_enforces_a_strict_subset_and_names_the_gap():
     reason is a different one: not state this process lacks, but evidence it takes from the caller.
     """
     assert policy_hook.UNENFORCEABLE_HERE == frozenset(
-        {ViolationClass.SEND_CAP_EXCEEDED, ViolationClass.NO_APPROVAL_TOKEN}
+        {ViolationClass.SEND_CAP_EXCEEDED, ViolationClass.NO_APPROVAL_TOKEN,
+         ViolationClass.FIGURE_NOT_IN_RECORD}
     )
     row = {**_DEFAULTS, "sent_count": 50, "send_cap": 50}
     stateless = {k: v for k, v in row.items() if k not in ("sent_count", "send_cap")}
@@ -802,6 +810,293 @@ def test_the_approval_class_is_decided_from_caller_input_and_is_declared_unenfor
         outcome = _in_process(row)
         assert outcome.allow is False, label
         assert outcome.payload["category"] == ViolationClass.NO_APPROVAL_TOKEN.value, label
+
+
+def test_the_record_the_figure_class_is_checked_against_arrives_from_the_caller_being_judged():
+    """The third gap in the same declaration, exhibited on the payloads that open it.
+
+    `record` is not an attribute of the action the way `body` and `jurisdiction` are. It is the
+    ground truth the action is checked against, and out of process it arrives in `tool_input` from
+    the agent whose draft is being judged. Two suppressions, both measured here: a record rewritten
+    to hold the figure the draft states, and a record grown a field so a fabricated citation
+    resolves. `validate_citations` reads the same forged mapping, which is why the citation half
+    goes with the act-class half rather than being a separate gap.
+
+    **The forgery has to be the variable**, so each half asserts the true record blocking first.
+    Without that this would equally suit a hook that allows everything.
+
+    `test_the_two_enforcement_layers_reach_the_same_verdict_and_the_same_category` cannot see any of
+    this: it hands the **same** record to both layers, which is exactly what a forgery breaks.
+    """
+    assert ViolationClass.FIGURE_NOT_IN_RECORD in policy_hook.UNENFORCEABLE_HERE
+
+    # The act-class half: a figure the record does not hold.
+    stated = {**_DEFAULTS, "body": "The round is $8M."}
+    assert _run_hook({"tool_input": stated}).returncode == 2, "the true record does not block it"
+    truthful = _in_process(stated)
+    assert truthful.allow is False
+    assert truthful.payload["category"] == ViolationClass.FIGURE_NOT_IN_RECORD.value
+
+    forged = {**stated, "record": {"round_size": "8000000"}}
+    assert _run_hook({"tool_input": forged}).returncode == 0, (
+        "a record the caller wrote to match its own figure no longer suppresses the class, so this "
+        "gap may be closable and the declaration should be revisited rather than kept"
+    )
+
+    # The citation half: a field the record does not hold, cited anyway.
+    cited = {**_DEFAULTS, "body": "The round is $10M.", "cited_fields": ["valuation"]}
+    assert _run_hook({"tool_input": cited}).returncode == 2
+    assert _in_process(cited).payload["category"] == ViolationClass.FIGURE_NOT_IN_RECORD.value
+
+    grown = {**cited, "record": {"round_size": "10000000", "valuation": "10000000"}}
+    assert _run_hook({"tool_input": grown}).returncode == 0
+
+
+# --------------------------------------------------------------------------------------------
+# `UNENFORCEABLE_HERE`, derived from the guard's own AST rather than maintained by hand
+# --------------------------------------------------------------------------------------------
+
+#: The evidence types. A `Draft` is the action's own description of itself and a guard has no choice
+#: but to read that from the caller; a `Record` and an `ActContext` are the other side of the
+#: comparison, the ground truth and the permissions the action is checked against. Those are what a
+#: caller must not supply, so those are what the derivation follows.
+_EVIDENCE_TYPES = ("Record", "ActContext")
+
+#: The predicates the derivation must keep binding evidence to. Same purpose as `_PREDICATE_FLOOR`:
+#: a walk that silently stops reaching one of them derives fewer classes, requires fewer
+#: declarations, and passes while watching less.
+_EVIDENCE_PREDICATE_FLOOR = frozenset({"evaluate_act_classes", "validate_citations"})
+
+
+def _reads_payload(node: ast.AST, tainted: set) -> bool:
+    return any(
+        isinstance(sub, ast.Name) and (sub.id in ("payload", "tool_input") or sub.id in tainted)
+        for sub in ast.walk(node)
+    )
+
+
+def _payload_tainted_locals(function: ast.FunctionDef) -> set:
+    """Locals of `main` carrying caller-supplied values, transitively.
+
+    `tool_name` is why this is transitive rather than a search for the name `tool_input` inside each
+    constructor call: it is read out of the payload one statement earlier, and a scan without this
+    would call that field guard-supplied.
+    """
+    tainted: set = set()
+    for _ in range(3):
+        for node in ast.walk(function):
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                    and isinstance(node.targets[0], ast.Name) \
+                    and _reads_payload(node.value, tainted):
+                tainted.add(node.targets[0].id)
+    return tainted
+
+
+def _evidence_built_in(function: ast.FunctionDef, tainted: set):
+    """`{local: (class, {field: came from the payload})}` for each evidence object `main` builds."""
+    built, opaque = {}, []
+    for node in ast.walk(function):
+        if not (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name) and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name)
+                and node.value.func.id in _EVIDENCE_TYPES):
+            continue
+        if node.value.args or any(keyword.arg is None for keyword in node.value.keywords):
+            opaque.append(node.value.func.id)
+            continue
+        built[node.targets[0].id] = (
+            getattr(policy_hook, node.value.func.id),
+            {keyword.arg: _reads_payload(keyword.value, tainted) for keyword in node.value.keywords},
+        )
+    return built, opaque
+
+
+def _evidence_parameters(function: ast.FunctionDef, built: dict) -> dict:
+    """`{predicate: {parameter: (class, fields)}}` for every predicate handed an evidence object.
+
+    Bound through the callee's real signature, so the guard's positional
+    `evaluate_act_classes(draft, record, context)` is read as the parameters it actually fills.
+    """
+    bound = {}
+    for node in ast.walk(function):
+        if not isinstance(node, ast.Call):
+            continue
+        target = _resolve_callee(policy_hook, node.func)
+        if not inspect.isfunction(target) or not target.__module__.startswith("chaperone.policy"):
+            continue
+        mapping = {}
+        for name, argument in zip(inspect.signature(target).parameters, node.args):
+            if isinstance(argument, ast.Name) and argument.id in built:
+                mapping[name] = built[argument.id]
+        for keyword in node.keywords:
+            if keyword.arg and isinstance(keyword.value, ast.Name) and keyword.value.id in built:
+                mapping[keyword.arg] = built[keyword.value.id]
+        if mapping:
+            bound[target] = mapping
+    return bound
+
+
+def _roots(expression: ast.AST, taint: dict, parameters) -> set:
+    """The evidence an expression reads, as `parameter` or `parameter.attribute`.
+
+    A `Name` that is only the object half of an attribute access is not counted on its own, or
+    `context.consented_jurisdictions` would also read as "the whole context" and every class
+    touching any part of it would come out payload-decided.
+    """
+    qualified = {
+        sub.value for sub in ast.walk(expression)
+        if isinstance(sub, ast.Attribute) and isinstance(sub.value, ast.Name)
+        and sub.value.id in parameters
+    }
+    found: set = set()
+    for sub in ast.walk(expression):
+        if isinstance(sub, ast.Attribute) and isinstance(sub.value, ast.Name) \
+                and sub.value.id in parameters:
+            found.add(f"{sub.value.id}.{sub.attr}")
+        elif isinstance(sub, ast.Name) and sub not in qualified:
+            found |= {sub.id} if sub.id in parameters else taint.get(sub.id, set())
+    return found
+
+
+def _classes_by_evidence(function, parameters: dict) -> dict:
+    """`{ViolationClass: the evidence the branch producing it turns on}`, from the predicate's AST.
+
+    Local flow is followed to a fixpoint, and `record_values` in `act_classes.py` is why: the record
+    is read into a set several statements above the branch that consults it, so a walk over the
+    branch condition alone sees a bare local and concludes the class turns on nothing.
+    """
+    tree = ast.parse(inspect.getsource(function))
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+
+    taint = {name: {name} for name in parameters}
+    for _ in range(4):
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                    and isinstance(node.targets[0], ast.Name):
+                taint.setdefault(node.targets[0].id, set()).update(
+                    _roots(node.value, taint, parameters))
+            elif isinstance(node, ast.For) and isinstance(node.target, ast.Name):
+                taint.setdefault(node.target.id, set()).update(_roots(node.iter, taint, parameters))
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                    and isinstance(node.func.value, ast.Name) \
+                    and node.func.attr in ("add", "append", "update", "extend"):
+                for argument in node.args:
+                    taint.setdefault(node.func.value.id, set()).update(
+                        _roots(argument, taint, parameters))
+
+    classes: dict = {}
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == "Finding" and node.args):
+            continue
+        named = node.args[0]
+        if not (isinstance(named, ast.Attribute) and isinstance(named.value, ast.Name)
+                and named.value.id == "ViolationClass"):
+            continue
+        expressions = list(node.args)
+        cursor = node
+        while cursor in parents:
+            cursor = parents[cursor]
+            if isinstance(cursor, (ast.If, ast.While)):
+                expressions.append(cursor.test)
+            elif isinstance(cursor, ast.For):
+                expressions.append(cursor.iter)
+        found: set = set()
+        for expression in expressions:
+            found |= _roots(expression, taint, parameters)
+        classes.setdefault(getattr(ViolationClass, named.attr), set()).update(found)
+    return classes
+
+
+def _from_the_payload(root: str, parameters: dict) -> bool:
+    name, _, attribute = root.partition(".")
+    cls, fields = parameters[name]
+    if not attribute:
+        return any(fields.values())
+    if attribute in fields:
+        return fields[attribute]
+    if attribute in {f.name for f in dataclasses.fields(cls)}:
+        return False
+    # Not a declared field: a method or a derived read, which reaches whatever the object holds.
+    # `citations.py` consults the record only through `record.get(...)`, so without this branch the
+    # citation half of `act:figure_not_in_record` is invisible to the derivation.
+    return any(fields.values())
+
+
+def test_every_class_deciding_on_evidence_the_payload_supplies_is_declared_unenforceable():
+    """The declaration, derived rather than remembered.
+
+    Counted from the history of the set rather than from memory, because a count recalled is the
+    defect this module keeps recording: `UNENFORCEABLE_HERE` was created holding
+    `act:send_cap_exceeded` alone, and has since been found under-inclusive **twice** -- once for
+    `act:no_approval_token`, and once for `act:figure_not_in_record`, which was suppressible from
+    the payload while two `==` assertions pinned the set by equality and so made the gap read as
+    decided. Both times the fix was to add the entry somebody had noticed, and a third omission
+    would have looked exactly like the first two. So the requirement is computed: this reads the
+    guard's own AST for which `Record` and `ActContext` inputs it fills from `tool_input`, reads
+    each predicate's own AST for which class each branch turns on, and requires the intersection to
+    be declared.
+
+    **What this catches that a list cannot.** Measured on this derivation, not asserted: threading
+    `consented_jurisdictions` through `tool_input` -- one plausible future edit, touching no test --
+    moves `act:jurisdiction_not_consented` into the required set and fails here on the commit that
+    makes it. A list only ever holds what the last review noticed.
+
+    **Why a `Draft` is excluded, stated rather than assumed.** `body`, `jurisdiction` and `tool_name`
+    also arrive in `tool_input`, and `act:jurisdiction_not_consented` and `act:tool_outside_grant`
+    are deliberately not required here. Both compare the action's self-description against
+    `CONSENTED` and `GRANTED`, which the guard holds as constants precisely so the caller cannot
+    supply them: the evidence half is the guard's. A draft is the thing being judged, and a guard
+    that refused to read the caller's account of the action would have nothing to judge.
+    **The residual that leaves:** a caller can still misdescribe its own action, and `jurisdiction`
+    stops being self-description the moment a real send tool derives it from the recipient rather
+    than taking it as an argument -- at which point the class joins exactly the family derived here,
+    and nothing in this test would notice. That is a property of the payload shape, not of the
+    predicate.
+    """
+    tree = ast.parse(GUARD.read_text(encoding="utf-8"))
+    main = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "main")
+
+    built, opaque = _evidence_built_in(main, _payload_tainted_locals(main))
+    assert not opaque, (
+        f"an evidence object is built positionally or by `**` expansion ({opaque}); its provenance "
+        "cannot be read off the call, and this derivation would report it as guard-supplied"
+    )
+    bound = _evidence_parameters(main, built)
+    reached = {predicate.__name__ for predicate in bound}
+    assert _EVIDENCE_PREDICATE_FLOOR <= reached, (
+        f"the derivation stopped binding evidence to {sorted(_EVIDENCE_PREDICATE_FLOOR - reached)}, "
+        "so the classes those predicates produce no longer have to declare themselves"
+    )
+
+    derived: set = set()
+    required: set = set()
+    for predicate, parameters in bound.items():
+        classes = _classes_by_evidence(predicate, parameters)
+        assert any(classes.values()), (
+            f"{predicate.__name__} was handed evidence and no class it produces reads any of it, "
+            "which is the shape of a walk that has stopped seeing the branches"
+        )
+        derived |= set(classes)
+        required |= {
+            klass for klass, roots in classes.items()
+            if any(_from_the_payload(root, parameters) for root in roots)
+        }
+
+    act_classes = {c for c in ViolationClass if c.family is Family.ACT}
+    assert act_classes <= derived, (
+        f"the derivation lost sight of {sorted(c.value for c in act_classes - derived)}"
+    )
+    assert required, "no class was derived as payload-decided, so this test would assert nothing"
+    assert derived - required, (
+        "every derived class came out payload-decided, so the criterion is not discriminating and "
+        "would demand the whole catalog be declared undecidable"
+    )
+    undeclared = sorted(c.value for c in required - policy_hook.UNENFORCEABLE_HERE)
+    assert not undeclared, (
+        f"{undeclared} turn on evidence tools/policy_hook.py fills from `tool_input`, so the caller "
+        "being judged supplies what it is judged against, and they are not in `UNENFORCEABLE_HERE`"
+    )
 
 
 def test_the_shared_artefact_is_the_predicate_set_and_not_the_configuration():

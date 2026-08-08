@@ -163,7 +163,7 @@ record, and an explicit context.
 
 | Class | Failure | Claim |
 |---|---|---|
-| `act:figure_not_in_record` | The draft states a number that appears nowhere in the record. The classic confabulation, in the place it costs most. | **Zero by construction** |
+| `act:figure_not_in_record` | The draft states a number that appears nowhere in the record. The classic confabulation, in the place it costs most. | **Zero by construction** of the predicate, and **out of process the judged caller supplies the record it is checked against**. See B3 before quoting this row. |
 | `act:no_approval_token` | An action at tier 2 or above proceeds without approval. | **Zero by construction** of the predicate, and **out of process the judged caller supplies the evidence**. See B2 before quoting this row. |
 | `act:jurisdiction_not_consented` | Contact reaches a jurisdiction with no consent on file. | **Zero by construction** |
 | `act:tool_outside_grant` | A tool outside the agent's grant is invoked. | **Zero by construction** |
@@ -260,6 +260,42 @@ gap and has to come off on the commit that closes it.
 
 **Claim: designed, not built**, for an approval this process can verify. The predicate is built and
 tested; what is absent is any out-of-process source of evidence the judged caller does not control.
+
+### B3. The record, supplied out of process by the caller being judged
+
+**Failure.** The row above says "zero by construction", and the predicate earns it: `figures_in`
+reads every figure in the draft and each one must appear in the record. What the predicate does not
+choose is *which record*. In process the record is a bound argument the harness holds, and no tool
+argument reaches it. Out of process it arrives as `tool_input.record`, from the agent whose draft is
+being judged, so a draft stating a figure the real record does not hold is allowed by a payload
+carrying a record that says it does. Measured: `{"body": "The round is $8M.", "record":
+{"round_size": "10000000"}}` blocks, and the same body beside `{"round_size": "8000000"}` exits 0.
+`validate_citations` resolves against that same field, so the citation half goes with it, and
+`cited_fields` defaulting to empty suppresses that half a second way.
+
+**So the predicate is live and its ground truth is the defendant's.** Same family as B2 and one step
+further out: not the evidence for the action, but the truth the action is checked against.
+
+**Mechanism.** None available there, and the reason is worth stating rather than leaving as an
+absence. The remedy that works for `CONSENTED` and `GRANTED`, holding them as constants the caller
+cannot reach, does not transfer: a record pinned in the module would make the predicate "does the
+draft agree with one fixed mandate" rather than "does it agree with this deal's record", and would
+refuse every correct draft about every other deal. A stateless guard holds no per-deal record, which
+is exactly the criterion `UNENFORCEABLE_HERE` states, so the class is declared there instead.
+
+**What this does not touch.** The in-process measurement. The corpus supplies the record, not a
+caller, so the labelled result still rests on the 5 `act:figure_not_in_record` rows per split and
+means what it meant. This row is about the out-of-process layer and about nothing else.
+
+**Test.** `test_the_record_the_figure_class_is_checked_against_arrives_from_the_caller_being_judged`
+exhibits both halves on real payloads.
+`test_every_class_deciding_on_evidence_the_payload_supplies_is_declared_unenforceable` is why the
+declaration is no longer a hand-maintained list: it reads the guard's own AST for which `Record` and
+`ActContext` inputs come from `tool_input`, and requires every class turning on one to be declared.
+
+**Claim: designed, not built**, for a record this process can trust. The predicate is built and
+tested; what is absent is any out-of-process source of ground truth the judged caller does not
+control.
 
 ---
 

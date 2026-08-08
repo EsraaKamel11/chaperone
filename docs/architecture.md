@@ -22,12 +22,17 @@ let the stronger claim leak onto the weaker family:
 - **Act-classes** ask whether an act occurred outside its bounds. Was there an approval token at this
   tier? Is this jurisdiction consented? Is this tool in the grant? Does this figure appear in the
   record? Is the send cap exceeded? Every one is a pure function over the draft, the record, and the
-  context. The violation is impossible, not improbable **for the three whose inputs a shipped caller
-  supplies from what it already holds**. The other two are live predicates over inputs the shipped
-  shape does not supply that way. `act:send_cap_exceeded` reads a count no shipped path derives from
-  the log; `act:no_approval_token` reads a token and a tier that, in the out-of-process hook, arrive
-  from the agent being judged. For both, the violation is not impossible in the shipped shape; see
-  [B0 and B2 in the failure-mode catalog](failure-modes.md).
+  context. The violation is impossible, not improbable, **only for those whose inputs a shipped
+  caller supplies from what it already holds**, and today that is `act:jurisdiction_not_consented`
+  and `act:tool_outside_grant`. The rest are live predicates over inputs the shipped shape does not
+  supply that way. `act:send_cap_exceeded` reads a count no shipped path derives from the log;
+  `act:no_approval_token` reads a token and a tier that, in the out-of-process hook, arrive from the
+  agent being judged; `act:figure_not_in_record` is checked against a record that arrives from the
+  agent being judged in that same hook. For those, the violation is not impossible in the shipped
+  shape; see [B0, B2 and B3 in the failure-mode catalog](failure-modes.md). The classes are named
+  here rather than counted, because the count is the thing that goes stale: this sentence said
+  "three" and "the other two" until the record was found to be one of them, and the catalog rows it
+  points at are held to `UNENFORCEABLE_HERE` by a test while this paragraph is not.
 - **Content-classes** ask whether a piece of text does a forbidden thing. Does it advise on the merits,
   negotiate terms, or make a forward-looking return claim? No pure function decides these. A model
   checker decides, with lexical tripwires as a second disjunct, and the result is a measured rate.

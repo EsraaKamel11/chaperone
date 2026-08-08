@@ -31,10 +31,13 @@ that will not import -- into fail-open paths, and each is closed below rather th
 - **This layer enforces a strict subset of the in-process policy, and the missing predicates are
   named.** `UNENFORCEABLE_HERE` is the list, a test exhibits the payload the two layers disagree on
   for each entry, and the predicate-parity test asserts the declaration rather than letting silence
-  imply parity. Two act-classes are on it, and the two are undecidable here for different reasons:
-  `act:send_cap_exceeded` needs a count that lives in a log this process cannot read, and
-  `act:no_approval_token` reads an approval and a tier that arrive in the payload from the caller
-  being judged. See the note on the set itself.
+  imply parity. **How many are on it is a question for the set and not for this sentence**, which is
+  why the count that used to stand here is gone: it said two while three were true. The paragraph
+  below already disowns exactly this move, and it had been made twice before. `act:send_cap_exceeded`
+  needs a count that lives in a log this process cannot read. `act:no_approval_token` and
+  `act:figure_not_in_record` are decided from evidence arriving in the payload from the caller being
+  judged: an approval and a tier, and the record a draft's figures are checked against. See the note
+  on the set itself.
 
   Same category as the model call not porting: the deterministic half is the portable half, and the
   stateful half is not. **So "the same policy is enforced at two layers" is true of the predicates
@@ -95,9 +98,40 @@ GRANTED = frozenset({"send_message", "send_reply", "draft_message", "read_policy
 #:   refuse. `tier`'s fail-closed default of 2 is kept: it closes absence, which is the half that
 #:   can be closed.
 #:
-#: **The residual, because declaring a gap does not close it.** The predicate still runs, so this
-#: layer can still *deny* on `act:no_approval_token` from caller input. What it cannot do is refuse
-#: to be talked out of the denial, and that is the direction the declaration names.
+#: - `act:figure_not_in_record`. The same shape as the entry above, one step further out: not the
+#:   evidence *for* the action but the ground truth it is checked *against*. `record` arrives in
+#:   `tool_input`, so a draft stating a figure the real record does not hold is allowed by a payload
+#:   carrying a record that says it does, and `validate_citations` resolves against that same field,
+#:   so the citation half goes with it -- `cited_fields` defaulting to `()` suppresses that half a
+#:   second way. The constant remedy does not transfer here either, for a sharper reason than above:
+#:   a record pinned in this module would make the predicate "does the draft agree with one fixed
+#:   mandate" rather than "does it agree with this deal's record", and would refuse every correct
+#:   draft about every other deal. A stateless guard holds no per-deal record, which is this
+#:   criterion exactly.
+#:
+#: **Why a `Draft` is not on this list, when every field of one also arrives in `tool_input`.** A
+#: draft is the action's description of itself and is the thing being judged; a `Record` and an
+#: `ActContext` are what it is judged against, and only the second kind is evidence. That is why
+#: `act:jurisdiction_not_consented` and `act:tool_outside_grant` are absent: both compare the
+#: action's self-description against `CONSENTED` and `GRANTED`, held here as constants precisely so
+#: the caller cannot supply them. **The residual, because the distinction is about this payload
+#: shape rather than about the predicates:** a caller can still misdescribe its own action, and
+#: `jurisdiction` stops being self-description the moment a real send tool derives it from the
+#: recipient rather than taking it as an argument.
+#:
+#: **This set is no longer maintained by hand.** It was, and it was found under-inclusive twice --
+#: created holding `act:send_cap_exceeded` alone, then grown for the approval class, then for the
+#: record. The count in that sentence is read off this file's history, not recalled.
+#: `tests/gates/test_hook.py` now derives the requirement from this module's own AST -- which
+#: `Record` and `ActContext` inputs come from `tool_input` -- and from each predicate's AST, so a
+#: class that starts turning on payload evidence fails on the commit that does it rather than on
+#: the review that happens to notice.
+#:
+#: **The residual, because declaring a gap does not close it.** Every predicate still runs, so this
+#: layer can still *deny* on `act:no_approval_token` and on `act:figure_not_in_record` from caller
+#: input. What it cannot do is refuse to be talked out of either denial, and that is the direction
+#: the declaration names: these entries mark classes that cannot be relied on to fire, not classes
+#: that never fire.
 #:
 #: This set holds only gaps that cannot be closed here. It briefly also covered unconsumed payload
 #: keys, which was wrong twice over: refusing them is a pure function of the payload and needs no
@@ -106,6 +140,7 @@ GRANTED = frozenset({"send_message", "send_reply", "draft_message", "read_policy
 UNENFORCEABLE_HERE = frozenset({
     ViolationClass.SEND_CAP_EXCEEDED,
     ViolationClass.NO_APPROVAL_TOKEN,
+    ViolationClass.FIGURE_NOT_IN_RECORD,
 })
 
 #: Every key of `tool_input` this module reads. Anything else is an argument no predicate here
