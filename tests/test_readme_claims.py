@@ -395,9 +395,13 @@ def test_no_reader_facing_page_denies_the_results_this_tree_publishes(path: Path
     section 7, and both times a reader following a citation is who would have found it. The correction
     is a guard rather than a third careful read.
 
-    The direction that stays open, stated rather than discovered: deleting `docs/RESULTS.md` makes
-    every phrase below true again and silences this test. That direction is closed by
-    `test_every_relative_link_in_the_reader_facing_docs_resolves`, because the README links the page.
+    The direction that would otherwise stay open, and where it is actually closed: deleting
+    `docs/RESULTS.md` makes every phrase below true again and silences this test. That is closed by
+    the `RESULTS_PAGE.exists()` assertion in `test_the_docs_directory_is_not_silently_empty`, and
+    **not** by the link resolver. An earlier version of this docstring cited the link resolver, which
+    is a weaker closure, because the edit that deletes a page plausibly deletes the link to it in the
+    same commit; a later reader trusting that sentence would have deleted the real guard believing
+    another one covered it.
     """
     published = RESULTS_PAGE.exists()
     text = _unwrapped(path.read_text(encoding="utf-8"))
@@ -429,3 +433,30 @@ def test_the_readme_carries_the_ladder_honesty_line():
     """
     text = _unwrapped(README.read_text(encoding="utf-8"))
     assert "never to synthetic suite scores" in text, "the ladder honesty line is gone"
+
+
+def test_the_second_scene_pasted_in_the_readme_is_verbatim_from_a_fresh_run():
+    """The scene-2 block was an elided paste with no marker, beside a byte-guarded day-2 block.
+
+    `test_the_demo_output_pasted_in_the_readme_matches_a_fresh_run` anchors on `QUALITY LANE`, so a
+    fence opening with `SCENE 2` is invisible to it. The README advertises that guard a few lines
+    above, so an alert reader assumes the same standard, runs the demo, and finds lines the paste
+    omitted with nothing saying it was an excerpt.
+
+    Production changes that break this: eliding a line again; a scene-2 verdict, category, round
+    count or proposal that moves without the paste moving with it. `rounds=1` drifting to 2 is the
+    specific one the earlier `[1-9]` guard would have accepted.
+
+    Asserted as a contiguous substring rather than as whole-output equality, because the block is
+    deliberately the second scene of a two-scene run. A substring assertion is still byte exact.
+    """
+    fenced = re.findall(r"```\n(SCENE 2.*?)```", README.read_text(encoding="utf-8"), re.S)
+    assert len(fenced) == 1, "expected exactly one pasted scene-2 transcript in the README"
+
+    completed = subprocess.run(
+        [sys.executable, str(REPO / "demo" / "full.py")],
+        capture_output=True, text=True, cwd=REPO, check=True,
+    )
+    assert fenced[0].strip() in completed.stdout, (
+        "the README's scene-2 paste is not verbatim in a fresh run of demo/full.py"
+    )
