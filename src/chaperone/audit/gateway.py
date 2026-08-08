@@ -119,8 +119,11 @@ class Gateway:
         # held here is stale the moment it runs. Sends issued after a recovery pass were then
         # numbered back over the entries recovery had just written, a live intent stopped being at
         # the log's tail, and the next pass found it inside its staleness boundary and released it
-        # from the cap. `_next_seq` reads the number off the log at the moment of writing and is
-        # the only place that decides one.
+        # from the cap. Then `max + 1` derived once before `resume`'s loop went stale *inside* one
+        # recovery pass, because the probe it calls reaches the outside world through this gateway
+        # and so appends between iterations. Every version was one copy of the rule going stale
+        # while another moved, so there is now one copy: `AuditStore.next_seq` is the only place a
+        # seq is decided, `_next_seq` delegates to it, and `recovery.resume` calls it per write.
         _, torn = store.read_all()
         #: True when the log already held a torn record when this gateway opened it. Surfaced, not
         #: swallowed: `count` does not report `torn` either, so a caller that only ever sees a
@@ -133,10 +136,13 @@ class Gateway:
     def _next_seq(self) -> int:
         """The next free number, read off the log. **One rule, one place, no cached counter.**
 
-        `recovery.resume` writes to this log too and applies the same `max + 1`, so a later record
-        always carries a higher seq -- which is what lets `resume` treat a prefix as stale and the
-        tail as possibly in flight. That invariant holds by derivation, not by two writers being
-        asked in a comment to agree.
+        `recovery.resume` writes to this log too and asks the same question of the same object, so a
+        later record always carries a higher seq -- which is what lets `resume` treat a prefix as
+        stale and the tail as possibly in flight. That invariant holds because there is one rule
+        with one home, not because two writers are asked in a comment to agree. This method is a
+        delegation and deliberately holds no arithmetic of its own: a second copy of `max + 1` here
+        is a second thing to update, and every version of this defect so far has been one copy of
+        the rule going stale while the other moved.
 
         No new failure class and no new cost: `store.append` already reads the whole log through
         `_last_hash()` on every append, so this is the same read of the same file.
@@ -151,8 +157,7 @@ class Gateway:
         this adds: every caller of this method is inside the `try` or inside the `finally` -- the
         latter being the finding-C-shaped hole that docstring already names and bounds.
         """
-        entries, _ = self.store.read_all()
-        return max((entry.seq for entry in entries), default=-1) + 1
+        return self.store.next_seq()
 
     def _write(self, kind: str, tool: str, outcome: str, digest: str, seed: int | None) -> int:
         seq = self._next_seq()

@@ -54,7 +54,9 @@ def test_an_unknown_outcome_is_written_back_so_the_state_is_durable(tmp_path: Pa
 
 
 def test_a_digest_with_an_unknown_outcome_requires_approval_on_re_attempt(tmp_path: Path):
-    """The argument digest doubles as an idempotency key. This is what prevents the double-send."""
+    """The argument digest doubles as an idempotency key: this is what prevents the double-send
+    once something consults it before re-attempting. Nothing in this tree does yet, so what is
+    pinned here is the answer, not an arrested send."""
     store = AuditStore(tmp_path / "a.jsonl")
     store.append(_row(0, "intent", "pending", "d1"))
     resume(store, side_effect_absent=lambda d: None)
@@ -202,9 +204,9 @@ def test_resume_is_idempotent_and_a_second_pass_writes_nothing(tmp_path: Path):
 
 
 def test_resume_allocates_seqs_that_collide_with_nothing_already_in_the_log(tmp_path: Path):
-    """`gateway.__init__` claims "the two allocators cannot disagree". Asserted on the log rather
-    than by reading both expressions, and over a log with a hole -- `len(entries)` is where the
-    collision came from, and a hole is what makes it visible."""
+    """`AuditStore.next_seq` is the one place a seq is decided; this asserts the result on the log
+    rather than by reading the expression, and over a log with a hole -- `len(entries)` is where
+    the first collision came from, and a hole is what makes it visible."""
     store = AuditStore(tmp_path / "a.jsonl")
     store.append(_row(0, "intent", "pending", "d1"))
     store.append(_row(7, "intent", "pending", "d2"))
@@ -242,3 +244,76 @@ def test_a_seq_reported_to_the_caller_still_names_the_entry_that_was_written(tmp
     entries, _ = store.read_all()
     assert result.intent_seq is None
     assert result.outcome_seq == entries[-1].seq
+
+
+def test_a_probe_that_writes_to_the_log_does_not_collide_with_the_outcome_resume_writes(
+    tmp_path: Path,
+):
+    """`resume` is a writer *and* it calls out, and the thing it calls may write to the same log.
+
+    The natural production probe asks the outside world whether a message was delivered, and every
+    outward call in this system goes through the gateway -- so the probe appends. A `resume` that
+    derives its numbering once before the loop is then numbering against a log that its own probe
+    has moved on, and its outcome lands on a seq the probe just used. No concurrency is needed;
+    one process and one thread reach it.
+
+    The direct harm today is the numbering itself rather than a release: pairing is by digest and
+    the duplicates are outcomes, so no intent is mis-resolved by this alone. But `stale_after_seq`
+    is a comparison on seq, and the whole staleness design rests on a later record carrying a
+    higher number.
+    """
+    store = AuditStore(tmp_path / "a.jsonl")
+    gateway = Gateway(store, principal="agent", tier=2)
+    store.append(_row(0, "intent", "pending", "d0"))
+    store.append(_row(1, "intent", "pending", "d1"))
+
+    def probe(digest):
+        gateway.call("check_delivery", {"d": digest}, decide=lambda: ALLOW, execute=lambda: None)
+        return None
+
+    resume(store, side_effect_absent=probe, stale_after_seq=1)
+
+    seqs = [e.seq for e in store.read_all()[0]]
+    assert len(seqs) == len(set(seqs)), f"duplicate seq allocated: {seqs}"
+    assert seqs == sorted(seqs), f"seq must never go backwards: {seqs}"
+
+
+def test_the_action_reports_the_digest_the_outcome_was_written_under(tmp_path: Path):
+    """`ResumeAction.digest` is what a caller would feed to `requires_approval_for`.
+
+    Unasserted until now: a wrong digest in the report beside a right one in the log passed, and
+    the approval demand would then be asked about a send nobody made. Read off the log rather than
+    recomputed, so the two are compared and not one of them with itself.
+    """
+    store = AuditStore(tmp_path / "a.jsonl")
+    store.append(_row(0, "intent", "pending", "d0"))
+    store.append(_row(1, "intent", "pending", "d1"))
+
+    actions = resume(store, side_effect_absent=lambda d: None, stale_after_seq=1)
+
+    written = [e.arg_digest for e in store.read_all()[0] if e.outcome == "unknown"]
+    assert [a.digest for a in actions] == written == ["d0", "d1"]
+    assert all(requires_approval_for(store, a.digest) is True for a in actions)
+
+
+def test_the_recovery_outcome_carries_the_intents_own_metadata(tmp_path: Path):
+    """The outcome must describe the same act as the intent it closes.
+
+    `tool`, `principal`, `tier`, `scope` and `seed` are copied, and none of them was asserted: a
+    recovery outcome recording tier 0 for a tier-2 send is a false record of who was allowed to do
+    what, and the chain would still verify over it. Two rows differing in every copied field, so a
+    hard-coded constant cannot satisfy both.
+    """
+    store = AuditStore(tmp_path / "a.jsonl")
+    store.append(dict(seq=0, kind="intent", tool="send_message", principal="agent", tier=2,
+                      scope="send", outcome="pending", arg_digest="d0", seed=7))
+    store.append(dict(seq=1, kind="intent", tool="read_record", principal="reviewer", tier=1,
+                      scope="read", outcome="pending", arg_digest="d1", seed=None))
+
+    resume(store, side_effect_absent=lambda d: None, stale_after_seq=1)
+
+    outcomes = [e for e in store.read_all()[0] if e.kind == "outcome"]
+    assert [(e.tool, e.principal, e.tier, e.scope, e.seed) for e in outcomes] == [
+        ("send_message", "agent", 2, "send", 7),
+        ("read_record", "reviewer", 1, "read", None),
+    ]

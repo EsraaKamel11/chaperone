@@ -95,6 +95,27 @@ class AuditStore:
             entries.append(AuditEntry(**fields))
         return entries, torn
 
+    def next_seq(self) -> int:
+        """The next free entry number. **The only place a seq is decided.**
+
+        Two writers append here -- `Gateway` and `recovery.resume` -- and the ordering they both
+        depend on is that a later record carries a higher seq: it is what lets recovery treat a
+        prefix of the log as stale and its tail as possibly still in flight. Every previous attempt
+        to hold that with two copies of one rule failed, in a different way each time. `len(entries)`
+        counted a holed log short and reissued a number already in use. `max + 1` cached at
+        construction went stale as soon as the other writer ran. `max + 1` derived once before a
+        loop went stale *within* one recovery pass, because the probe it calls reaches the outside
+        world through the gateway and so appends to this log between iterations.
+
+        The rule lives here because the log is what it is a property of, and because a rule with one
+        home cannot be half-updated. Callers ask at the moment of writing and never hold the answer.
+
+        A torn line is not counted and cannot lower this: it never parsed, so it never contributed a
+        seq, and the maximum is taken over the records that did.
+        """
+        entries, _ = self.read_all()
+        return max((entry.seq for entry in entries), default=-1) + 1
+
     def count(self, predicate: Callable[[AuditEntry], bool]) -> int:
         """Entries matching `predicate`. A caller using this for a cap must read `torn` too: a
         torn line is a record that never became durable, and it is not counted here."""

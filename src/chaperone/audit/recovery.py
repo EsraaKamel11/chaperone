@@ -98,6 +98,13 @@ def counted_sends(store: AuditStore) -> int:
     it can still err in is the one this whole module is arranged around, so it is stated rather
     than implied.
 
+    **This counts every intent, whatever tool it named, and the spec words the cap per recipient
+    domain.** A global count over all tools refuses earlier than a per-domain one and never later,
+    so the divergence is in the safe direction; but it is a divergence and not an implementation of
+    3.2 as written. Per-domain is unbuildable from this log for the same reason branch (c) files no
+    handoff -- the log holds a digest and never a recipient -- and would need the same kind of
+    outside resolver.
+
     **One fail-open this cannot close: a log that is not there counts zero.** `read_all` over a
     missing path returns `([], False)`, so a store whose file was deleted is indistinguishable from
     a store that has never been written, and this returns 0 for both -- the cap fully reset, with
@@ -120,10 +127,11 @@ def _probe(side_effect_absent: Callable[[str], bool | None], entry: AuditEntry) 
 
     The probe reaches the outside world -- it is the part of recovery most likely to fail -- and a
     failure that propagates ends the pass part-way. Every intent it had not yet reached is then
-    left with no durable outcome, so `requires_approval_for` answers `False` for each of them and
-    the double-send guard is off for exactly the digests recovery never got to. `None` is the
-    indeterminate answer branch (c) already exists for, so the failure becomes the most
-    conservative answer rather than an exception.
+    left with no durable outcome, so `requires_approval_for` answers `False` for each of them whose
+    digest canonicalised -- a digest carrying `DIGEST_UNAVAILABLE` still answers `True`, from the
+    prefix, with no log consulted -- and the double-send guard is off for the rest of the digests
+    recovery never got to. `None` is the indeterminate answer branch (c) already exists for, so the
+    failure becomes the most conservative answer rather than an exception.
 
     Broad on purpose: the exception a probe raises is the caller's business, not this module's, and
     an enumerated list would let the type nobody listed through as a crash.
@@ -162,6 +170,20 @@ def resume(
     `seq >= stale_after_seq`, so 0 means the whole log -- passes every test the brief wrote, whose
     fixtures all sit at seq 0, while inverting both the default and the direction of the knob.
 
+    **The caller protocol for the boundary, because getting it wrong is silent.** `stale_after_seq`
+    is the previous run's maximum seq, captured *before this run's first send*. Capturing it after
+    the current run has begun writing puts live intents inside the boundary, and they are then
+    released from the cap by a predicate behaving exactly as specified -- the dangerous direction,
+    and not one any assertion here can catch, because the input is what is wrong.
+
+    **Branch (c)'s recipient-scoped needs-verification handoff is not filed here, and the reason is
+    a missing resolver rather than an impossible one.** The log holds a digest and `scope=tool`,
+    never a recipient, so nothing in this function can name who a send was going to. That does not
+    make the handoff unbuildable: this function already takes an outside-world callback keyed by
+    digest, and a parallel `recipient_for(digest)` resolver would supply the field without the log
+    ever storing it. It is undesigned, not forbidden. Until it exists, `requires_approval_for` is
+    the whole of the branch (c) mechanism.
+
     Only branch (b) is permissive, so only branch (b) is guarded. Every other answer, including a
     probe that raises or returns something that is not exactly `True`, lands in (c).
 
@@ -170,23 +192,30 @@ def resume(
     outcome -- and `pair_intents` has already paired the intent with this `unknown`, so the genuine
     `allowed` finds no pending intent and is discarded rather than recorded as resolving anything.
     The consequence is not merely an untidy log: `requires_approval_for` answers `True` for that
-    digest **permanently**, for a send that in fact went through, and no later event can clear it.
-    A human must. Kept anyway, because the alternative -- writing nothing -- leaves a live intent
-    with no idempotency key at all, and an unclearable approval demand errs in the direction this
-    module is arranged around while a missing one does not.
+    digest **permanently**, for a send that in fact went through. Permanently is meant literally
+    and there is no clearing mechanism to appeal to: the log is append-only, and this gate fires on
+    *any* entry carrying that digest with an `unknown` outcome, so no later append can retract it.
+    A human can approve each re-attempt out of band; nobody can clear the state. Kept anyway,
+    because the alternative -- writing nothing -- leaves a live intent with no idempotency key at
+    all, and a permanent demand for approval errs in the direction this module is arranged around
+    while a missing one does not.
     """
     entries, _ = store.read_all()
     actions: list[ResumeAction] = []
-    next_seq = max((e.seq for e in entries), default=-1) + 1
 
     for entry in unresolved_intents(entries):
         absent = _probe(side_effect_absent, entry) if entry.seq <= stale_after_seq else None
         branch = Branch.ABORTED if absent is True else Branch.UNKNOWN
         counts = branch is not Branch.ABORTED
-        store.append(dict(seq=next_seq, kind="outcome", tool=entry.tool, principal=entry.principal,
-                          tier=entry.tier, scope=entry.scope, outcome=branch.value,
-                          arg_digest=entry.arg_digest, seed=entry.seed))
-        next_seq += 1
+        # `store.next_seq()` per write, and never a number carried across an iteration. The probe
+        # above reaches the outside world, every outward call in this system goes through the
+        # gateway, and the gateway appends here -- so the log moves *inside* this loop, with no
+        # concurrency involved. A number derived once before the loop lands on a seq the probe has
+        # already taken. The metadata is copied from the intent so the outcome carries the same
+        # tool, principal, tier, scope and seed as the record it resolves.
+        store.append(dict(seq=store.next_seq(), kind="outcome", tool=entry.tool,
+                          principal=entry.principal, tier=entry.tier, scope=entry.scope,
+                          outcome=branch.value, arg_digest=entry.arg_digest, seed=entry.seed))
         actions.append(ResumeAction(entry.seq, entry.arg_digest, branch, counts))
     return actions
 
@@ -200,7 +229,8 @@ def requires_approval_for(store: AuditStore, digest: str) -> bool:
     object address for anything without a stable `__repr__`, and it follows dict insertion order
     where `canonical_json` sorts keys -- so two attempts at the same logical send can hash
     differently. Equality then returns `False` for a genuine re-attempt, and §5.4(c) calls this
-    mechanism "what prevents the double-send". The prefix needs no stability at all, so the
+    mechanism "what prevents the double-send" -- which it does **when it is consulted before a
+    re-attempt**, and nothing in this tree consults it yet. The prefix needs no stability at all, so the
     obligation is discharged here, at the consumer, rather than by trying to make `repr` canonical.
 
     The cost is a false demand for approval: two *different* undigestible sends both stop at a

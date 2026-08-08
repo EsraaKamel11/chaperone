@@ -266,14 +266,23 @@ MUTANTS: list[Mutant] = [
     Mutant(
         "the_gateway_numbers_from_a_cached_counter",
         SRC / "audit" / "gateway.py",
-        "        entries, _ = self.store.read_all()\n"
-        "        return max((entry.seq for entry in entries), default=-1) + 1\n",
+        "        return self.store.next_seq()\n",
         "        if not hasattr(self, \"_cached_seq\"):\n"
-        "            entries, _ = self.store.read_all()\n"
-        "            self._cached_seq = max((entry.seq for entry in entries), default=-1) + 1\n"
+        "            self._cached_seq = self.store.next_seq()\n"
         "        seq = self._cached_seq\n"
         "        self._cached_seq += 1\n"
         "        return seq\n",
+    ),
+    # The other writer's allocation, in the form that makes it stop being an allocation at all:
+    # the outcome numbered from the record it resolves rather than from the log. A plausible edit
+    # -- the intent's seq is right there in `entry` -- and it puts two records under one number,
+    # which is the ordering `stale_after_seq` compares on. Killed by
+    # `test_resume_allocates_seqs_that_collide_with_nothing_already_in_the_log`.
+    Mutant(
+        "resume_numbers_an_outcome_from_the_intent_it_resolves",
+        SRC / "audit" / "recovery.py",
+        "        store.append(dict(seq=store.next_seq(), kind=\"outcome\", tool=entry.tool,\n",
+        "        store.append(dict(seq=entry.seq, kind=\"outcome\", tool=entry.tool,\n",
     ),
     # Design spec 5.4(b) is a conjunction, and this is the conjunct a brief-following implementer
     # drops: `stale_after_seq` arrives in the signature and is never read. The mutant releases an

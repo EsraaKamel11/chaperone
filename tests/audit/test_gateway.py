@@ -413,3 +413,28 @@ def test_a_gateway_opened_over_a_torn_log_surfaces_the_tear(tmp_path: Path):
         handle.write(b'{"seq": 9, "kind": "outc')
 
     assert Gateway(AuditStore(path), principal="agent", tier=2).log_torn is True
+
+
+def test_a_refused_call_reports_the_seq_of_the_outcome_it_actually_wrote(tmp_path: Path):
+    """The third arm of `outcome_seq`, and the only one that returns before `execute`.
+
+    `test_the_result_names_the_seqs_of_the_entries_that_were_actually_written` covers the two
+    allowed arms. The refusal path returns from its own `return GatewayResult(False, ...)`, and
+    both dispositions leave through it, so one test covers `denied` and `redirected` together --
+    it is the same expression on the same line. The prediction is made before the `finally`
+    allocates, exactly as it is on the allowed arms, so an off-by-one here would hand a reviewer
+    chasing a refusal the seq of somebody else's entry.
+    """
+    gateway = _gateway(tmp_path)
+
+    denied = gateway.call("send_message", {}, decide=lambda: Decision(allowed=False, findings=(), disposition=Disposition.ALLOW),
+                          execute=lambda: "sent", effectful=True)
+    entries, _ = gateway.store.read_all()
+    assert entries[-1].outcome == "denied"
+    assert denied.outcome_seq == entries[-1].seq
+
+    redirected = gateway.call("send_message", {}, decide=lambda: DENY, execute=lambda: "sent",
+                              effectful=True)
+    entries, _ = gateway.store.read_all()
+    assert entries[-1].outcome == "redirected"
+    assert redirected.outcome_seq == entries[-1].seq
