@@ -353,6 +353,18 @@ def _pure_predicates_reachable_from(entry) -> set[str]:
     detector was watching a function neither in-process layer calls first any more -- so the
     argument binding added in that same commit was invisible to it. A guard made stale by the
     change that needed guarding.
+
+    **A callee spelled as an attribute is still a callee**, and the walk used to skip every one of
+    them: `ast.Name` alone reads `validate_citations(...)` and steps straight past
+    `citations.validate_citations(...)`, which is the same call. A predicate reached that way did
+    not enter `pure` at all, so `sorted(pure - invoked) == []` was satisfied by a hook that never
+    ran it -- a drift detector blind in the direction it exists to watch. `_PREDICATE_FLOOR` closes
+    that for the four predicates known at the time it was written and cannot close it for the next
+    one, which is the whole reason the set is derived rather than listed.
+
+    `tests/testing/test_recorded.py::_callee_names` already solves this in this repository, and
+    this is the same shape: `Name`, or the final attribute of a dotted call, resolved through the
+    module the call was written in.
     """
     seen, pending, pure = set(), [entry], set()
     while pending:
@@ -362,9 +374,9 @@ def _pure_predicates_reachable_from(entry) -> set[str]:
         seen.add(function)
         module = inspect.getmodule(function)
         for node in ast.walk(ast.parse(inspect.getsource(function))):
-            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+            if not isinstance(node, ast.Call):
                 continue
-            target = getattr(module, node.func.id, None)
+            target = _resolve_callee(module, node.func)
             if not inspect.isfunction(target):
                 continue
             if target.__module__.startswith("chaperone.policy"):
@@ -372,6 +384,20 @@ def _pure_predicates_reachable_from(entry) -> set[str]:
             elif target.__module__.startswith("chaperone.gates"):
                 pending.append(target)
     return pure
+
+
+def _resolve_callee(module, func):
+    """The function a call node names, resolved the way the interpreter would resolve it.
+
+    `f(...)` is looked up in the calling module. `m.f(...)` is looked up on whatever `m` is bound
+    to there, which is `None` for a parameter such as `checker` or `gateway` -- so a call on an
+    argument resolves to nothing and is skipped, exactly as it was before.
+    """
+    if isinstance(func, ast.Name):
+        return getattr(module, func.id, None)
+    if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+        return getattr(getattr(module, func.value.id, None), func.attr, None)
+    return None
 
 
 def test_the_hook_runs_every_pure_predicate_the_in_process_gate_consults():
@@ -394,15 +420,41 @@ def test_the_hook_runs_every_pure_predicate_the_in_process_gate_consults():
 
     # Called, not merely mentioned. A substring search over the source was the first version and it
     # was satisfiable by prose: the comment beside the call in policy_hook.py names
-    # `validate_citations`, so deleting the call and keeping the comment passed. `ast.Call` with an
-    # `ast.Name` func produces no node for a docstring or a comment, which is the same idiom
-    # test_engine.py's `_functions_reading` already uses for exactly this reason.
-    invoked = {
-        node.func.id
-        for node in ast.walk(ast.parse(GUARD.read_text(encoding="utf-8")))
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-    }
+    # `validate_citations`, so deleting the call and keeping the comment passed. An `ast.Call`
+    # produces no node for a docstring or a comment, which is the same idiom test_engine.py's
+    # `_functions_reading` already uses for exactly this reason.
+    #
+    # Both spellings counted, for the reason `_pure_predicates_reachable_from` now reads both:
+    # `citations.validate_citations(...)` in the guard is the predicate running, and a set that
+    # only saw bare names would have demanded a call that was already there.
+    guard_tree = ast.parse(GUARD.read_text(encoding="utf-8"))
+    invoked = set()
+    for node in ast.walk(guard_tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name):
+            invoked.add(node.func.id)
+        elif isinstance(node.func, ast.Attribute):
+            invoked.add(node.func.attr)
     assert sorted(pure - invoked) == []
+
+    # What makes the two sets above comparable: a callee's spelling is its name. `from
+    # chaperone.policy.citations import validate_citations as v` followed by `v(...)` puts the
+    # predicate in the guard's tree under a name neither set is looking for, and `pure - invoked`
+    # would then demand a call that is being made. Forbidding the rebinding is cheaper and more
+    # honest than chasing it, and this module has no reason to want one --
+    # `tests/testing/test_recorded.py` bans aliases in its own transport for the same reason.
+    aliased = [
+        alias.asname
+        for node in ast.walk(guard_tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for alias in node.names
+        if alias.asname
+    ]
+    assert aliased == [], (
+        f"tools/policy_hook.py binds an import under an alias ({aliased}); the predicate-parity "
+        "comparison above matches callees by name and cannot see a renamed one"
+    )
 
     # Function-level parity is not class-level parity, and the difference has to be declared rather
     # than inferred from silence. `evaluate_act_classes` runs here, but two of the classes it can

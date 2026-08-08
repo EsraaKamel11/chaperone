@@ -482,6 +482,19 @@ when the payload omits it. So the predicate is live and its input is not, which 
 of the claim, and `tools/policy_hook.py` declares the class unenforceable there rather than letting
 silence imply parity. Treat a re-attempt as unguarded until it is wired in.
 
+**Four more things are built, reserved, and called from nowhere outside the suite.** `transmit` in
+`src/chaperone/audit/gateway.py` is the one send symbol, and its name is reserved package-wide by
+`tools/static_audit.py` so that nothing else can be called it; no shipped module calls it, and
+`guarded_call` reaches `Gateway.call` directly. `AuditStore.count` has no caller either, and
+`counted_sends` deliberately does not use it, because it reports a number and drops the torn-tail
+flag. `Branch.COMPLETE` is a vocabulary entry `resume` never writes, since branch (a) is the case it
+does not visit. And `pre_tool_use` is the in-process hook layer, described in
+[docs/architecture.md](docs/architecture.md) as one of three enforcement points and called only from
+`tests/`. None of these is a permissive path. All four are listed because a reader counting layers
+would otherwise count one that nothing drives.
+`test_the_ledger_of_uncalled_layers_matches_the_census_the_tree_supports` measures the census and
+fails when this paragraph and the tree disagree in either direction.
+
 **The recipient-scoped handoff is undesigned, not forbidden.** Branch (c) of the recovery pass files
 no escalation, because naming a recipient needs a resolver beside the log and the log deliberately
 stores no personal data. A `recipient_for(digest)` resolver would close it with the log storing no
@@ -513,7 +526,7 @@ Everything on the right was verified absent from the tree, not assumed.
 | Discrimination, AUC with confidence interval | **Built** |
 | Matching: shared eligibility predicates, both ablation arms, contamination and recall loss | **Built.** Both metrics are published in [docs/RESULTS.md](docs/RESULTS.md) section 7, and both render absent rather than zero when their denominator is empty. |
 | Refinement loop, with futility and deadlock stops | **Built.** The redraft rides in the handoff as a proposal; it never transmits on its own. |
-| Capability ladder demotion transition and the tier-2 ceiling | **Built.** Promotion has a transition and no caller. |
+| Capability ladder demotion transition and the tier-2 ceiling | **Built.** Nothing under `src/` calls any of it: `on_violation`, `on_pass` and `verbs_for` are exercised by the suite alone, and only `max_tier_for` has a caller, inside `LadderState.__post_init__`. The ceiling is enforced by that constructor; the transitions are a module nothing drives yet. |
 | Four-agent topology and per-agent grants | **Designed, not built** |
 | Crash-recovery `resume` pass, branches (b) and (c) | **Built.** Nothing schedules it and nothing consults its approval gate yet. Branch (c) files no handoff: naming a recipient needs a resolver beside the log, which is undesigned. |
 | Thread-scope pass for cross-turn accumulation | **Designed, not built** |
@@ -534,9 +547,14 @@ above it.
 
 **The four-agent topology is design.** There is no agent registry in `src/`. What is built is the
 primitive underneath it: `granted_tools` on `ActContext`, checked by a pure function that returns
-`act:tool_outside_grant` for any tool outside the grant, enforced at both `pre_tool_use` and
-`guarded_call`. The intended arrangement, in which a drafting agent holds no send tool at all, is in
-[docs/architecture.md](docs/architecture.md) and is labelled there as designed.
+`act:tool_outside_grant` for any tool outside the grant, reached through `_decide_for`, which both
+`pre_tool_use` and `guarded_call` call. **The two are not two layers in the shipped tree.**
+`guarded_call` is the path everything here runs: `src/chaperone/testing/scripted.py`, `demo/day2.py`
+and `demo/full.py` all go through it. Nothing outside `tests/` calls `pre_tool_use` at all. It is not
+a permissive gap, because both call the identical `_decide_for`, but a claim of defence in depth
+would be resting on a layer the suite is the only caller of. The intended arrangement, in which a
+drafting agent holds no send tool at all, is in [docs/architecture.md](docs/architecture.md) and is
+labelled there as designed.
 
 **Promotion is not built, and would not be keyed to these numbers if it were.** Production promotion
 belongs to human-review outcomes on real cases, never to synthetic suite scores. An artifact that

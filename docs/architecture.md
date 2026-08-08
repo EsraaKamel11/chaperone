@@ -66,8 +66,8 @@ The same predicate set is enforced at three points, and
 | Layer | What it is | What it enforces |
 |---|---|---|
 | Out-of-process hook | A `PreToolUse` hook, separate process | **The pure half only.** Act-classes and tripwires. |
-| In-process hook | `pre_tool_use` in `src/chaperone/gates/hook.py` | The full predicate set, including the checker. |
-| Executor chokepoint | `guarded_call` in the same module | The full set, bound to the reviewed draft. |
+| In-process hook | `pre_tool_use` in `src/chaperone/gates/hook.py` | The full predicate set, including the checker. **Called from `tests/` and from nowhere else.** |
+| Executor chokepoint | `guarded_call` in the same module | The full set, bound to the reviewed draft. The path everything in this tree actually runs. |
 
 **The first row is the one that needs saying out loud.** An out-of-process hook cannot call the model
 checker, so it enforces a strict subset: everything decidable by a pure function, and nothing that
@@ -192,7 +192,9 @@ this for X, use Y"*.
 
 **What is actually built:** `granted_tools` on `ActContext`, checked by a pure function in
 `src/chaperone/policy/act_classes.py` that returns `act:tool_outside_grant` for any tool outside the
-grant, enforced at both `pre_tool_use` and `guarded_call`. That primitive is what makes the topology
+grant, reached through `_decide_for`, which both `pre_tool_use` and `guarded_call` call. Only
+`guarded_call` has a caller outside `tests/`, so read that as one enforced path and one tested one
+rather than as two layers. That primitive is what makes the topology
 above enforceable rather than advisory, and it is the part that exists today.
 
 ---

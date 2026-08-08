@@ -448,6 +448,74 @@ def test_the_catalog_names_the_only_caller_of_the_count_the_cap_would_need():
     )
 
 
+#: The enforcement and ladder entry points the reader-facing pages describe as layers or as
+#: transitions. Every one of these is built and tested; the question this roster answers is which of
+#: them anything outside `tests/` actually calls.
+#:
+#: A roster rather than a sweep of every public symbol, because a sweep is dominated by helpers
+#: whose only caller is their own module and says nothing about a claim anyone made. These are the
+#: names the documents put weight on.
+ENFORCEMENT_ROSTER = (
+    "pre_tool_use", "guarded_call", "on_pass", "on_violation", "verbs_for", "max_tier_for",
+    "transmit", "resume", "requires_approval_for", "counted_sends",
+)
+
+#: Measured, not remembered: the roster members nothing under `src/`, `tools/` or `demo/` calls.
+#: Each must be disclosed as uncalled on a reader-facing page, and each must stop being disclosed
+#: on the commit that gives it a caller.
+UNCALLED_IN_THE_SHIPPED_TREE = frozenset({
+    "pre_tool_use", "on_pass", "on_violation", "verbs_for", "transmit", "resume",
+    "requires_approval_for",
+})
+
+
+def _shipped_call_sites(name: str) -> list[str]:
+    sites: list[str] = []
+    for root in SHIPPED_ROOTS:
+        for path in sorted((REPO / root).rglob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                called = getattr(func, "id", None) or getattr(func, "attr", None)
+                if called == name:
+                    sites.append(f"{path.relative_to(REPO).as_posix()}:{node.lineno}")
+    return sites
+
+
+def test_the_ledger_of_uncalled_layers_matches_the_census_the_tree_supports():
+    """A defence-in-depth claim resting on a layer nothing calls.
+
+    `docs/architecture.md` lists `pre_tool_use` as one of three enforcement layers and both it and
+    the README said `act:tool_outside_grant` is *enforced at both `pre_tool_use` and
+    `guarded_call`*. `pre_tool_use` is referenced from `tests/` and from nowhere else, as are
+    `LadderState.on_violation` and `verbs_for`, while the README disclosed only the promotion half.
+    Not a permissive path -- `guarded_call` runs the identical `_decide_for` -- but the second layer
+    of a two-layer claim was the suite.
+
+    Both directions. Wire one of these into a shipped caller and it leaves the census, and the
+    sentence disclosing it has to go with it.
+    """
+    measured = frozenset(name for name in ENFORCEMENT_ROSTER if not _shipped_call_sites(name))
+    assert measured == UNCALLED_IN_THE_SHIPPED_TREE, (
+        f"the census moved: no longer called {sorted(measured - UNCALLED_IN_THE_SHIPPED_TREE)}, "
+        f"now called {sorted(UNCALLED_IN_THE_SHIPPED_TREE - measured)}"
+    )
+    assert _shipped_call_sites("guarded_call"), (
+        "the chokepoint has no shipped caller either, so the roster is measuring nothing"
+    )
+
+    # Backticked, and only backticked. A bare-substring test passed `transmit` on the word
+    # "transmitting" in an unrelated sentence about the refinement loop, which is a symbol
+    # disclosure nobody wrote and no reader would find.
+    disclosed = _unwrapped(_reader_facing_text())
+    undisclosed = sorted(name for name in measured if f"`{name}`" not in disclosed)
+    assert not undisclosed, (
+        f"these are built and called from nowhere outside tests/, and no reader-facing page "
+        f"names them: {undisclosed}"
+    )
+
+
 CANONICAL_CLAIMS = (
     "zero by construction",
     "structural invariant",
