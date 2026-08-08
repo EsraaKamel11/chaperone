@@ -96,7 +96,12 @@ def weighted_feature_arm(
 
     The five constraints are written out in this body rather than read from a shared table, and
     that is deliberate: `test_the_weighted_arm_is_tuned_not_a_strawman` scans this function's own
-    source, so hoisting them somewhere a reader of this function cannot see would turn it red.
+    code -- `ast.unparse` with the docstring and the comments dropped -- so hoisting them somewhere
+    a reader of this function cannot see turns it red. **That sentence was false when written.**
+    The scan read `inspect.getsource`, docstring included, and this paragraph names all five
+    constraints; replacing the whole body with `sorted(candidates)[:k]` and keeping these words
+    passed. The behavioural companion did the real work throughout, so nothing escaped, but a
+    maintainer trusting this note would have trusted a guard that was reading prose.
     """
     def score(c: Candidate) -> float:
         total = 0.6 * relationship_score(c) + 0.4 * embed_score(c)

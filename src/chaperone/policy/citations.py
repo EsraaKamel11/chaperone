@@ -2,19 +2,33 @@ from __future__ import annotations
 
 import re
 
-from chaperone.policy.canonical import CanonicalizationError, figures_in, normalize_money
+from chaperone.policy.canonical import (
+    CURRENCY,
+    CanonicalizationError,
+    figures_in,
+    normalize_money,
+)
 from chaperone.policy.types import Draft, Finding, Record, ViolationClass
 
 
-# Mirrors `_AMOUNT`'s own prefix -- `(?P<paren>\()?\s*(?P<sign>-)?\s*[$£€]?\s*` in
+# Mirrors `_AMOUNT`'s own prefix -- `(?P<paren>\()?\s*(?P<sign>-)?\s*<CURRENCY>?\s*` in
 # canonical.py -- reversed onto the text preceding a candidate match, and requiring the paren
 # or the minus actually to be present. It is applied by searching backwards rather than as a
 # lookbehind because `re` lookbehinds must be fixed-width and this prefix is not: the first
 # version of this guard was `(?<![-(])`, which read one character back and so refused
 # "-$5MM" while accepting "- $5MM", "-$10,000,000 USD" and "(-$10,000,000 USD)".
 #
-# **Update this whenever `_AMOUNT` changes.** Two patterns deciding what a sign is will drift,
-# and this guard exists because they already did once.
+# **The currency class is `canonical.CURRENCY`, not a second copy.** Two patterns deciding what a
+# sign is will drift, and they already did once; the instruction that used to sit here -- "update
+# this whenever `_AMOUNT` changes" -- was a comment where a mechanism was needed, and this project
+# has measured that a comment is not detectable behaviourally. Composing the fragment is the
+# mechanism. `test_every_currency_symbol_the_amount_pattern_reads_is_a_symbol_the_sign_guard_reads`
+# reads the alphabet out of `_AMOUNT.pattern` and exercises it here, so the composition is checked
+# by an effect rather than by two regexes being compared to each other.
+#
+# The rest of the shape is not shared and is not a copy: `_AMOUNT`'s prefix is
+# `(paren)?\s*(sign)?\s*<currency>?\s*` read forwards, and this is `(paren-or-sign)\s*<currency>?\s*`
+# read backwards off the preceding text, requiring the paren or the minus actually to be present.
 #
 # The paren branch carries no `\s*-?` of its own. It would be dead: branch two already matches
 # every "(" then "-" spelling by starting at the "-", and carrying it made the pattern cubic in
@@ -22,7 +36,7 @@ from chaperone.policy.types import Draft, Finding, Record, ViolationClass
 # exhaustively over 97,656 strings, not sampled. The quantifiers are possessive for the same
 # reason: nothing after a `\s*` here can match whitespace, so giving any back can never rescue
 # a failing match, and refusing to give it back removes the backtracking entirely.
-_SIGN_PREFIX = re.compile(r"(?:\(|-)\s*+[$£€]?+\s*+$")
+_SIGN_PREFIX = re.compile(rf"(?:\(|-)\s*+{CURRENCY}?+\s*+$")
 
 
 def _appears_as_a_whole_token(value: str, body: str) -> bool:

@@ -3,6 +3,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from chaperone.audit.entry import INDETERMINATE_OUTCOMES
 from chaperone.audit.gateway import DIGEST_UNAVAILABLE, Gateway
 from chaperone.audit.recovery import Branch, requires_approval_for, resume
 from chaperone.audit.store import AuditStore
@@ -65,6 +68,57 @@ def test_a_digest_with_an_unknown_outcome_requires_approval_on_re_attempt(tmp_pa
     # unknown outcome. It is *blind* to the contract rather than wrong: it passes with or without
     # the prefix check, which is why the two tests below exist beside it rather than in place of it.
     assert requires_approval_for(store, "d2") is False
+
+
+def test_a_digest_whose_send_ended_in_error_requires_approval_on_re_attempt(tmp_path: Path):
+    """`error` is the other word that means nobody knows, and it fell through in silence.
+
+    `gateway.call` writes `"error"` for a tool that was entered and did not return cleanly, and
+    `tests/audit/test_gateway.py` states the reason in as many words: *nobody knows whether the
+    message left, which is what `error` exists to say*. But an intent resolved by `error` **is
+    paired**, so `resume` never visits it and no `unknown` is ever written -- and this gate looked
+    for `unknown` alone. The one outcome that most needs a human before a re-attempt was the one
+    outcome that got none.
+
+    Driven from the gateway rather than from a hand-written row, so the word under test is the word
+    the producer actually writes. `resume` is deliberately not run: the point is that there is
+    nothing here for it to do.
+    """
+    store = AuditStore(tmp_path / "a.jsonl")
+    gateway = Gateway(store, principal="agent", tier=2)
+
+    def boom():
+        raise RuntimeError("the connection dropped mid-send")
+
+    with pytest.raises(RuntimeError):
+        gateway.call("send_message", {"to": "x"}, decide=lambda: ALLOW, execute=boom,
+                     effectful=True)
+
+    entries, _ = store.read_all()
+    assert entries[-1].outcome == "error", "the fixture never reached the indeterminate path"
+    assert [e.outcome for e in entries if e.outcome == "unknown"] == [], (
+        "an unknown outcome is present, so this would pass through the rule it is not testing"
+    )
+    digest = entries[-1].arg_digest
+    assert not digest.startswith(DIGEST_UNAVAILABLE), "the prefix rule would answer instead"
+
+    assert requires_approval_for(store, digest) is True
+
+
+def test_the_indeterminate_vocabulary_is_one_definition_and_both_layers_read_it():
+    """The producer's word and the consumer's word, held to a single set.
+
+    `entry.py` owns the outcome vocabulary and now owns which of those words mean *indeterminate*.
+    `Branch.UNKNOWN.value` is asserted to be in it, so renaming the branch cannot leave the gate
+    looking for a word nothing writes -- which is the failure `counted_sends` already records for
+    `Branch.ABORTED.value`, one function over.
+    """
+    assert INDETERMINATE_OUTCOMES == frozenset({"error", "unknown"})
+    assert Branch.UNKNOWN.value in INDETERMINATE_OUTCOMES
+    assert Branch.ABORTED.value not in INDETERMINATE_OUTCOMES, (
+        "aborted carries the verification that the side effect did not happen; treating it as "
+        "indeterminate would demand approval for the one branch that was resolved"
+    )
 
 
 def test_a_degraded_digest_requires_approval_even_where_the_log_says_the_send_was_allowed(

@@ -11,6 +11,16 @@ class CanonicalizationError(ValueError):
 
 
 _MULTIPLIERS = {"k": Decimal(1_000), "m": Decimal(1_000_000), "b": Decimal(1_000_000_000)}
+
+#: The currency alphabet, exported because `citations._SIGN_PREFIX` needs the same one.
+#:
+#: That guard reads the text *preceding* a value token to decide whether the draft negated it, and
+#: a record value like `10,000,000 USD` leaves the sign and the symbol outside the token -- so the
+#: guard has to know what a currency symbol looks like, and it held its own copy of this class. The
+#: comment beside it said "update this whenever `_AMOUNT` changes", which is a correct diagnosis
+#: with a comment for a mechanism; the two had already drifted once. Composed into both patterns
+#: instead, so a symbol added here reaches both on the same commit.
+CURRENCY = r"[$£€]"
 # Two guards earn their keep here, and neither is decoration:
 #   (?![A-Za-z])  a multiplier must not be the first letter of the next word, or "12 March"
 #                 reads as twelve million. It sits INSIDE the optional group on purpose: if
@@ -36,7 +46,7 @@ _MULTIPLIERS = {"k": Decimal(1_000), "m": Decimal(1_000_000), "b": Decimal(1_000
 #                 failing attempt. Equivalence was checked exhaustively over 111,111 strings
 #                 across the whole alphabet this pattern reads, not sampled. Nothing else is
 #                 possessive: `\(?` and the digit groups do need to give back.
-_AMOUNT = re.compile(r"(?P<paren>\()?\s*+(?P<sign>-)?\s*+[$£€]?+\s*+(?P<digits>\d[\d,]*(?:\.\d+)?)\s*+(?:(?P<suffix>[kmb])(?![A-Za-z]))?(?(paren)\))", re.IGNORECASE)
+_AMOUNT = re.compile(rf"(?P<paren>\()?\s*+(?P<sign>-)?\s*+{CURRENCY}?+\s*+(?P<digits>\d[\d,]*(?:\.\d+)?)\s*+(?:(?P<suffix>[kmb])(?![A-Za-z]))?(?(paren)\))", re.IGNORECASE)
 
 
 def normalize_money(raw: str | int | float | Decimal) -> Decimal:

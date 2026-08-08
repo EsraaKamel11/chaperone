@@ -157,12 +157,36 @@ CONSTRAINT_CASES = (
 
 
 def test_the_weighted_arm_is_tuned_not_a_strawman():
-    """Equal engineering effort is binding. The weights encode every constraint the filters do."""
+    """Equal engineering effort is binding. The weights encode every constraint the filters do.
+
+    **Scanned over the code with the docstring removed.** `inspect.getsource` returns the docstring
+    too, and that docstring names all five constraints -- so replacing the entire body with
+    `return sorted(candidates)[:k]` and keeping the prose satisfied every assertion here. Measured,
+    not deduced. The scan is still a proxy in design spec 10's sense (a name in the source is not a
+    penalty in a ranking, which is what the behavioural companion below establishes), but it is no
+    longer a proxy a comment can satisfy.
+
+    `ast.unparse` rather than a text search for triple quotes: it drops comments as well, so a
+    hoisted constraint cannot be vouched for by the note explaining where it went.
+    """
+    import ast
     import inspect
+    import textwrap
+
     from chaperone.matching import ablation
-    source = inspect.getsource(ablation.weighted_feature_arm)
+
+    function = ast.parse(textwrap.dedent(inspect.getsource(ablation.weighted_feature_arm))).body[0]
+    first = function.body[0]
+    if isinstance(first, ast.Expr) and isinstance(getattr(first, "value", None), ast.Constant):
+        function.body = function.body[1:]
+    assert function.body, "the function body is empty once the docstring is dropped"
+    code = ast.unparse(function)
+
     for constraint in ("check_size", "stage", "sector", "geography", "jurisdiction"):
-        assert constraint in source
+        assert constraint in code, (
+            f"{constraint!r} is named nowhere in the weighted arm's code; a constraint the filters "
+            "exclude on must cost this arm something, or the comparison is against a strawman"
+        )
 
 
 @pytest.mark.parametrize(

@@ -98,6 +98,14 @@ def test_no_span_reaches_across_a_sentence_boundary():
     verdict, and all three drafts that wrap a violation across a line break are still caught,
     because `\n` stays traversable. Excluding `\n` as well is *not* free -- it loses two of those
     three -- so it was not done, and what remains is pinned as a limit below.
+
+    **Asserted as `== ()` and not by iterating the findings.** All four bodies are clean under the
+    fixed pattern, so a `for finding in evaluate_tripwires(...)` loop over them executed **zero**
+    assertions -- the sole enforcement of this rule asserted nothing at all. It was not unfailable:
+    reverting `[^.!?;:]` to `[^.]` makes each of the four produce a crossing span. But every other
+    assertion in this file is green under that revert too, so the rule's only killer was the loop
+    that never ran. Equality to the empty tuple is non-vacuous today *and* still fails on the revert,
+    which is the pair of properties the assertion has to have.
     """
     for body in (
         "Honestly, no comment! Separately: the round is open",
@@ -105,9 +113,11 @@ def test_no_span_reaches_across_a_sentence_boundary():
         "They accept EU investors; the round is $10M",
         "Honestly, I have no idea!\n\nThe round closes on Friday.",
     ):
-        for finding in evaluate_tripwires(_draft(body)):
-            crossed = sorted(set(finding.span) & set("!?;:"))
-            assert not crossed, f"span {finding.span!r} crosses {crossed} in {body!r}"
+        findings = evaluate_tripwires(_draft(body))
+        assert findings == (), (
+            f"a span was taken across a sentence boundary in {body!r}: "
+            f"{[f.span for f in findings]}"
+        )
 
 
 # --- Below this line, and ONLY below it, are limits: behaviours asserted in executable form

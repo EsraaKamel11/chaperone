@@ -2,6 +2,23 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
+#: The outcome words that mean **nobody knows whether the side effect happened**. One definition,
+#: read by the consumer that has to act on it, because the two drifted: `recovery.
+#: requires_approval_for` looked for `"unknown"` alone, and `"error"` -- which `gateway.call` has
+#: always written for a tool that was entered and did not return cleanly -- is paired by
+#: `pair_intents`, so `resume` never visits it and no `unknown` is ever written for it. The one
+#: outcome that most needs a human before a re-attempt was the one that got none.
+#:
+#: `"aborted"` is deliberately absent: it is the only word carrying the verification that the
+#: effect did *not* happen, which is why `counted_sends` lets it and nothing else lower the count.
+#: `"unattempted"` is absent for the same reason -- the tool was never entered.
+#:
+#: Named here rather than in `recovery.py` because this module owns the vocabulary comment below,
+#: and a set that lives beside the definition cannot be renamed away from its reader in silence.
+#: `test_the_indeterminate_vocabulary_is_one_definition_and_both_layers_read_it` holds
+#: `Branch.UNKNOWN.value` inside it.
+INDETERMINATE_OUTCOMES = frozenset({"error", "unknown"})
+
 
 class AuditEntry(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -20,6 +37,13 @@ class AuditEntry(BaseModel):
     #            "error" (the tool was entered and raised),
     #            "unattempted" (the tool was never entered, so no side effect occurred)
     #   recovery: "aborted" (branch b), "unknown" (branch c)
+    #
+    # **And who reads them**, because grouping by writer alone is how the gap above stayed open:
+    # the list showed where each word came from and nothing showed which words were being acted on.
+    #   recovery.counted_sends:        releases on "aborted" and on nothing else.
+    #   recovery.requires_approval_for: demands a human on every word in INDETERMINATE_OUTCOMES.
+    # A word added above with no line here is a word nothing consumes, which is the state "error"
+    # was in.
     outcome: str
     arg_digest: str
     seed: int | None

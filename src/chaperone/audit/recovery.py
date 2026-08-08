@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable
 
-from chaperone.audit.entry import AuditEntry
+from chaperone.audit.entry import INDETERMINATE_OUTCOMES, AuditEntry
 from chaperone.audit.gateway import DIGEST_UNAVAILABLE
 from chaperone.audit.store import AuditStore
 
@@ -236,9 +236,18 @@ def requires_approval_for(store: AuditStore, digest: str) -> bool:
     The cost is a false demand for approval: two *different* undigestible sends both stop at a
     human. That is the direction an enforcement predicate is allowed to err in.
 
-    `Branch.UNKNOWN.value` rather than the literal, for the reason `counted_sends` uses
-    `Branch.ABORTED.value`: `resume` writes this word and this function looks for it, and a rename
-    that touched only the writer would leave the double-send guard silently off.
+    **`INDETERMINATE_OUTCOMES`, not `unknown` alone.** `error` is the other word that means nobody
+    knows, and it fell through here in silence: `gateway.call` writes it for a tool that was
+    entered and did not return cleanly, and an intent carrying it **is paired** by `pair_intents`,
+    so `resume` never visits it and no `unknown` is ever written for it. The one outcome that most
+    needs a human before a re-attempt was the only indeterminate one this gate did not answer for.
+
+    The set lives in `entry.py`, beside the vocabulary comment that owns these words, rather than
+    here: `gateway` writes `error` and this function reads it, so a definition sitting in the
+    consumer would be the same producer/consumer drift one layer over. It is the treatment
+    `counted_sends` already gives `Branch.ABORTED.value` -- `resume` writes that word and
+    `counted_sends` looks for it, and a rename touching only the writer would leave the cap
+    silently permissive.
 
     **The same fail-open `counted_sends` names reaches here, and further.** `read_all` over a
     missing path returns `([], False)`, so a deleted log disarms this gate completely: every digest
@@ -250,5 +259,5 @@ def requires_approval_for(store: AuditStore, digest: str) -> bool:
         return True
     entries, _ = store.read_all()
     return any(
-        e.arg_digest == digest and e.outcome == Branch.UNKNOWN.value for e in entries
+        e.arg_digest == digest and e.outcome in INDETERMINATE_OUTCOMES for e in entries
     )

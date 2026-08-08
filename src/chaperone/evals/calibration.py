@@ -1,7 +1,12 @@
 """Prediction 5: does the checker's stated confidence match how often it is right?
 
-Design spec 9.5. The measurement exists because §7.1's tier-2 ceiling on content-class surfaces is
-otherwise an assertion, and this is the number that lets it be argued from evidence instead.
+Design spec 9.5. The measurement describes how the checker's stated confidence tracked its accuracy
+on this corpus, per cell and never blended. **It is not the support for §7.1's tier-2 ceiling on
+content-class surfaces**, and the paragraph below says why no result here could be: the ceiling is
+structural and holds at zero measured errors. This line said the opposite -- that the ceiling was
+otherwise an assertion and this was the number that let it be argued from evidence -- which its own
+next paragraph, `docs/RESULTS.md`, `docs/measurement.md` and the README all contradict. The
+correction pass that fixed those documents did not reach the module they defer to.
 
 **What it can support, and what it cannot -- read this before quoting any cell.** A well-calibrated
 cell says the checker's confidence tracked its accuracy on this corpus. It does **not** license

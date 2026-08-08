@@ -1,5 +1,8 @@
+import re
+
 import pytest
 
+from chaperone.policy import canonical
 from chaperone.policy.citations import validate_citations
 from chaperone.policy.types import Draft, Message, Record, ViolationClass
 
@@ -224,6 +227,43 @@ def test_the_sign_bearing_shapes_the_guard_refuses():
     assert validate_citations(_draft("We raised 10,000,000 USD.", ("f",)), wide) == ()
     carries_its_own = Record(fields={"f": "-$5MM"})
     assert validate_citations(_draft("A loss of -$5MM.", ("f",)), carries_its_own) == ()
+
+
+def test_every_currency_symbol_the_amount_pattern_reads_is_a_symbol_the_sign_guard_reads():
+    """Two patterns deciding what a sign is, held together by a behaviour rather than by a comment.
+
+    `citations._SIGN_PREFIX` mirrors `canonical._AMOUNT`'s own prefix, and the note beside it said
+    *update this whenever `_AMOUNT` changes* -- a correct diagnosis with a comment for a mechanism.
+    Nothing related the two, and this repository has measured that a comment is not detectable
+    behaviourally. Both now compose `canonical.CURRENCY`, and this is what would notice if they
+    stopped.
+
+    **The alphabet is read out of `_AMOUNT.pattern`, not restated here.** Add a symbol to the money
+    pattern and it joins this loop on the same commit, and the assertion fails on an effect rather
+    than on a string comparison between two regexes.
+
+    **The record value carries no currency symbol**, which is the only shape that exercises the
+    guard. Where the value is `$5MM`, the minus and the symbol are both inside what `_AMOUNT`
+    matches, so canonicalization refuses the citation on the arithmetic and `_SIGN_PREFIX` is never
+    what decided. Where the value is `10,000,000 USD`, the token found in the body starts at the
+    digits and the sign and symbol sit in the text *before* it -- which is the text this guard
+    reads, and the reason it needs a currency class of its own at all. Measured: with the symbol
+    on the value, adding a symbol to `_AMOUNT` alone leaves this test green.
+    """
+    symbols = re.search(r"\[([^\]]+)\]", canonical._AMOUNT.pattern).group(1)
+    assert symbols, "no currency class was found in _AMOUNT, so this guard would iterate nothing"
+
+    record = Record(fields={"f": "10,000,000 USD"})
+    assert validate_citations(_draft("We wrote off 10,000,000 USD.", ("f",)), record) == (), (
+        "the unsigned control is refused, so a refusal below would prove nothing"
+    )
+    for symbol in symbols:
+        body = f"We wrote off -{symbol}10,000,000 USD."
+        findings = validate_citations(_draft(body, ("f",)), record)
+        assert len(findings) == 1, (
+            f"a negated figure spelled with {symbol!r} evidenced a citation to the unsigned value; "
+            "the sign guard does not read the alphabet the money pattern does"
+        )
 
 
 def test_a_figure_bearing_value_in_parentheses_is_refused_a_pinned_false_block():
