@@ -250,13 +250,19 @@ MUTANTS: list[Mutant] = [
     # **The version that caused the reported defect cached at *construction*, and that cannot be
     # restored from one site: after the fix there is no cached seq anywhere, so re-creating it
     # needs a write in `__init__` and a read here.** This is the single-site form -- cache on first
-    # use, then increment -- and it is a strictly weaker mutant: the crash-restart ordering
-    # populates it *after* the recovery pass, so it numbers that scenario correctly and
-    # `test_a_send_issued_after_recovery_is_not_released_from_the_cap_by_the_next_recovery` does
-    # not catch it. What does catch it is that a cached counter is not idempotent: `call` reports
-    # `outcome_seq` by asking `_next_seq` what the `finally` will allocate, and a counter that
-    # *consumes* a number on being asked detaches the seq handed to the caller from the seq on
-    # disk. Killed by `test_the_result_names_the_seqs_of_the_entries_that_were_actually_written`.
+    # use, then increment -- and it is weaker in one specific way that decided which tests had to
+    # exist: the crash-restart ordering fills the cache *after* the recovery pass, so it numbers
+    # that scenario correctly and
+    # `test_a_send_issued_after_recovery_is_not_released_from_the_cap_by_the_next_recovery` alone
+    # would let this mutant live. `..._a_send_made_before_recovery_...` is the ordering that fills
+    # it early, and it is the reason the reviewed defect's own property -- a live send released
+    # from the cap -- has a mutant behind it rather than a single test.
+    #
+    # Killed twice over, and the second way is worth naming: a cached counter is not idempotent,
+    # while `call` reports `outcome_seq` by asking `_next_seq` what the `finally` will allocate. A
+    # counter that *consumes* a number on being asked detaches the seq handed to the caller from
+    # the seq on disk, which
+    # `test_the_result_names_the_seqs_of_the_entries_that_were_actually_written` catches.
     Mutant(
         "the_gateway_numbers_from_a_cached_counter",
         SRC / "audit" / "gateway.py",

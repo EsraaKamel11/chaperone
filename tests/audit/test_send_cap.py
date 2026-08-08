@@ -210,3 +210,38 @@ def test_a_send_issued_after_recovery_is_not_released_from_the_cap_by_the_next_r
     actions = resume(store, side_effect_absent=lambda d: True, stale_after_seq=boundary)
     assert [(a.branch, a.counts_against_cap) for a in actions] == [(Branch.UNKNOWN, True)]
     assert gateway.sent_count() == 1
+
+
+def test_a_send_made_before_recovery_does_not_let_the_next_send_reuse_recovery_s_numbers(
+    tmp_path: Path,
+):
+    """The same release, reached by the ordering a *lazily* cached counter also gets wrong.
+
+    Its sibling above starts recovery before the gateway has written anything, so a counter that
+    fills itself on first use happens to fill it after the recovery pass and numbers correctly. Here
+    an ordinary send goes first, which is what fills such a counter early; `resume` then appends an
+    outcome for the intent a previous run left dangling, and the next send is numbered back over it.
+    From there it is the same failure: the live intent is no longer at the tail, the next pass finds
+    it inside its boundary, and §5.4(b) releases it from the cap.
+
+    Both orderings are kept because they are killed by different mutants -- this is the one
+    `the_gateway_numbers_from_a_cached_counter` reaches, and without it the reviewed defect's own
+    property has no mutant behind it at all.
+    """
+    store = _StoreWhoseOutcomeWriteCanFail(tmp_path / "a.jsonl")
+    store.append(dict(seq=0, kind="intent", tool="send_message", principal="agent", tier=2,
+                      scope="send_message", outcome="pending", arg_digest="crashed", seed=None))
+
+    gateway = Gateway(store, principal="agent", tier=2)
+    _send(gateway, 0)                                    # one ordinary send, before any recovery
+    resume(store, side_effect_absent=lambda d: True, stale_after_seq=0)
+    boundary = max(e.seq for e in store.read_all()[0])
+
+    store.dying = True
+    with pytest.raises(OSError):
+        _send(gateway, 9)
+    store.dying = False
+
+    actions = resume(store, side_effect_absent=lambda d: True, stale_after_seq=boundary)
+    assert [(a.branch, a.counts_against_cap) for a in actions] == [(Branch.UNKNOWN, True)]
+    assert gateway.sent_count() == 2
