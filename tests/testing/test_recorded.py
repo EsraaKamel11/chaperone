@@ -107,7 +107,14 @@ def test_the_shipped_replay_drives_the_real_gate_over_the_whole_corpus():
     allowed = {item_id for item_id, d in decisions.items() if d.allowed}
     assert allowed and len(allowed) < len(items), "one answer for every row makes this vacuous"
     for item_id, decision in decisions.items():
-        if raw[item_id]["violates"]:
+        row = raw[item_id]
+        # A JSON `null` is a recorded unavailability, and it is the one row shape this drive most
+        # wants to cover: the gate must deny on it. Reading `row["violates"]` unguarded would raise
+        # `TypeError` instead of asserting anything, and the shipped artifact holds no such row
+        # today, so the failure would arrive on the commit that first recorded one.
+        if row is None:
+            assert decision.allowed is False, f"{item_id}: recorded unavailable and was allowed"
+        elif row["violates"]:
             assert decision.allowed is False, f"{item_id}: recorded a violation and was allowed"
 
 
@@ -117,12 +124,17 @@ def test_a_corpus_row_the_replay_does_not_cover_is_refused_rather_than_replayed_
     Production change that breaks this: building the view with `recorded.get(item.id)`, which
     records the row as an unavailability and hands a fail-closed gate a denial whose reason is a
     gap in the artifact rather than anything about the draft.
+
+    **Matched on a phrase the harness does not use.** This refusal and
+    `harness.recorded_verdict`'s said the same words, so this assertion could not tell the view's
+    own guard from the decoder it delegates to, and a forked `__call__` reproducing the harness's
+    prose would have satisfied every `pytest.raises` in this file.
     """
     items = load_corpus()[:2]
     covered = {items[0].id: {"violates": False, "violation_class": None,
                              "confidence": 0.8, "span": None}}
 
-    with pytest.raises(HarnessError, match="holds no verdict"):
+    with pytest.raises(HarnessError, match="covers no verdict for corpus row"):
         replay_over_corpus(items, covered)
 
 
@@ -143,20 +155,89 @@ def test_two_rows_asking_the_checker_the_same_question_are_refused_rather_than_m
         replay_over_corpus([items[0], twin], recorded)
 
 
+#: Names that would mean this module had grown its own reader of the replay artifact.
+_READER_CALLS = frozenset({"open", "read_text", "read_bytes", "loads", "load"})
+_READER_MODULES = frozenset({"json", "pathlib"})
+
+
+def _module_tree() -> ast.Module:
+    return ast.parse(Path(recorded_module.__file__).read_text(encoding="utf-8"))
+
+
+def _callee_names(tree: ast.Module) -> set[str]:
+    """Every callee, spelled as a bare name or as the final attribute of a dotted call.
+
+    `ast.Name` alone reads `Verdict(...)` and walks straight past `checker.Verdict(...)`, which is
+    the same call.
+    """
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                names.add(node.func.id)
+            elif isinstance(node.func, ast.Attribute):
+                names.add(node.func.attr)
+    return names
+
+
+def _imported_modules(tree: ast.Module) -> set[str]:
+    """Every module named by either import form. `ast.Import` alone sees only `import json`."""
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            modules.add(node.module.split(".")[0])
+    return modules
+
+
+def test_the_transport_binds_no_import_under_an_alias():
+    """What makes the guard below sound: a callee's spelling is its name.
+
+    `from chaperone.gates.checker import Verdict as V` followed by `V(...)` puts the forbidden call
+    in the tree under a name no assertion is looking for. Forbidding the alias is cheaper and more
+    honest than chasing every rebinding, and this module has no reason to want one.
+    """
+    aliased = sorted(
+        alias.asname
+        for node in ast.walk(_module_tree())
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for alias in node.names
+        if alias.asname
+    )
+    assert aliased == [], f"an aliased import can hide a forbidden callee: {aliased}"
+
+
 def test_the_transport_decodes_no_recorded_row_of_its_own():
     """Standing check 8, held structurally because a behavioural test cannot see a correct copy.
 
     Task 22 measured it: re-inlining a behaviourally identical copy of a shipped decoder left 25 of
     26 agreement rows green, and only a structural test fired. So this reads the module rather than
-    running it. Production change that breaks it: building a `Verdict` here, or reading the replay
-    artifact here, instead of delegating both to `evals/harness.py`.
+    running it. Production changes that break it: building a `Verdict` here under any spelling,
+    importing `json` or `pathlib` under either import form, or calling anything that opens a file.
+
+    **The first assertion is a vacuity tripwire and not proof of delegation.** It establishes that
+    the name `recorded_verdict` appears in a `Call` node somewhere in this module. It does not
+    establish that `__call__` reaches the decoder through it, and no `ast` test can: a forked copy
+    sitting beside a surviving call would satisfy it. Its whole job is to fail if the delegation is
+    deleted, so that the two negative assertions below cannot pass over an empty module.
+
+    **The behavioural tests cannot back this up, which is why it exists.** `replay_over_corpus` and
+    `harness.recorded_verdict` refuse in different words on purpose, but a forked `__call__` that
+    reproduced the harness's own message would satisfy every `pytest.raises` in this file. Measured:
+    a forked reader added beside the delegation, using `from json import loads`, `Path(...)
+    .read_text()` and an attribute-qualified `Verdict(...)`, left all 8 tests in this file green
+    against the previous version of this guard.
     """
-    tree = ast.parse(Path(recorded_module.__file__).read_text(encoding="utf-8"))
-    called = {n.func.id for n in ast.walk(tree)
-              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
-    imported = {m for n in ast.walk(tree) if isinstance(n, ast.Import)
-                for m in (a.name.split(".")[0] for a in n.names)}
+    tree = _module_tree()
+    called = _callee_names(tree)
+    imported = _imported_modules(tree)
 
     assert "recorded_verdict" in called, "the delegation is gone, so this guard is vacuous"
     assert "Verdict" not in called, "the row decoder has been copied into the transport"
-    assert "json" not in imported, "the replay artifact has a second reader"
+    assert not _READER_MODULES & imported, (
+        f"the replay artifact has a second reader: {sorted(_READER_MODULES & imported)}"
+    )
+    assert not _READER_CALLS & called, (
+        f"the replay artifact has a second reader: {sorted(_READER_CALLS & called)}"
+    )

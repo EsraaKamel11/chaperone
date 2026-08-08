@@ -37,8 +37,19 @@ ladder: the replay holds `violates`, `violation_class`, `confidence`, `span` and
 the third `CheckerResult` outcome cannot be recorded and no test driven from here reaches
 `decide`'s flag path.
 
-**Nothing here writes.** `tools/record_verdicts.py` is the only writer of the replay artifact, and a
-second writer is the same drift in the other direction.
+**Two deviations from the interface this module was specified against, declared rather than left to
+be noticed.** Both exist to make the no-second-reader property above true rather than aspirational.
+
+1. **`RecordedTransport(recordings)` takes a mapping, not `RecordedTransport(path)`.** This is the
+   change that makes the property structural. A constructor taking a path is a constructor that
+   opens a file, and then this module is the second reader of the replay artifact however carefully
+   its body is written. Handing it a mapping moves the read to `replay_over_corpus`, which delegates
+   to `harness.load_recorded`, and leaves nothing here to keep in step with anything.
+2. **`record(key, result)` is not implemented.** Its only purpose would be to write a replay, and
+   `tools/record_verdicts.py` is the only writer of the artifact. A second writer is the same drift
+   pointing the other way, and a `record` with no caller is dead code.
+
+**Nothing here writes.**
 """
 from __future__ import annotations
 
@@ -92,8 +103,12 @@ def replay_over_corpus(
     view: dict[str, dict | None] = {}
     seen: dict[str, str] = {}
     for item in items:
+        # Deliberately **not** the harness's own wording. Both layers refuse a lookup miss, and
+        # while they said the same words a test could not tell this guard from the decoder it
+        # delegates to -- so a forked `__call__` reproducing the harness's prose would have
+        # satisfied every behavioural assertion in `tests/testing/test_recorded.py`.
         if item.id not in recorded:
-            raise HarnessError(f"the replay artifact holds no verdict for {item.id!r}")
+            raise HarnessError(f"the replay artifact covers no verdict for corpus row {item.id!r}")
         key = key_for(build_checker_messages(item.draft, item.record))
         if key in seen:
             raise HarnessError(
