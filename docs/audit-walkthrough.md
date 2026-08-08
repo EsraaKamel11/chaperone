@@ -9,10 +9,15 @@ would not be a gap in the forensics, it would be a predicate failing open. That 
 forces write-ahead ordering, fsync, binary append, and torn-tail detection, none of which a pure
 record would need.
 
-**Read the rest of this page in that tense.** `Gateway.sent_count()` derives the count and is called
-from `tests/audit/test_send_cap.py` and nowhere else, so **no shipped path hands the cap a count off
-this log**. The durability argument below is what makes the count trustworthy once it is wired in;
-it is not evidence that it is wired in. See [B0 in the failure-mode catalog](failure-modes.md).
+**Read the rest of this page in that tense.** `Gateway.sent_count()` in
+`src/chaperone/audit/gateway.py` derives the count, and **no shipped path derives one from this log
+and hands it to an `ActContext`**. That is the narrow claim and it is the one that is true: the
+wider version this page used to carry -- *called from `tests/audit/test_send_cap.py` and nowhere
+else, so nothing shipped reads it* -- was refutable, because `Gateway.sent_count` is a two-line
+delegation to `counted_sends` and `tools/perturbation_log.py` calls that twice in shipped, non-test
+code. It **prints** the number beside a torn-tail count; it does not put it in a context any
+predicate reads. The durability argument below is what makes the count trustworthy once it is wired
+in; it is not evidence that it is wired in. See [B0 in the failure-mode catalog](failure-modes.md).
 
 ---
 

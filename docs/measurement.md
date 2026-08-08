@@ -302,11 +302,24 @@ Eval split, per cell, with the denominator beside the numbers:
 | compliant | 30 | 0.911 | 1.0 | 0.0105 |
 | `act:figure_not_in_record` | 5 | 0.926 | 0.0 | 0.8591 |
 
-**What no test binds is this subsection's four hand-computed figures.** The both-splits act-cell
-Brier of **0.8610** and the three blended figures below (**0.0689**, **0.0750**, **0.0810**) have no
-generator behind them and no assertion over them: `tools/report.py` emits the per-cell eval table,
-and these were computed once, by hand, from the same artifacts. All four recompute correctly today.
-Treat them as this page's arithmetic rather than as generated output, and recompute before quoting.
+**What no test binds is this whole subsection, the table above included.** The earlier wording named
+only the four hand-computed figures, which reads as though the per-cell table is bound and it is
+not: **no generator writes this page and no test binds a number on it**. What does hold it is the
+reader-facing layer's own guards -- its links resolve, its cited test names exist, it names no
+organisation, it denies no result this tree publishes -- and not one of those reads a figure.
+`tools/report.py` writes
+[RESULTS.md](RESULTS.md) and `tools/perturbation_log.py` writes
+[PERTURBATIONS.md](PERTURBATIONS.md); `tests/test_report.py` pins the *generator's* fixtures, which
+are a hand-written table inside a test module and not this page's transcription of anything. The
+table above was transcribed by hand from the same artifacts the generator reads, and so were the
+four figures: the both-splits act-cell Brier of **0.8610** and the three blended figures below
+(**0.0689**, **0.0750**, **0.0810**). All four recompute correctly today, from
+`corpus/labels.jsonl`, `corpus/recorded_verdicts.json` and the split in `corpus/drafts.jsonl`, and
+0.0689 is transcribed a second time in [ON_CALL.md](ON_CALL.md), so a figure that moves has two
+places to be corrected. Treat everything in this subsection as this page's arithmetic rather than as
+generated output, and recompute before quoting.
+`test_the_page_that_says_what_no_test_binds_is_itself_bound_by_nothing` holds the sentence to the
+generators' own output paths; it asserts no number, because design spec 9.6 admits invariants only.
 
 Both splits combined: **0 boolean errors over the 90 content rows**, and the act cell is n=10 at
 Brier 0.8610. By the rule of three, zero errors in 90 bounds the error rate above at about

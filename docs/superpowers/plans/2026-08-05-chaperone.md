@@ -2,6 +2,19 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **This is a historical document: the plan as written on 2026-08-05, not a description of the tree.**
+> It is held to the rules that apply to every published file -- no organisation name, and no claim
+> that a symbol is absent which `src/` in fact defines -- and it was swept against every claim guard
+> in `tests/test_readme_claims.py` on the commit that added this note. Two of those guards now reach
+> this file on every run -- the absence-claim scan and the denial-of-coverage scan -- and it carries
+> neither. The rest are scoped to the reader-facing pages and were run against this file by hand
+> once: no results denial, no stale test-name citation. What it does carry is intent that was later
+> revised: Task 1 lists `tests/fixtures/planted_secret.txt` among the files to create, and no such
+> fixture is in the tree today, because `tests/test_scan_secrets.py` plants its secrets under
+> `tmp_path` instead.
+> Read every "Create:" line as what was planned, and the reader-facing pages under `docs/` as what
+> was built. Where the two disagree, the tree and the pages that are guarded against it are right.
+
 **Goal:** Build a runnable orchestrator that routes an outbound conversation to specialist agents, with a two-family boundary engine between generation and transmission, an eval-gated capability ladder with a principled ceiling, and a durable hash-chained audit log.
 
 **Architecture:** Constraints split into two families. **Act-classes** are pure functions in `policy/` with zero I/O and zero LLM calls, where "zero by construction" is claimable and statically enforced. **Content-classes** are semantic properties detected by an independent checker feeding a deterministic fail-closed gate, with pure-function tripwires as a second disjunct, where the guarantee is measured and never absolute. Every effectful call routes through one audit gateway.

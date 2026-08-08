@@ -496,8 +496,12 @@ does not visit. And `pre_tool_use` is the in-process hook layer, described in
 [docs/architecture.md](docs/architecture.md) as one of three enforcement points and called only from
 `tests/`. None of these is a permissive path. All four are listed because a reader counting layers
 would otherwise count one that nothing drives.
-`test_the_ledger_of_uncalled_layers_matches_the_census_the_tree_supports` measures the census and
-fails when this paragraph and the tree disagree in either direction.
+`test_the_ledger_of_uncalled_layers_matches_the_census_the_tree_supports` measures the census over
+the roster it holds, and fails when that part of this paragraph and the tree disagree in either
+direction. `AuditStore.count` and `Branch.COMPLETE` are outside that roster and are checked by
+reading: the census matches callees by name, so a `Branch.COMPLETE` written as an attribute is not
+a call it can see, and a roster entry called `count` would match every `list.count` in the shipped
+tree and report a name as uncalled because the scan is wrong rather than because the tree is.
 
 **The recipient-scoped handoff is undesigned, not forbidden.** Branch (c) of the recovery pass files
 no escalation, because naming a recipient needs a resolver beside the log and the log deliberately
@@ -553,8 +557,9 @@ above it.
 primitive underneath it: `granted_tools` on `ActContext`, checked by a pure function that returns
 `act:tool_outside_grant` for any tool outside the grant, reached through `_decide_for`, which both
 `pre_tool_use` and `guarded_call` call. **The two are not two layers in the shipped tree.**
-`guarded_call` is the path everything here runs: `src/chaperone/testing/scripted.py`, `demo/day2.py`
-and `demo/full.py` all go through it. Nothing outside `tests/` calls `pre_tool_use` at all. It is not
+`guarded_call` is the path every send here runs: `src/chaperone/testing/scripted.py`, `demo/day2.py`
+and `demo/full.py` all go through it. Not every call to `decide` -- `tools/perturbation_log.py` runs
+the predicate directly to tabulate what one broken input does, which transmits nothing. Nothing outside `tests/` calls `pre_tool_use` at all. It is not
 a permissive gap, because both call the identical `_decide_for`, but a claim of defence in depth
 would be resting on a layer the suite is the only caller of. The intended arrangement, in which a
 drafting agent holds no send tool at all, is in [docs/architecture.md](docs/architecture.md) and is

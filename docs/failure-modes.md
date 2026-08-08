@@ -6,9 +6,12 @@ is built and unwired, and what no test in this repository can witness. Read both
 say "this is everything", which was a completeness claim over a document that had no entry for
 criterion sharing, for the deliberate-violations-only scope of the corpus, for the send cap's unfed
 input, or for Task 18's unverifiable evidence -- four things the generated results page and the
-README put at the head of their own accounts. Three of the four are entered below and the fourth is
-cross-linked; a catalog is a list, and a list saying it is complete is making the one claim it cannot
-check.
+README put at the head of their own accounts. All four are entered below, each with the same four
+fields, and E0c cross-links as well; a catalog is a list, and a list saying it is complete
+is making the one claim it cannot check. That sentence itself said "three of the four" while all
+four were entered, which is the failure it describes, committed by the paragraph describing it.
+`test_the_catalogs_completeness_sentence_counts_the_entries_the_catalog_holds` counts the entries
+rather than trusting the count.
 
 Every entry has the same four fields: **the failure**, **the mechanism that holds it**, **the named
 test that attacks it**, and **what may be claimed**.
@@ -161,7 +164,7 @@ record, and an explicit context.
 | Class | Failure | Claim |
 |---|---|---|
 | `act:figure_not_in_record` | The draft states a number that appears nowhere in the record. The classic confabulation, in the place it costs most. | **Zero by construction** |
-| `act:no_approval_token` | An action at tier 2 or above proceeds without approval. | **Zero by construction** |
+| `act:no_approval_token` | An action at tier 2 or above proceeds without approval. | **Zero by construction** of the predicate, and **out of process the judged caller supplies the evidence**. See B2 before quoting this row. |
 | `act:jurisdiction_not_consented` | Contact reaches a jurisdiction with no consent on file. | **Zero by construction** |
 | `act:tool_outside_grant` | A tool outside the agent's grant is invoked. | **Zero by construction** |
 | `act:send_cap_exceeded` | Agreed contact volume is exceeded. | **Zero by construction** of the predicate, and **no shipped path feeds its input**. See B0 before quoting this row, and B1 for the separate durability caveat. |
@@ -175,7 +178,7 @@ corpus varies the record and nothing else. The measured zero rests on the 5 `act
 rows per split. The other four are zero by construction from the code, not from the corpus, and the
 distinction matters.
 
-### B0. The send cap's input, which nothing in this tree supplies
+### B0. The send cap's input, which no shipped path derives from the log
 
 **Failure.** The row above says "zero by construction", and this document defines that phrase as *a
 pure function decides; the failure is impossible, not improbable*. For four of the five classes every
@@ -199,9 +202,10 @@ here so that a reader who meets the table first does not have to find it elsewhe
 **Mechanism.** None. This is a gap, not a defence.
 
 **Test.** `test_the_send_cap_row_carries_the_qualifier_its_input_still_needs` and
-`test_the_catalog_names_the_only_caller_of_the_count_the_cap_would_need` hold the claim to the tree
-in both directions: the row must state the gap while the gap exists, and it must stop saying so on
-the commit that closes it.
+`test_no_shipped_path_derives_a_send_count_and_hands_it_to_an_act_context` hold the claim to the
+tree in both directions: the row must state the gap while the gap exists, and it must stop saying so
+on the commit that closes it. The second reads the tree's AST, so a count reaching the predicate
+through `dataclasses.replace` rather than through a fresh construction is caught as well.
 
 **Claim: designed, not built**, for the wiring. The predicate itself is built and tested.
 
@@ -222,6 +226,40 @@ truncating the count.
 **Claim: structural invariant, tested.** This is the one act-class whose guarantee depends on
 durability rather than on arithmetic alone, and saying so is the difference between the claim being
 true and being nearly true.
+
+### B2. The approval token, taken from the caller being judged
+
+**Failure.** The row above says "zero by construction", and this document defines that phrase as *a
+pure function decides; the failure is impossible, not improbable*. `requires_approval_for` is that
+pure function and it is right: at tier 2 or above, an absent token is a violation. What decides
+whether the rule is *reached* is the tier, and out of process both fields arrive in `tool_input`.
+An agent sending `{"tier": 1}` puts its own action below the rule, and any non-`None` token
+satisfies it, because nothing in `tools/policy_hook.py` can validate an approval against anything.
+The class is therefore suppressible two ways by the party being judged.
+
+**So the predicate is live and its evidence is the defendant's.** In process the fields are set by
+`guarded_call`'s caller, who already holds them, and the guarantee is the arithmetic it looks like.
+Out of process the same predicate is a question the judged party answers about itself, and that is
+a shipped caller: `tools/policy_hook.py` is the fifth construction of an `ActContext` in this tree.
+
+**Mechanism.** Partial, and the half that is missing cannot be closed there. `tier` defaults to 2
+rather than to 0, so *absence* is fail-closed; presence is the hole and no default reaches it. The
+constant-pinning remedy the module uses for `CONSENTED` and `GRANTED` does not transfer, because an
+approval is granted per action: a token pinned as a module constant would make the predicate "is
+the deployment configured" rather than "was this action approved", and a `tier` pinned high would
+stop reading the action's tier at all. Declaring the class in `UNENFORCEABLE_HERE` is the true
+statement available; a constant that made it *look* decided would be the stronger claim this
+repository exists to refuse.
+
+**Test.** `test_the_approval_class_is_decided_from_caller_input_and_is_declared_unenforceable`
+exhibits both suppressions on real payloads. `test_a_missing_approval_token_is_not_a_present_one`
+holds the fail-closed half.
+`test_every_act_class_row_states_its_input_status_wherever_a_shipped_caller_supplies_it` derives the
+row above from `UNENFORCEABLE_HERE`, so this qualifier appears exactly while the module declares the
+gap and has to come off on the commit that closes it.
+
+**Claim: designed, not built**, for an approval this process can verify. The predicate is built and
+tested; what is absent is any out-of-process source of evidence the judged caller does not control.
 
 ---
 

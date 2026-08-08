@@ -15,9 +15,11 @@ jobs:
         run: python tools/static_audit.py
       - name: Coverage map
         run: python tools/coverage_map.py
-      # The day-2 artifact is a script, so nothing in `tests/` executes it. Run it here: it asserts
-      # the blocked tool was never entered, so a regression that let the send through fails the
-      # build instead of printing a different number and exiting 0.
+      # `tests/test_readme_claims.py` does execute this script, under `check=True`, and this comment
+      # said the opposite for as long as that was untrue. The step stays because it runs before the
+      # suite and names the failure: the script asserts the blocked tool was never entered, so a
+      # regression that let the send through fails here as "Day-2 demo" rather than surfacing
+      # further down as a documentation guard, which is the wrong place for a reader to start.
       - name: Day-2 demo
         run: python demo/day2.py
       # Same reasoning, and one clause more. Scene 2 asserts that a redraft which now passes still

@@ -22,10 +22,12 @@ let the stronger claim leak onto the weaker family:
 - **Act-classes** ask whether an act occurred outside its bounds. Was there an approval token at this
   tier? Is this jurisdiction consented? Is this tool in the grant? Does this figure appear in the
   record? Is the send cap exceeded? Every one is a pure function over the draft, the record, and the
-  context. The violation is impossible, not improbable **for the four whose inputs a shipped caller
-  supplies**. The fifth, `act:send_cap_exceeded`, is a live predicate over a count no shipped path
-  derives from the log, so in the shipped shape its violation is not impossible; see
-  [B0 in the failure-mode catalog](failure-modes.md).
+  context. The violation is impossible, not improbable **for the three whose inputs a shipped caller
+  supplies from what it already holds**. The other two are live predicates over inputs the shipped
+  shape does not supply that way. `act:send_cap_exceeded` reads a count no shipped path derives from
+  the log; `act:no_approval_token` reads a token and a tier that, in the out-of-process hook, arrive
+  from the agent being judged. For both, the violation is not impossible in the shipped shape; see
+  [B0 and B2 in the failure-mode catalog](failure-modes.md).
 - **Content-classes** ask whether a piece of text does a forbidden thing. Does it advise on the merits,
   negotiate terms, or make a forward-looking return claim? No pure function decides these. A model
   checker decides, with lexical tripwires as a second disjunct, and the result is a measured rate.
@@ -67,7 +69,7 @@ The same predicate set is enforced at three points, and
 |---|---|---|
 | Out-of-process hook | A `PreToolUse` hook, separate process | **The pure half only.** Act-classes and tripwires. |
 | In-process hook | `pre_tool_use` in `src/chaperone/gates/hook.py` | The full predicate set, including the checker. **Called from `tests/` and from nowhere else.** |
-| Executor chokepoint | `guarded_call` in the same module | The full set, bound to the reviewed draft. The path everything in this tree actually runs. |
+| Executor chokepoint | `guarded_call` in the same module | The full set, bound to the reviewed draft. The path every send in this tree actually runs; `tools/perturbation_log.py` calls `decide` directly, and transmits nothing. |
 
 **The first row is the one that needs saying out loud.** An out-of-process hook cannot call the model
 checker, so it enforces a strict subset: everything decidable by a pure function, and nothing that
