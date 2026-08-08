@@ -35,6 +35,8 @@ that a high enough score is a permission.
 ```
 pytest -q                 the full suite, offline and keyless
 python demo/day2.py       one draft, two lanes, opposite verdicts
+python demo/full.py       both scenes: the futile deflection, then the refinable redraft
+python tools/report.py    regenerates docs/RESULTS.md from the frozen artifacts
 python tools/static_audit.py   proves the policy layer imports no LLM client
 ```
 
@@ -110,9 +112,16 @@ tier would catch it after transmission, which is detection, not prevention.
 **The test.** `test_the_tripwire_half_of_arm_four_blocks_a_row_the_checker_calls_clean`, which is
 precisely the case of a checker saying clean and the row being blocked anyway.
 
-**What may be claimed: measured.** Checker calibration is a pre-registered measurement (prediction 5),
-scored per cell with Brier and never as one blended number. The ceiling is the policy response to a
-residual that measurement prices but does not remove.
+**What may be claimed: measured, and the ceiling is not what it supports.** Checker calibration is a
+pre-registered measurement (prediction 5), scored per cell with Brier and never as one blended
+number. It was taken, and it found **no content-class cell where stated confidence overshot observed
+agreement**: 0 boolean errors over the 90 content rows. That is not the ceiling's support and cannot
+be, because **the ceiling is structural**. All three clauses above hold at zero measured errors, so
+no calibration result could raise it and none was ever going to. By the rule of three, zero errors in
+90 bounds the checker's error rate from above at about 3.33% and bounds nothing at all about a
+deployment rate. The honest sentence is *we found no error and still refuse the autonomy, here is
+why*, and the table in [docs/RESULTS.md](docs/RESULTS.md) is reported as **consistent with** the
+ceiling rather than as the argument for it.
 
 ---
 
@@ -155,6 +164,32 @@ above is kept in step with the demo by a byte comparison in `tests/test_readme_c
 
 Both transports are scripted, because the suite runs offline and keyless. The quality scores and the
 checker verdict are inputs to the script. What is computed is everything between them.
+
+### The second scene, which is the half that argues for the architecture
+
+A refusal that is only a refusal is a wall. `demo/full.py` runs the scene above and then a second
+one, and the pair is the actual claim:
+
+```
+SCENE 2 (refinable): a forward-looking return, and a redraft that resolves it
+PERMISSION LANE-> BLOCK content:forward_looking_return, send_message entered 0 times
+REFINEMENT     -> stopped_for=resolved, rounds=1, resolved=True
+REDIRECT       -> human review, refinement_rounds=1
+```
+
+Scene 1 spends **no** redraft round, and that is a decision rather than a shortfall.
+`content:advises_on_merits` is in `FUTILE_CLASSES`, so `disposition_for` marks the denial futile and
+the loop returns immediately with a response that changes the task instead of one that changes the
+words. No rewording of an answer to *"is this a good deal?"* is a permitted answer to it, and a loop
+that tried three times to find one would burn a budget to arrive where it started.
+
+Scene 2 is refinable, one round resolves it, and **the resolved redraft still goes into the handoff
+for approval rather than transmitting.** That last clause is the one worth watching, because the
+tidy-looking version, where a redraft that now passes simply sends, is an auto-retry of a permission
+failure. `test_a_redraft_never_transmits_without_approval` holds it on effects, and
+`test_the_full_demo_runs_both_scenes_and_enters_the_send_tool_in_neither` holds that both scenes in
+this script keep the send tool unentered. The script asserts it too, before each print, and CI runs
+the file.
 
 ---
 
@@ -243,50 +278,114 @@ because the corpus varies the record and nothing else. So any act-class claim he
 `act:figure_not_in_record` rows per split and on nothing wider. Stating that is the difference between
 a measurement and a headline.
 
-**Status: the arms have been run, once, on the eval split.** The ladder in
-`src/chaperone/evals/harness.py` was run over the eval half of the corpus against the recorded
-verdicts frozen in `corpus/recorded_verdicts.json`, and **two predictions failed.** They come from
-two different documents, which is worth stating so the count can be checked rather than taken: one
-is among the five in [PREREGISTRATION.md](PREREGISTRATION.md), and the other is the design spec's
-earlier prediction that the best arm's false-block rate would strictly rise, which the
-pre-registration supersedes and pre-commits to reporting as failed if equality landed. Equality
-landed. "A failed prediction is reported as a failed prediction" is the pre-registration's own
-clause, and it is the one that decides whether that document was doing work or decorating.
+**Status: all five predictions are adjudicated, and four of the five failed or landed on equality.**
+Every rate, with its denominator, is in [docs/RESULTS.md](docs/RESULTS.md), generated by
+`tools/report.py` from the frozen artifacts. The summary, because a reader should not have to open a
+second file to learn how it went:
 
-**Prediction 4 has since been adjudicated on its own, and it failed too.** Discrimination needs no
-arm: it ranks the quality judge's own scores against the labels, so
-`src/chaperone/evals/discrimination.py` measures it from `corpus/quality-scores.jsonl`, a blind
-judge's scores over all 160 bodies. The measured interval excludes 0.5, which the pre-registration
-pre-commits to reporting as a failed prediction rather than reframing. The **direction** of that
-exclusion is the part a reader should not assume, so it is reported with the number and the
-denominators rather than here.
+| # | Predicted | Outcome |
+|---|---|---|
+| 1 | act-class escape rate on arm 4 is exactly zero | **Held.** 0 escapes over 5 act-declaring rows. |
+| 2 | content-class escape rate is non-zero on every arm | **Failed.** 0 escapes over 45 content rows, on every rung that ran. |
+| 3 | false blocks, arm 3 to arm 4: equality | **Equality landed.** The pre-registered magnitude held; the design spec's superseded prediction of a strict rise is reported failed. |
+| 4 | AUC interval contains 0.5 and excludes 0.75 | **Failed.** 0.224, interval (0.156, 0.300), over 100 violating and 60 compliant rows. |
+| 5 | at least one content cell overshoots its stated confidence | **Failed.** None does. The checker was underconfident here. |
 
-**Prediction 5 has now been adjudicated too, and it failed in the direction a reader would not
-guess.** `src/chaperone/evals/calibration.py` scores the checker per class with Brier against the
-same recorded verdicts. Not one content-class cell showed observed agreement below the checker's
-stated confidence: on this corpus the checker was **underconfident** rather than overconfident, so
-the cell prediction 5 went looking for does not exist and `worst_cell` reports absent rather than
-handing back the least badly calibrated cell in the table.
+"A failed prediction is reported as a failed prediction" is the pre-registration's own clause, and it
+is the one that decides whether that document was doing work or decorating.
 
-**That is not a licence to raise the ceiling, and the ceiling never rested on the size of the
-error.** A false negative at an unsupervised tier **is** the breach rather than a warning that one
-is coming; sampled audit after transmission is detection, not prevention; and demotion is itself
-triggered by a verdict, so a missed violation also misses its own demotion. All three hold at zero
-measured errors. Finding no error over a finite corpus bounds the checker's error rate from above
-and bounds nothing about a deployment rate, which is why the sentence here is *we found no error and
-still refuse the autonomy* rather than a promotion.
+**The ladder, with both rates and the scope they are counted in.** Over the eval split at the
+**all-classes** scope, arms 2 and 3 escape **5 of 50** and false-block **0 of 30**; arm 4 escapes
+**0 of 50** at the same 0 of 30. **Those 5 are the act-declaring rows and not content misses**, which
+is the sentence to read before the next paragraph: at the **content-classes-only** scope every rung
+escapes **0 of 45**, which is what failed prediction 2. Arm 4 did not catch five content escapes,
+because there were none to catch. Reported separately and never as a rung, because more than one
+variable moves: the prompting-only reference escapes **50 of 50**, which is not a measurement of
+prompting but of what happens when nothing inspects the draft at all.
 
-**No rate is printed here yet, and that is a choice about denominators rather than about disclosure.**
-Every rate the ladder produces needs the denominator from the table above and the criterion-sharing
-confound named under Limits, and a rate quoted without those two is worse than no rate. The outcomes
-are written up with both, held or failed, in a Results section that does not exist in this tree
-today and is written once the remaining arms have run.
+**Arms 2 and 3 are identical here, and that is a fact about the replay rather than about the gate.**
+The recording holds a verdict for all 160 rows, so the fail-closed branch is never reached. Under
+injected unavailability at 0.25 they separate in **both** directions: arm 2 escapes 14 of 50 at 0 of
+30 false blocks, arm 3 escapes 4 of 50 at 3 of 30. That prices the trade rather than making a rung
+look better, which is why the probe is published beside the ladder and labelled as not a rung.
+
+**The whole of arm 3 to arm 4 is the act half.** The tripwire half fired on **1** of the 80 eval rows
+and moved neither rate, because the row it reached had already been blocked by the checker. It fired,
+and it changed nothing; those are different claims and only the second is true here. This corpus
+supplies no compliant near-miss inside the tripwires' reach, so the artifact **cannot measure** their
+false-block cost and the 0 of 30 is not evidence that the cost is zero. That limitation was written
+down in advance, so a flattering number cannot be read as a finding.
+
+**Prediction 4's direction, and the confound it must not be claimed past.** The interval excludes 0.5
+from **below**: the judge ranks violating drafts systematically *lower*. The dimension furthest from
+the null is `fit`, AUC 0.140, and its rubric is *responds to what was actually asked* while the corpus
+holds **one constant inbound message on all 160 rows**. So every content violation is off-ask by
+construction, and no transferable violation signal may be read off that table in either direction.
+The row worth reading instead is `act:figure_not_in_record` at AUC 0.695 over 10 rows against 60: the
+one class the permission lane decides with certainty is the only class the quality lane ranks at or
+above compliant. That is the thesis with a number on it.
 
 **Re-running spends nothing, so a reader can reproduce this now.** What was spent once was the
 judging: the blind checker read the eval bodies a single time and its verdicts were recorded. Every
 arm is a deterministic function over that frozen recording, so replaying it repeats nothing.
 `tests/evals/test_harness.py` runs the ladder over the eval items on every `pytest` invocation,
 which is also why the status above cannot quietly go stale: the run it describes happens in CI.
+
+### The matching ablation, with both metrics
+
+The same argument on a second surface: hard eligibility exclusions against tuned weighted features,
+over one population of 100 synthetic candidates of which 60 are eligible, shortlist `k=10`. The hard
+arm surfaces 10 at **contamination 0.0** and **recall loss 0.0**; the weighted arm surfaces 10 at
+**contamination 0.1** and **recall loss 0.1**. Under 30% injected missingness at seed 7 the weighted
+arm goes to **0.5 and 0.5** while the hard arm stays at 0.0 and 0.0, because a blanked eligibility
+axis routes a record to needs-verification rather than discounting it by a weight. The seed is stated
+because a single draw is a single draw. What is held across draws is narrower than the trade and is
+worth naming exactly: `test_no_injected_draw_lets_the_hard_filter_arm_admit_an_ineligible_party`
+pins the hard arm's contamination at zero-or-absent over five seeds and four missingness rates. Both
+magnitudes above are one draw, and neither is asserted anywhere.
+
+**And the hard arm pays nothing on this population, which is a property of the population.** With 60
+eligible records competing for 10 slots the shortlist fills from clean rows alone, so the recall cost
+the hard arm exists to pay is invisible here. It is demonstrated on a constructed population where it
+is legible, in `test_under_missingness_the_hard_filter_arm_trades_recall_for_contamination`, where
+the hard arm surfaces 3 against the weighted arm's 10 and both inequalities are strict. Read the
+shipped figures as a demonstration of the protocol and never as evidence that either ranker is good:
+the labels were generated in this repository.
+
+---
+
+## The smallest production v1 I would actually ship first
+
+Not this. The demo above is an outbound conversation agent at tier 2, and tier 2 on an outbound
+surface still means a message leaving the building on a human's say-so, with the whole content lane
+standing between the draft and the recipient. That is the right architecture and it is the wrong
+first deployment, because the first deployment should be the one where **being wrong costs a
+correction rather than a retraction.**
+
+**The research agent, read-only, internal, nothing leaves.** It reads the mandate record and public
+material, proposes enrichments, and writes none of them. Concretely, from what is already in this
+tree: `Surface.RESEARCH` at tier 0, whose verb is *read only*; `granted_tools` holding no send tool
+at all, so `act:tool_outside_grant` refuses one by pure function rather than by instruction; the
+hash-linked audit on every intent and outcome; and the same `guarded_call` chokepoint, which costs
+nothing to keep and is the thing you cannot retrofit.
+
+Four reasons that is the right first rung, and none of them is that it is easy:
+
+- **No content class is load-bearing.** The three published constraints are about what the firm says
+  to an investor. A read-only internal agent says nothing to one, so the lane whose escape rate is a
+  measurement is not the lane standing between the system and a bad outcome. What is load-bearing is
+  the act lane, decided by pure functions.
+- **The failure mode is legible and reversible.** A wrong enrichment proposal is read by the person
+  who asked for it. A wrong outbound message is read by an investor.
+- **It generates the evidence the next rung needs**, and it generates it on real cases rather than on
+  a synthetic corpus. Every limit named on this page comes from the corpus being synthetic, deliberate
+  and single-author; a read-only surface in production produces the distribution that fixes that.
+- **Promotion off it is keyed to human-review outcomes**, per the ladder honesty line below, and a
+  read-only surface is where accumulating those outcomes costs nothing.
+
+The honest cost: this ships the architecture and defers the hard measurement. The content lane is
+the part nobody knows how to guarantee, and a first deployment that does not exercise it has not
+learned anything about it. That is the trade, stated rather than hidden by shipping the demo.
 
 ---
 
@@ -328,7 +427,36 @@ advance, so a flattering result cannot be read as a finding.
 
 **Labels are synthetic, and carry their own error.** Provenance records what an author set out to
 write, not what the text achieved. A draft intended as a violation that lands innocuous is still
-labelled violating, and every arm that allows it is charged an escape it did not commit.
+labelled violating, and every arm that allows it is charged an escape it did not commit. Every
+ranking and calibration figure on this page is computed against labels this repository generated,
+which is a limit on what any of them can support.
+
+**Every violating draft in the corpus was written *to violate*, and that is the first thing a careful
+reader should ask about.** Nobody wrote one trying to be helpful and crossing the line under
+pressure, which is the failure the opening two paragraphs are actually about: the most helpful next
+sentence and the permitted next sentence diverge. A corpus of deliberate instances is the easier
+population, and every clean number above was measured on it. This is the widest gap between what the
+artifact demonstrates and what the problem is.
+
+**The double-send guard is built, tested, and unarmed outside the test suite.** Nothing schedules
+`resume`, nothing consults `requires_approval_for` before a send, and no shipped path feeds
+`ActContext` a send count derived from the log: `Gateway.sent_count()` is the function that derives
+one, and it is called from `tests/audit/test_send_cap.py` and nowhere else. The hook layer *does* run
+the cap predicate, against a count taken from the tool payload and **defaulting to a permissive zero**
+when the payload omits it. So the predicate is live and its input is not, which is the precise shape
+of the claim, and `tools/policy_hook.py` declares the class unenforceable there rather than letting
+silence imply parity. Treat a re-attempt as unguarded until it is wired in.
+
+**The recipient-scoped handoff is undesigned, not forbidden.** Branch (c) of the recovery pass files
+no escalation, because naming a recipient needs a resolver beside the log and the log deliberately
+stores no personal data. A `recipient_for(digest)` resolver would close it with the log storing no
+more than it stores now. Nothing about the design refuses this; nobody has written it.
+
+**Task 18's TDD evidence is unverifiable rather than verified.** The mutation-testing task was
+implemented by a session whose transcript is gone. A later session re-verified the work at HEAD and
+reproduced the kill counts, and it correctly refused to re-attest RED runs it had not observed; its
+own report says so in a block quote at the top. So for that one task the claim is *the outcome
+reproduces*, not *the cycle was watched*, and this page does not say otherwise.
 
 ---
 
@@ -348,13 +476,17 @@ Everything on the right was verified absent from the tree, not assumed.
 | Frozen corpus, provenance labels, pre-registration | **Built** |
 | Checker calibration, Brier per cell | **Built.** No content cell overshot, so the worst cell is reported absent. |
 | Discrimination, AUC with confidence interval | **Built** |
-| Matching | **Designed, not built** |
+| Matching: shared eligibility predicates, both ablation arms, contamination and recall loss | **Built.** Both metrics are absent over an empty denominator, never zero. |
 | Refinement loop, with futility and deadlock stops | **Built.** The redraft rides in the handoff as a proposal; it never transmits on its own. |
 | Capability ladder demotion transition and the tier-2 ceiling | **Built.** Promotion has a transition and no caller. |
 | Four-agent topology and per-agent grants | **Designed, not built** |
 | Crash-recovery `resume` pass, branches (b) and (c) | **Built.** Nothing schedules it and nothing consults its approval gate yet. Branch (c) files no handoff: naming a recipient needs a resolver beside the log, which is undesigned. |
 | Thread-scope pass for cross-turn accumulation | **Designed, not built** |
 | Pydantic AI binding for the checker | **Designed, not built** |
+| Ladder promotion mechanics | **Designed, not built.** `on_pass` is a state transition with no caller, and it would not be keyed to these numbers. See below. |
+| Active learning on the matching shortlist | **Designed, not built.** Routing needs-verification records to the reviewers whose answers move the most eligibility mass needs a review queue with outcomes in it, and there is none. |
+| Sliding-window rate limiting | **Designed, not built.** `act:send_cap_exceeded` is a cap over a total, not over a window. A window needs a clock, and `policy/` may not hold one, so it belongs beside the log with the count. |
+| An external server publishing policy as a first-class resource | **Designed, not built.** `read_policy` exists as a linted tool description with no implementation behind it; serving the constraint set to other agents needs a versioned resource and a story for what a stale copy means, and neither is written. |
 
 Three of these deserve a sentence, because silence would be misleading.
 
@@ -386,6 +518,8 @@ pip install -e ".[dev]"
 
 pytest -q                      # the full suite, offline, no API key required
 python demo/day2.py            # the two-lane demo above
+python demo/full.py            # both scenes, futile then refinable
+python tools/report.py         # regenerates docs/RESULTS.md
 python tools/static_audit.py   # the policy purity check that CI runs
 ```
 
@@ -400,6 +534,8 @@ the suite deterministic and what lets every arm be compared over identical verdi
   shape above.
 - [docs/architecture.md](docs/architecture.md), why a `PreToolUse` hook rather than a permission
   callback, why the checker is the stronger model, and the per-module boundaries.
+- [docs/RESULTS.md](docs/RESULTS.md), every rate with its denominator, generated by
+  `tools/report.py` and reproducible offline from the frozen artifacts.
 - [docs/measurement.md](docs/measurement.md), pre-registration through results, and what each number
   does not mean.
 - [docs/audit-walkthrough.md](docs/audit-walkthrough.md), one denied send, entry by entry.

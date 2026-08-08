@@ -5,11 +5,12 @@ broken input, and [measurement.md](measurement.md) section 7, which publishes ev
 below with its denominator and its split.
 
 That sentence used to read "where every number below comes from" while three of the figures here
-were published nowhere else in the repository, and section 7 read "Pending. No arm has been run and
-no rate has been computed." A citation a reader cannot follow is worse in this document than in any
-other, because following it is the whole point. Both ends are fixed: every figure below now resolves
-in section 7, and `src/chaperone/evals/calibration.py` and `src/chaperone/evals/discrimination.py`
-recompute all of them from the shipped artifacts offline.
+were published nowhere else in the repository, and section 7 announced itself as pending and denied
+that any arm had run. A citation a reader cannot follow is worse in this document than in any other,
+because following it is the whole point. Both ends are fixed: every figure below now resolves in
+section 7 and in the generated [RESULTS.md](RESULTS.md), and
+`src/chaperone/evals/calibration.py` and `src/chaperone/evals/discrimination.py` recompute all of
+them from the shipped artifacts offline.
 
 Nothing here is a rate to act on. Every figure is a measurement over a frozen synthetic corpus of
 160 drafts, and it bounds what this artifact observed, not what a deployment would.
