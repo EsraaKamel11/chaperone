@@ -32,5 +32,20 @@ jobs:
       # both crashes rather than wrong numbers, and both were live in this task's brief.
       - name: Results report generates
         run: python tools/report.py
+      - name: Perturbation log generates
+        run: python tools/perturbation_log.py
+      # The generators above rewrite committed pages. Running them proved only that they do not
+      # crash: a rate that moved regenerated `docs/RESULTS.md`, left the tree dirty, and CI still
+      # exited 0 with a published document disagreeing with what produces it. This is not an
+      # assertion about any rate -- design spec 9.6 admits invariants only -- it is the invariant
+      # that a generated page and its generator agree, whatever the numbers are.
+      - name: Generated pages match their generators
+        run: git diff --exit-code
       - name: Tests
         run: pytest -v
+      # After the suite, because the mutation sweep rewrites files under `src/` and restores them in
+      # a `finally`. A run killed mid-sweep skips that restore, and the stranded mutant has twice
+      # been a fail-open one. Green tests over a tree the sweep left modified is the one result that
+      # must not be read as a pass.
+      - name: Working tree is clean after the suite
+        run: git diff --exit-code

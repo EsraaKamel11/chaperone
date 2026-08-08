@@ -113,7 +113,7 @@ def test_the_suite_is_green_before_and_after_mutation(baseline_report):
 
 
 def test_the_child_run_never_collects_the_sweep_itself(baseline_report):
-    """Without this the child collects this module and every mutant fans out into another nine.
+    """Without this the child collects this module and every mutant fans out into another sweep.
 
     `--ignore` is resolved against the invocation directory, so the guard is only real if the child
     is launched from the root with an absolute path. Asserted on the child's own report of what it
@@ -129,8 +129,8 @@ def test_the_child_skips_the_sweep_even_if_the_ignore_stops_matching(tmp_path):
     """The second line of defence, exercised with the first one removed.
 
     `--ignore` is one string; a rename or a moved root silently ends it. The environment marker is
-    what makes that degrade into a skip instead of into nine recursive sweeps, so it is tested with
-    `--ignore` deliberately absent -- which is the only configuration where it does anything. This
+    what makes that degrade into a skip instead of into one recursive sweep per mutant, so it is
+    tested with `--ignore` deliberately absent, the only configuration where it does anything. This
     is the one place a child is launched without `run_suite`, because `run_suite` is the thing whose
     failure is being simulated.
 
@@ -351,7 +351,7 @@ def test_restoration_that_did_not_land_raises_rather_than_reporting_a_clean_tree
 def test_the_sweep_leaves_every_mutated_file_exactly_as_it_found_it():
     """Runs after the parametrized sweep above and re-reads the bytes it was allowed to touch.
 
-    `audit_anchors` catches a mutant left applied, but only for the nine sites it knows. This is the
+    `audit_anchors` catches a mutant left applied, but only for the sites it knows. This is the
     stronger statement over the whole file, and it is what the git working tree is checked against.
     """
     for mutant in MUTANTS:

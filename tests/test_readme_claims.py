@@ -386,9 +386,16 @@ def test_the_readmes_test_to_source_ratio_holds_in_the_tree():
 
     source, tests = _python_lines(SOURCE_ROOT), _python_lines(TESTS_ROOT)
     assert source, "no source lines were counted, so this guard would pass vacuously"
-    assert round(tests / source) == int(stated[0]), (
-        f"the README claims {stated[0]} lines of tests per line of source; "
-        f"the tree measures {tests} / {source} = {tests / source:.2f}"
+    measured = tests / source
+    # A tolerance band rather than `round()`. Rounding accepted anything from 2.50 to 3.49 against a
+    # stated "3", which is a 40% spread the README does not mean and does not say; the word
+    # "roughly" in front of the number is a claim about a band, so the band is what is asserted.
+    # +/- 0.35 is narrower than rounding in both directions and still survives ordinary commits:
+    # measured 2.87 the day this was written.
+    claimed = int(stated[0])
+    assert abs(measured - claimed) <= 0.35, (
+        f"the README claims roughly {claimed} lines of tests per line of source; "
+        f"the tree measures {tests} / {source} = {measured:.2f}, outside the +/-0.35 band"
     )
 
 
@@ -642,6 +649,28 @@ def test_the_ledger_of_uncalled_layers_matches_the_census_the_tree_supports():
         f"these are built and called from nowhere outside tests/, and no reader-facing page "
         f"names them: {undisclosed}"
     )
+
+
+def test_a_figure_quoted_from_the_results_page_carries_the_caveat_the_page_puts_beside_it():
+    """A point estimate travels and its interval does not, so the two are bound here.
+
+    `docs/RESULTS.md` says the `act:figure_not_in_record` interval *clears the null by 0.002 at the
+    lower endpoint over 10 rows, which is too thin to call a direction from*. The README quoted the
+    0.695 and the conclusion and dropped the thinness, which is the flattering direction and the one
+    nobody notices. The caveat is read out of the generated page rather than restated, so a
+    regenerated page that moves the endpoint moves what the README must carry.
+    """
+    results = _unwrapped(RESULTS_PAGE.read_text(encoding="utf-8"))
+    assert "too thin to call a direction from" in results, (
+        "the results page no longer carries the thinness caveat, so this guard is asserting a "
+        "sentence that has stopped existing"
+    )
+    readme = _unwrapped(README.read_text(encoding="utf-8"))
+    if "0.695" in readme:
+        assert "too thin to call a direction from" in readme, (
+            "the README quotes the 0.695 point estimate without the caveat docs/RESULTS.md puts "
+            "beside it"
+        )
 
 
 CANONICAL_CLAIMS = (

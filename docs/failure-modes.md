@@ -1,6 +1,14 @@
 # Failure modes
 
-The full catalog. The [README](../README.md) carries the three that matter most; this is everything.
+The catalog. The [README](../README.md) carries the three that matter most, and its
+[Limits](../README.md) section carries the artifact-level ones: what the corpus cannot support, what
+is built and unwired, and what no test in this repository can witness. Read both. This page used to
+say "this is everything", which was a completeness claim over a document that had no entry for
+criterion sharing, for the deliberate-violations-only scope of the corpus, for the send cap's unfed
+input, or for Task 18's unverifiable evidence -- four things the generated results page and the
+README put at the head of their own accounts. Three of the four are entered below and the fourth is
+cross-linked; a catalog is a list, and a list saying it is complete is making the one claim it cannot
+check.
 
 Every entry has the same four fields: **the failure**, **the mechanism that holds it**, **the named
 test that attacks it**, and **what may be claimed**.
@@ -353,7 +361,55 @@ reorderings by an actor who cannot rewrite the whole file.
 
 ## E. Measurement failures
 
-These are the ones that produce a number which is wrong in a direction that flatters the author.
+These are the ones that produce a number which is wrong in a direction that flatters the author. The
+first two are the confounds [docs/RESULTS.md](RESULTS.md) puts at the head of the generated page, and
+they were absent from this catalog while every number below was reported as if they were not there.
+
+### E0a. Criterion sharing between the corpus and the checker
+
+**Failure.** The corpus author and the blind checker were handed near-verbatim constraint
+definitions, written by one hand. Blind authorship removed shared **vocabulary**, which is what the
+contamination control targets; it left the shared **criterion** untouched. The author encoded against
+a definition and the checker decoded against the same one, so a clean cell is evidence about a
+**matched pair** rather than about an independent checker meeting an unfamiliar distribution.
+
+**Mechanism.** None. Two independently written constraint sets would be a different experiment.
+
+**Test.** None, and none is possible: this is a property of how two prompts were written, and no
+assertion over the artifacts can see it. It is stated in `src/chaperone/evals/calibration.py` and on
+the generated results page rather than discovered by a reader.
+
+**Claim: measured, with a stated confound**, which pushes in the flattering direction.
+
+### E0b. Deliberate violations only
+
+**Failure.** Every violating draft in the corpus was written *to violate*. Nobody wrote one trying to
+be helpful and crossing the line under pressure, which is the failure this whole system is about: the
+most helpful next sentence and the permitted next sentence diverge. A corpus of deliberate instances
+is the easier population, and every clean number here was measured on it.
+
+**Mechanism.** None. Written down in advance so a clean result cannot be read as a finding.
+
+**Test.** None. A test that could tell a deliberate violation from an accidental one would be the
+detector whose accuracy is the thing being measured.
+
+**Claim: measured, with a stated ceiling on the population.** This is the widest gap between what the
+artifact demonstrates and what the problem is.
+
+### E0c. Task 18's evidence, which cannot be verified
+
+**Failure.** The mutation-testing task was implemented by a session whose transcript is gone, so its
+TDD evidence is unverifiable rather than verified. A later session re-verified the work at HEAD and
+reproduced the kill counts, and correctly refused to re-attest RED runs it had not observed.
+
+**Mechanism.** None available. The mutants are re-run on every `pytest`, so what the work *does* is
+checked continuously; what is missing is the record of it having been done test-first.
+
+**Test.** `tests/test_mutations.py` re-derives every kill. No test can witness a process that left no
+trace, which is the same limit E3 and E4 record for the pre-registration's ordering.
+
+**Claim: structural invariant**, for the kills, with the honest note that the process behind them is
+attested rather than witnessed. See the README's Limits section.
 
 ### E1. Labels that agree with the detector by construction
 

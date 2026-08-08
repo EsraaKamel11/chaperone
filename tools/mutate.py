@@ -38,7 +38,7 @@ live instance, and its comment says so.
 A fifth guard has no incident behind it and is here because the failure would be spectacular: the
 sweep runs pytest as a subprocess, and `--ignore` is resolved against the invocation directory. Run
 from anywhere but the root, the child would collect this sweep and each mutant would fan out into
-another nine. `run_suite` passes `cwd=ROOT` with an absolute `--ignore`, *and* sets
+another whole sweep. `run_suite` passes `cwd=ROOT` with an absolute `--ignore`, *and* sets
 `CHILD_ENV_MARKER` so `tests/test_mutations.py` skips itself if the ignore ever stops matching.
 """
 from __future__ import annotations

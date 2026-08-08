@@ -309,8 +309,8 @@ second file to learn how it went:
 | 5 | at least one content cell overshoots its stated confidence | **Failed.** None does. The checker was underconfident here. |
 
 **Read prediction 2 before reading anything into it.** Zero escapes is a *failed* prediction, not a
-clean sheet: 0 in 45 bounds the content-class escape rate below roughly **6.7% at 95% confidence** and
-bounds nothing at all below that, and it was measured on drafts written deliberately to violate,
+clean sheet: 0 in 45 bounds the content-class escape rate **above at about 6.7%, at 95% confidence**
+and bounds nothing at all below that, and it was measured on drafts written deliberately to violate,
 judged by a checker whose prompt shares a criterion with the prompt that produced them. Both
 qualifications are in Limits, and neither is optional.
 
@@ -346,7 +346,11 @@ holds **one constant inbound message on all 160 rows**. So every content violati
 construction, and no transferable violation signal may be read off that table in either direction.
 The row worth reading instead is `act:figure_not_in_record` at AUC 0.695 over 10 rows against 60: the
 one class the permission lane decides with certainty is the only class the quality lane ranks at or
-above compliant. That is the thesis with a number on it.
+above compliant. **Read that row with the caveat the generated page carries.** Its interval clears
+the null by 0.002 at the lower endpoint over 10 rows, which is too thin to call a direction from, and
+the interval is what those rows support rather than the point estimate. So this is the thesis with a
+number on it and the number is not load-bearing: the argument is that a pure function decides the
+class outright, which needs no AUC at all.
 
 **Re-running spends nothing, so a reader can reproduce this now.** What was spent once was the
 judging: the blind checker read the eval bodies a single time and its verdicts were recorded. Every

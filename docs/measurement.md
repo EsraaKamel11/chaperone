@@ -302,6 +302,12 @@ Eval split, per cell, with the denominator beside the numbers:
 | compliant | 30 | 0.911 | 1.0 | 0.0105 |
 | `act:figure_not_in_record` | 5 | 0.926 | 0.0 | 0.8591 |
 
+**What no test binds is this subsection's four hand-computed figures.** The both-splits act-cell
+Brier of **0.8610** and the three blended figures below (**0.0689**, **0.0750**, **0.0810**) have no
+generator behind them and no assertion over them: `tools/report.py` emits the per-cell eval table,
+and these were computed once, by hand, from the same artifacts. All four recompute correctly today.
+Treat them as this page's arithmetic rather than as generated output, and recompute before quoting.
+
 Both splits combined: **0 boolean errors over the 90 content rows**, and the act cell is n=10 at
 Brier 0.8610. By the rule of three, zero errors in 90 bounds the error rate above at about
 **3.33%, at 95% confidence**, and below at nothing at all. Finding no error bounds the checker and bounds nothing
@@ -312,14 +318,19 @@ three content constraints and nothing else, so on an act row its "no content vio
 answer to the question it was asked, and charging it as an error would name an act cell as the
 measurement behind a content-class ceiling.
 
-**One blended figure, published once, as the argument against blending.** Section 5 pre-registers
-Brier as scored per cell and **never as one blended number**, and this is the only place in the
-repository that prints a blended one. Over the eval split's 80 rows the row-weighted Brier is
-**0.0689** -- a number sitting between an act cell at 0.8591 and content cells between 0.0082 and
-0.0284, and therefore **a description of no cell in the table**. It is here so that a reader who is
-handed it elsewhere can recognise it, and it is the reason the pre-registration forbids it. The
-all-rows figure is 0.0750 and the dev-split figure is 0.0810; none of the three describes a cell
-either.
+**Three blended figures, printed here as the argument against blending.** Section 5 pre-registers
+Brier as scored per cell and **never as one blended number**. Over the eval split's 80 rows the
+row-weighted Brier is **0.0689** -- a number sitting between an act cell at 0.8591 and content cells
+between 0.0082 and 0.0284, and therefore **a description of no cell in the table**. The all-rows
+figure is **0.0750** and the dev-split figure is **0.0810**; none of the three describes a cell
+either. They are here so that a reader handed one of them elsewhere can recognise it, and they are
+the reason the pre-registration forbids the practice.
+
+This paragraph used to say "one blended figure, published once" and "the only place in the
+repository that prints a blended one", in the same breath as printing three of them, while
+`docs/ON_CALL.md` prints 0.0689 again in its own list of traps. Both claims were false as written,
+and both were the flattering kind of false: a document arguing against blending, overstating its own
+restraint.
 
 ### 7.3 Prediction 4: discrimination. **Failed.**
 
