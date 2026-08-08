@@ -305,6 +305,59 @@ SWEEP_LOCK = ROOT / ".pytest_cache" / "chaperone-mutation-sweep.lock"
 STALE_LOCK_SECONDS = 3600.0
 
 
+def _pid_is_running(pid: int) -> bool:
+    """Whether `pid` names a live process. **Unknown answers "yes".**
+
+    Every uncertain case -- a platform call that fails, an exit code this cannot read, a pid owned
+    by another user -- returns True, because the only action taken on a False is breaking a lock,
+    and breaking a live sweep's lock is the corruption `sweep_lock` exists to prevent. A spurious
+    wait costs time; a spurious break costs a fail-open mutant left in `src/`.
+
+    **`os.kill(pid, 0)` is not used on win32, and this is not a portability nicety.** Python's
+    `os.kill` on Windows routes any signal other than `CTRL_C_EVENT`/`CTRL_BREAK_EVENT` to
+    `TerminateProcess`, so the idiomatic POSIX liveness probe would *kill the sweep it was asking
+    about* -- the probe becoming the incident. `OpenProcess` is a query and terminates nothing.
+    """
+    if sys.platform == "win32":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        # PROCESS_QUERY_LIMITED_INFORMATION: the narrowest right that answers this question.
+        handle = kernel32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            # 87 is ERROR_INVALID_PARAMETER, which is how "no such pid" arrives. Anything else --
+            # ERROR_ACCESS_DENIED above all -- means the process exists and is not ours to inspect.
+            return kernel32.GetLastError() != 87
+        try:
+            code = ctypes.c_ulong()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return True
+            return code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True  # PermissionError and anything else: it is there, or we cannot tell.
+    return True
+
+
+def _lock_owner_is_gone(path: Path) -> bool:
+    """True only when the lock names a pid and that pid has exited.
+
+    An absent or unparseable `owner` returns False. `mkdir` and the owner write are two operations,
+    so a lock taken microseconds ago is briefly ownerless, and reading that as "gone" would break
+    into the live sweep the file was about to name.
+    """
+    try:
+        pid = int((path / "owner").read_bytes().decode("utf-8").strip())
+    except (OSError, ValueError, UnicodeDecodeError):
+        return False
+    return not _pid_is_running(pid)
+
+
 @contextmanager
 def sweep_lock(path: Path = SWEEP_LOCK, timeout: float = 1200.0, poll: float = 0.5):
     """Hold the working tree for one sweep. Two sweeps in one checkout corrupt it.
@@ -317,9 +370,15 @@ def sweep_lock(path: Path = SWEEP_LOCK, timeout: float = 1200.0, poll: float = 0
     reported success. Verifying your own write does not make a shared file yours.
 
     `mkdir` is the primitive because it is atomic on win32 and on POSIX alike, where an `open(...,
-    "x")` on a network path is not dependably so. The pid is recorded for whoever has to read a
-    stuck lock, and a lock older than `STALE_LOCK_SECONDS` is broken rather than waited on, since
-    the alternative is that one killed run stops every later one.
+    "x")` on a network path is not dependably so. A lock older than `STALE_LOCK_SECONDS` is broken
+    rather than waited on, since the alternative is that one killed run stops every later one.
+
+    **The pid is read, not merely recorded.** It was written "for whoever has to read a stuck
+    lock", which named a human and left the code waiting the full `timeout` on a lock whose owner
+    was gone -- `STALE_LOCK_SECONDS` is an hour, so the age check never reaches it inside one
+    session. Measured on this repository: a suite that runs in 250s exceeded 600s twice, blocked on
+    a dead owner. So a lock naming an exited pid is broken into at once, and every other answer
+    from `_pid_is_running` -- including "cannot tell" -- keeps the wait.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     deadline = time.monotonic() + timeout
@@ -332,7 +391,7 @@ def sweep_lock(path: Path = SWEEP_LOCK, timeout: float = 1200.0, poll: float = 0
                 age = time.time() - path.stat().st_mtime
             except OSError:
                 continue
-            if age > STALE_LOCK_SECONDS:
+            if age > STALE_LOCK_SECONDS or _lock_owner_is_gone(path):
                 shutil.rmtree(path, ignore_errors=True)
                 continue
             if time.monotonic() >= deadline:

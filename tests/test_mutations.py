@@ -47,9 +47,28 @@ def _hold_the_working_tree():
         yield
 
 
+def _a_pid_that_has_exited() -> int:
+    """The pid of a process that has already been reaped. Not a guessed number.
+
+    A literal like 999999 is a number nothing owns *today*; a pid this run watched exit is a fact.
+    """
+    process = subprocess.Popen([sys.executable, "-c", "pass"])
+    process.wait()
+    return process.pid
+
+
 def test_the_sweep_holds_the_lock_for_as_long_as_it_is_mutating_the_tree():
-    """The fixture above is the whole protection, and an unused fixture is a silent one."""
+    """The fixture above is the whole protection, and an unused fixture is a silent one.
+
+    **`is_dir()` alone passed on the condition it was written to detect.** A lock stranded by a
+    killed run is a directory too, so the assertion was satisfied by the very state that means no
+    sweep holds the tree. The owner is what distinguishes the two, so the owner is what is read.
+    """
     assert SWEEP_LOCK.is_dir()
+    assert (SWEEP_LOCK / "owner").read_bytes() == f"{os.getpid()}".encode("utf-8"), (
+        "the sweep lock is held by some other process, so this run is mutating a tree it does "
+        "not own"
+    )
 
 
 @pytest.fixture(scope="module")
@@ -241,6 +260,56 @@ def test_the_lock_is_released_when_the_sweep_raises_rather_than_stranding_the_ne
     assert not lock.exists()
     with sweep_lock(lock, timeout=0.0):
         assert lock.exists()
+
+
+def test_a_lock_whose_owner_process_is_gone_is_broken_into_rather_than_waited_on(tmp_path):
+    """The pid was recorded and never read, so a killed sweep blocked the next one for 1200s.
+
+    `sweep_lock`'s own docstring says the pid is "recorded for whoever has to read a stuck lock",
+    which described a human and not the code. Measured on this repository the same day this was
+    written: a suite that runs in 250s exceeded 600s twice, blocked on a lock whose owner had been
+    SIGTERMed mid-sweep. `STALE_LOCK_SECONDS` is an hour, so the age check does not reach it.
+
+    Asserted on the effect -- the lock is acquired -- with `timeout=0.0`, which is the setting under
+    which a live owner raises immediately. So this cannot pass by waiting.
+    """
+    lock = tmp_path / "sweep.lock"
+    lock.mkdir()
+    (lock / "owner").write_bytes(str(_a_pid_that_has_exited()).encode("utf-8"))
+    with sweep_lock(lock, timeout=0.0):
+        assert lock.is_dir()
+
+
+def test_a_lock_whose_owner_is_alive_is_still_refused(tmp_path):
+    """The other direction, and the dangerous one: breaking into a live sweep corrupts the tree.
+
+    Without this, `return False` from the liveness probe -- a probe that cannot answer, a platform
+    where the call is unavailable -- would satisfy the test above while reintroducing the two-sweep
+    corruption `test_two_sweeps_cannot_hold_the_working_tree_at_once` exists for.
+    """
+    lock = tmp_path / "sweep.lock"
+    lock.mkdir()
+    (lock / "owner").write_bytes(str(os.getpid()).encode("utf-8"))
+    with pytest.raises(MutationHarnessError, match="another mutation sweep"):
+        with sweep_lock(lock, timeout=0.0):
+            pass
+
+
+def test_a_lock_carrying_no_readable_owner_is_refused_rather_than_broken_into(tmp_path):
+    """`mkdir` and the `owner` write are two operations, so a live holder is briefly ownerless.
+
+    Reading an absent or unparseable owner as "gone" would break into a lock taken microseconds
+    ago, which is the exact corruption the lock exists to prevent. Unreadable means wait.
+    """
+    lock = tmp_path / "sweep.lock"
+    lock.mkdir()
+    with pytest.raises(MutationHarnessError, match="another mutation sweep"):
+        with sweep_lock(lock, timeout=0.0):
+            pass
+    (lock / "owner").write_bytes(b"not-a-pid")
+    with pytest.raises(MutationHarnessError, match="another mutation sweep"):
+        with sweep_lock(lock, timeout=0.0):
+            pass
 
 
 # --------------------------------------------------------------------------------------------

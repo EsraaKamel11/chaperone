@@ -43,19 +43,78 @@ def _unwrapped(text: str) -> str:
     return re.sub(r"\s+", " ", text.lower())
 
 
-IGNORED_DIRS = frozenset({".git", ".superpowers", "__pycache__", ".venv", "venv", "node_modules"})
+def _tracked(*patterns: str) -> list[Path]:
+    """The files git tracks under `patterns`, or `[]` where git cannot answer.
+
+    **Tracked is what "would publish" means**, and it is the rule the walk this replaces was
+    reaching for and could not state: it excluded six directory *names*, so a nested worktree or a
+    `.pytest_cache/README.md` in the checkout silently joined the denominator.
+
+    An empty list is returned rather than a fallback walk, and it is not silent: `git` absent, or a
+    tarball with no `.git`, makes every parametrized guard below collect zero cases, which reads
+    exactly like a clean pass. `test_the_published_file_enumeration_is_not_silently_empty` is what
+    turns that into a red build, following `tools/static_audit.py`'s "audited nothing" rather than
+    a `pytest.skip` a reader would mistake for a pass.
+    """
+    try:
+        completed = subprocess.run(
+            ["git", "ls-files", "-z", "--", *patterns],
+            cwd=REPO, capture_output=True, check=False,
+        )
+    except OSError:
+        return []
+    if completed.returncode != 0:
+        return []
+    return sorted(REPO / name for name in completed.stdout.decode("utf-8").split("\0") if name)
 
 
 def _all_markdown() -> list[Path]:
     """Every markdown file that would publish, not only the reader-facing five.
 
     `docs/superpowers/` ships with this repository, so a guard scoped to `docs/*.md` would leave the
-    design documents unchecked while claiming to cover the repository. `.superpowers/` is excluded
-    because it is gitignored build output and does not publish.
+    design documents unchecked while claiming to cover the repository.
     """
-    return sorted(
-        p for p in REPO.rglob("*.md") if not any(part in IGNORED_DIRS for part in p.parts)
+    return _tracked("*.md")
+
+
+def test_the_published_file_enumeration_is_not_silently_empty():
+    """Every parametrized guard below is a no-op over an empty enumeration.
+
+    `git ls-files` returning nothing -- no git on PATH, an exported tarball, a renamed root -- would
+    otherwise collect zero cases and report green, which is this repository's most-met failure shape.
+    The dependency on git is real and is stated here in executable form rather than in a comment.
+    """
+    markdown = _all_markdown()
+    assert markdown, (
+        "no tracked markdown was enumerated; `git ls-files` answered nothing, so every "
+        "published-file guard in this module would pass over an empty set"
     )
+    assert README in markdown, "the README is not among the tracked markdown files"
+
+
+def test_an_untracked_markdown_file_is_not_scanned_as_published():
+    """"Would publish" means tracked by git, and a filesystem walk cannot express that.
+
+    The walk this replaces excluded six directory *names*, so its denominator moved with whatever
+    happened to be sitting in the checkout: a nested worktree and a `.pytest_cache/README.md` took
+    it from 14 files to 29, and the parametrized guards below reported a different test count on
+    the two machines. A completeness guard whose denominator depends on the machine is a guard that
+    can be argued with.
+
+    Asserted as an effect on a real untracked file rather than by comparing the enumeration against
+    `git ls-files` a second time, which would compare the code against itself.
+    """
+    probe = REPO / ".chaperone-untracked-probe.md"
+    probe.write_text("untracked scratch\n", encoding="utf-8")
+    try:
+        walked = [p for p in REPO.rglob("*.md")]
+        assert probe in walked, "the probe was not written where a filesystem walk would find it"
+        assert probe not in _all_markdown(), (
+            "an untracked file is enumerated as published, so the denominator is whatever the "
+            "checkout happens to contain"
+        )
+    finally:
+        probe.unlink()
 
 
 def _defined_test_names() -> set[str]:
