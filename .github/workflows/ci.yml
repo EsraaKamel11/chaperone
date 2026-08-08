@@ -20,5 +20,17 @@ jobs:
       # build instead of printing a different number and exiting 0.
       - name: Day-2 demo
         run: python demo/day2.py
+      # Same reasoning, and one clause more. Scene 2 asserts that a redraft which now passes still
+      # rides to a human inside the handoff rather than transmitting, which is the regression that
+      # would otherwise print a plausible line and exit 0.
+      - name: Full demo, both scenes
+        run: python demo/full.py
+      # Runs the generator; it does NOT compare the output against the committed page, because that
+      # comparison would assert every rate in it and design spec 9.6 admits invariants only. What
+      # this catches is the generator failing to produce a document at all: a positional arm
+      # selector raising IndexError, and a rate over an empty denominator raising TypeError, are
+      # both crashes rather than wrong numbers, and both were live in this task's brief.
+      - name: Results report generates
+        run: python tools/report.py
       - name: Tests
         run: pytest -v
