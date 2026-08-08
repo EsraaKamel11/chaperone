@@ -183,8 +183,10 @@ field the predicate reads is set by a caller who already knows it. For `act:send
 field is a count that has to come from the audit log, and **no shipped path derives one**.
 
 `Gateway.sent_count()` is the function that derives it, and it is called from
-`tests/audit/test_send_cap.py` and from nowhere else. Every shipped construction of an `ActContext`
-hands the cap a literal. The out-of-process hook does run the predicate, against a `sent_count` taken
+`tests/audit/test_send_cap.py` and from nowhere else. Four shipped constructions of an `ActContext`
+hand the cap a literal zero, enumerated on [docs/ON_CALL.md](ON_CALL.md) and held to the tree by
+`test_the_documented_callers_that_hand_the_cap_a_literal_are_the_ones_the_tree_holds`. The fifth is
+the out-of-process hook, which does run the predicate, against a `sent_count` taken
 from the tool payload with a permissive default of 0 against a `send_cap` defaulting to 10,000, which
 is a count the caller asserted about itself; `tools/policy_hook.py` names the class in
 `UNENFORCEABLE_HERE` for that reason.

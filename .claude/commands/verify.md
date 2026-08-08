@@ -33,5 +33,9 @@ The last `git status --porcelain` must also print nothing. `report.py` and `pert
 regenerate committed pages, so a dirty tree after they run means a published document disagrees with
 what its generator produces.
 
-This list is the same set `.github/workflows/ci.yml` runs, in the same order, plus the two working
-tree checks. Where they differ, CI is the authority and this file is the stale one.
+**How this differs from CI, stated rather than implied.** `.github/workflows/ci.yml` runs the same
+tools in a different order, and it does **not** run `tools/lint_descriptions.py`, which only this
+gate runs. CI does run its own `git diff --exit-code` after the generators and again after the suite.
+Where the two disagree about whether something passes, CI is the authority; this file is the one that
+goes stale, and it has: it used to say a "no such file" for `coverage_map.py` or
+`lint_descriptions.py` was expected, and both have existed since Tasks 14 and 25.

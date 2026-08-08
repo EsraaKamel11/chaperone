@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 #: read by the consumer that has to act on it, because the two drifted: `recovery.
 #: requires_approval_for` looked for `"unknown"` alone, and `"error"` -- which `gateway.call` has
 #: always written for a tool that was entered and did not return cleanly -- is paired by
-#: `pair_intents`, so `resume` never visits it and no `unknown` is ever written for it. The one
+#: `pair_intents`, so `resume` does not visit that intent and writes no `unknown` for it. The one
 #: outcome that most needs a human before a re-attempt was the one that got none.
 #:
 #: `"aborted"` is deliberately absent: it is the only word carrying the verification that the
@@ -42,8 +42,8 @@ class AuditEntry(BaseModel):
     # the list showed where each word came from and nothing showed which words were being acted on.
     #   recovery.counted_sends:        releases on "aborted" and on nothing else.
     #   recovery.requires_approval_for: demands a human on every word in INDETERMINATE_OUTCOMES.
-    # A word added above with no line here is a word nothing consumes, which is the state "error"
-    # was in.
+    # A word added above with no line here is a word this note claims no consumer for. That was
+    # "error"'s state, and it was true; check before assuming it of the next one.
     outcome: str
     arg_digest: str
     seed: int | None

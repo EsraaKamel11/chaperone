@@ -239,7 +239,7 @@ def requires_approval_for(store: AuditStore, digest: str) -> bool:
     **`INDETERMINATE_OUTCOMES`, not `unknown` alone.** `error` is the other word that means nobody
     knows, and it fell through here in silence: `gateway.call` writes it for a tool that was
     entered and did not return cleanly, and an intent carrying it **is paired** by `pair_intents`,
-    so `resume` never visits it and no `unknown` is ever written for it. The one outcome that most
+    so `resume` does not visit that intent and writes no `unknown` for it. The one outcome that most
     needs a human before a re-attempt was the only indeterminate one this gate did not answer for.
 
     The set lives in `entry.py`, beside the vocabulary comment that owns these words, rather than

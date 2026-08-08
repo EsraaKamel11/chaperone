@@ -530,7 +530,7 @@ Everything on the right was verified absent from the tree, not assumed.
 | Discrimination, AUC with confidence interval | **Built** |
 | Matching: shared eligibility predicates, both ablation arms, contamination and recall loss | **Built.** Both metrics are published in [docs/RESULTS.md](docs/RESULTS.md) section 7, and both render absent rather than zero when their denominator is empty. |
 | Refinement loop, with futility and deadlock stops | **Built.** The redraft rides in the handoff as a proposal; it never transmits on its own. |
-| Capability ladder demotion transition and the tier-2 ceiling | **Built.** Nothing under `src/` calls any of it: `on_violation`, `on_pass` and `verbs_for` are exercised by the suite alone, and only `max_tier_for` has a caller, inside `LadderState.__post_init__`. The ceiling is enforced by that constructor; the transitions are a module nothing drives yet. |
+| Capability ladder demotion transition and the tier-2 ceiling | **Built.** The ceiling is enforced: `max_tier_for` is called by `LadderState.__post_init__`, so a state above it cannot be constructed. The transitions are not driven by anything: `on_violation`, `on_pass` and `verbs_for` are called from `tests/` and from nowhere else. Promotion was the only half previously disclosed. |
 | Four-agent topology and per-agent grants | **Designed, not built** |
 | Crash-recovery `resume` pass, branches (b) and (c) | **Built.** Nothing schedules it and nothing consults its approval gate yet. Branch (c) files no handoff: naming a recipient needs a resolver beside the log, which is undesigned. |
 | Thread-scope pass for cross-turn accumulation | **Designed, not built** |
