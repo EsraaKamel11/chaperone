@@ -118,11 +118,29 @@ def test_the_child_run_never_collects_the_sweep_itself(baseline_report):
     `--ignore` is resolved against the invocation directory, so the guard is only real if the child
     is launched from the root with an absolute path. Asserted on the child's own report of what it
     collected, not on the argument list handed to it.
+
+    **Matched on the module, not on a substring of the node id.** A node id is
+    `classname::name`, and `name` carries the parametrization id -- so a test elsewhere in the suite
+    that parametrizes over tracked files produces
+    `tests.test_readme_claims::..._named_anywhere...[tests\\test_mutations.py]`, and a substring
+    search read that as the sweep having collected itself. Measured: it turned this red on a run
+    where the child had collected nothing of the kind. The property is about which *module* ran, and
+    the classname is where that lives.
     """
     _, junit = baseline_report
     collected = collected_tests(junit)
     assert collected, "the child collected nothing, so its report proves nothing"
-    assert not [node for node in collected if "test_mutations" in node]
+    modules = {node.split("::", 1)[0] for node in collected}
+    assert modules, "no module could be read out of the collected node ids"
+    offenders = [module for module in modules if module.endswith("test_mutations")]
+    assert not offenders, f"the child collected the sweep: {offenders}"
+
+    # The narrowing above must not have narrowed to nothing. A recursion produces this node id
+    # shape, so the rule is exercised on it rather than trusted.
+    recursed = "tests.test_mutations::test_every_mutant_is_killed[deny_becomes_allow]"
+    assert recursed.split("::", 1)[0].endswith("test_mutations"), (
+        "the module rule no longer recognises a real recursion, so the assertion above is inert"
+    )
 
 
 def test_the_child_skips_the_sweep_even_if_the_ignore_stops_matching(tmp_path):
