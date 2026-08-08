@@ -28,21 +28,22 @@ that will not import -- into fail-open paths, and each is closed below rather th
   its own permissions from the caller is not a guard, so this is the fail-closed choice -- but it
   means a deployment can configure the two layers apart, and the shared artefact across layers is
   the predicate set, never the configuration. A test exhibits a jurisdiction the two disagree on.
-- **This layer enforces a strict subset of the in-process policy, and the missing predicate is
-  named.** `act:send_cap_exceeded` is the one act-class it cannot decide. Design spec 3.2 makes the
-  cap predicate pure over `(draft, count)` with the **gateway** supplying the count from the audit
-  log; this process holds no log and no state, so `sent_count` and `send_cap` can only arrive in
-  the payload or fall back to a permissive pair, and a caller that omits them gets no cap check at
-  all. `UNENFORCEABLE_HERE` declares it, a test exhibits the draft the two layers disagree on, and
-  the predicate-parity test asserts the declaration rather than letting silence imply parity.
+- **This layer enforces a strict subset of the in-process policy, and the missing predicates are
+  named.** `UNENFORCEABLE_HERE` is the list, a test exhibits the payload the two layers disagree on
+  for each entry, and the predicate-parity test asserts the declaration rather than letting silence
+  imply parity. Two act-classes are on it, and the two are undecidable here for different reasons:
+  `act:send_cap_exceeded` needs a count that lives in a log this process cannot read, and
+  `act:no_approval_token` reads an approval and a tier that arrive in the payload from the caller
+  being judged. See the note on the set itself.
 
   Same category as the model call not porting: the deterministic half is the portable half, and the
   stateful half is not. **So "the same policy is enforced at two layers" is true of the predicates
   and false of the coverage.** The honest claim is that every predicate this layer runs reaches the
-  in-process verdict, and that exactly one class -- counted by reading `UNENFORCEABLE_HERE`, not
-  from memory -- is undecidable here. An earlier draft of this sentence said "one predicate does
-  not run here at all" while a second, closable gap was open; the count was recalled rather than
-  measured, and it was wrong.
+  in-process verdict, and that the classes it cannot decide are the ones `UNENFORCEABLE_HERE`
+  names -- read from the set, never counted from memory. Two earlier drafts of this sentence
+  counted instead: one said "one predicate does not run here at all" while a closable gap was open,
+  and the version after it said "exactly one class" while the approval class was being decided from
+  caller input. Both were recalled rather than measured, and both were wrong.
 """
 from __future__ import annotations
 
@@ -69,17 +70,43 @@ CONSENTED = frozenset({"US", "UK"})
 GRANTED = frozenset({"send_message", "send_reply", "draft_message", "read_policy"})
 
 #: The violation classes this layer cannot decide, so the subset relation is declared rather than
-#: discovered. `evaluate_act_classes` runs here and can produce `act:send_cap_exceeded`, but only
-#: from a count that lives in the audit log this process cannot read -- so a caller who omits the
-#: count gets an allow where the in-process gate denies. Declared as a set rather than prose so the
-#: predicate-parity test can assert it, and so widening it is an edit somebody has to make on
-#: purpose.
+#: discovered. Declared as a set rather than prose so the predicate-parity test can assert it, and
+#: so widening it is an edit somebody has to make on purpose.
 #:
-#: **This set holds only what state makes impossible.** It briefly also covered unconsumed payload
+#: **The criterion is: this process holds no trustworthy source for the input the class turns on.**
+#: That is wider than the criterion first written here, which was "what state makes impossible",
+#: and the widening is deliberate rather than a stretch -- the second entry below fits the new
+#: wording and not the old one, and leaving the old wording in place would have been the same
+#: defect the entry records.
+#:
+#: - `act:send_cap_exceeded`. `evaluate_act_classes` runs here and can produce it, but only from a
+#:   count that lives in the audit log this process cannot read, so a caller who omits the count
+#:   gets an allow where the in-process gate denies.
+#: - `act:no_approval_token`. Worse than absent: `approval_token` and `tier` arrive in `tool_input`,
+#:   so the agent being judged supplies the evidence. `{"tier": 1}` puts the action below the rule
+#:   and any non-`None` token satisfies it, because nothing here can validate an approval. A guard
+#:   that accepts its own permissions from the caller is not a guard -- this module's docstring
+#:   holds `CONSENTED` and `GRANTED` as constants for exactly that reason -- and the same remedy
+#:   does not transfer: an approval is granted per action, so a token pinned as a module constant
+#:   or read once from the environment would make the predicate "is the deployment configured"
+#:   rather than "was this action approved", and a `tier` pinned high would stop reading the
+#:   action's tier at all. A declaration that the class is undecidable here is the true statement;
+#:   a constant that made it *look* decidable would be the stronger claim this repository exists to
+#:   refuse. `tier`'s fail-closed default of 2 is kept: it closes absence, which is the half that
+#:   can be closed.
+#:
+#: **The residual, because declaring a gap does not close it.** The predicate still runs, so this
+#: layer can still *deny* on `act:no_approval_token` from caller input. What it cannot do is refuse
+#: to be talked out of the denial, and that is the direction the declaration names.
+#:
+#: This set holds only gaps that cannot be closed here. It briefly also covered unconsumed payload
 #: keys, which was wrong twice over: refusing them is a pure function of the payload and needs no
 #: state at all, and a subset declaration that lists a *closable* gap reads as exhaustive while
 #: being incomplete -- worse than no declaration. That gap is closed below, not declared here.
-UNENFORCEABLE_HERE = frozenset({ViolationClass.SEND_CAP_EXCEEDED})
+UNENFORCEABLE_HERE = frozenset({
+    ViolationClass.SEND_CAP_EXCEEDED,
+    ViolationClass.NO_APPROVAL_TOKEN,
+})
 
 #: Every key of `tool_input` this module reads. Anything else is an argument no predicate here
 #: consumes, and it is checked as outbound content rather than ignored: nine consumed keys and a

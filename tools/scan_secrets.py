@@ -24,15 +24,33 @@ def _entropy(value: str) -> float:
     )
 
 
+#: The repository, not the working directory. `main()` scanned `Path.cwd()`, so the CI step and the
+#: `Stop` hook both examined whatever directory the process happened to start in. Every sibling
+#: tool anchors here.
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def eligible_files(root: Path) -> list[Path]:
+    """The files this scanner is willing to read, in a stable order.
+
+    Separate from `scan_tree` so `main` can tell "no secret found" from "nothing was looked at".
+
+    An extensionless file is read rather than skipped -- a `Dockerfile` or a `.env` written without
+    a suffix is exactly where a key lands -- so this is deliberately wider than `_TEXT_SUFFIXES`,
+    and `main`'s emptiness check is the narrower one for that reason.
+    """
+    return [
+        path
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+        and not any(part in _SKIP_DIRS for part in path.parts)
+        and (not path.suffix or path.suffix in _TEXT_SUFFIXES)
+    ]
+
+
 def scan_tree(root: Path) -> list[Finding]:
     findings: list[Finding] = []
-    for path in sorted(root.rglob("*")):
-        if not path.is_file():
-            continue
-        if any(part in _SKIP_DIRS for part in path.parts):
-            continue
-        if path.suffix and path.suffix not in _TEXT_SUFFIXES:
-            continue
+    for path in eligible_files(root):
         try:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
@@ -49,8 +67,24 @@ def scan_tree(root: Path) -> list[Finding]:
     return findings
 
 
-def main() -> int:
-    findings = scan_tree(Path.cwd())
+def main(root: Path | None = None) -> int:
+    """CI's first enforcement step. Anything other than 0 fails the build.
+
+    `root` defaults to the repository and exists so a test can point the real enforcement at a tree
+    it controls, exactly as `tools/static_audit.py` splits `audit_tree` from `main`. The exit code
+    is the property, so both directions are asserted through here rather than through `scan_tree`.
+
+    **A scan that read no eligible file exits 1.** `_TEXT_SUFFIXES = set()` otherwise leaves every
+    extension ineligible, finds nothing, and reports clean over a scan that examined nothing --
+    which is the shape three sibling tools already refuse with "audited nothing", "classified
+    nothing" and "linted nothing".
+    """
+    root = ROOT if root is None else root
+    eligible = eligible_files(root)
+    if not any(path.suffix in _TEXT_SUFFIXES for path in eligible):
+        print(f"{root}: no file carrying a scannable suffix -- scanned nothing")
+        return 1
+    findings = scan_tree(root)
     for path, lineno, rule in findings:
         print(f"{path}:{lineno}: {rule}")
     return 1 if findings else 0

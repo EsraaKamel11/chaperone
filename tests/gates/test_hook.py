@@ -405,10 +405,14 @@ def test_the_hook_runs_every_pure_predicate_the_in_process_gate_consults():
     assert sorted(pure - invoked) == []
 
     # Function-level parity is not class-level parity, and the difference has to be declared rather
-    # than inferred from silence. `evaluate_act_classes` runs here, but one of the classes it can
-    # produce needs a count this process does not hold, so the out-of-process layer enforces a
-    # strict subset. The exemption is named, and a test below exhibits it.
-    assert policy_hook.UNENFORCEABLE_HERE == frozenset({ViolationClass.SEND_CAP_EXCEEDED})
+    # than inferred from silence. `evaluate_act_classes` runs here, but two of the classes it can
+    # produce turn on inputs this process holds no trustworthy source for -- a count that lives in
+    # a log it cannot read, and an approval that arrives from the caller being judged -- so the
+    # out-of-process layer enforces a strict subset. Equality, not containment: a declaration that
+    # may quietly grow is a declaration nobody has to justify. A test below exhibits each entry.
+    assert policy_hook.UNENFORCEABLE_HERE == frozenset(
+        {ViolationClass.SEND_CAP_EXCEEDED, ViolationClass.NO_APPROVAL_TOKEN}
+    )
 
 
 # One logical draft per row, rendered twice: as JSON for the subprocess, and as objects for
@@ -699,8 +703,13 @@ def test_the_out_of_process_layer_enforces_a_strict_subset_and_names_the_gap():
 
     The corpus test passes `sent_count` and `send_cap` in every row precisely because of this: it
     supplies the state so the comparison isolates the predicates.
+
+    This exhibits the cap entry; the approval entry is exhibited by the test directly below, whose
+    reason is a different one: not state this process lacks, but evidence it takes from the caller.
     """
-    assert policy_hook.UNENFORCEABLE_HERE == frozenset({ViolationClass.SEND_CAP_EXCEEDED})
+    assert policy_hook.UNENFORCEABLE_HERE == frozenset(
+        {ViolationClass.SEND_CAP_EXCEEDED, ViolationClass.NO_APPROVAL_TOKEN}
+    )
     row = {**_DEFAULTS, "sent_count": 50, "send_cap": 50}
     stateless = {k: v for k, v in row.items() if k not in ("sent_count", "send_cap")}
 
@@ -712,6 +721,35 @@ def test_the_out_of_process_layer_enforces_a_strict_subset_and_names_the_gap():
     # And with the count supplied, the layers agree again -- so the gap is the missing state, not a
     # missing predicate. Without this the test would equally suit a hook that never checks the cap.
     assert _run_hook({"tool_input": row}).returncode == 2
+
+
+def test_the_approval_class_is_decided_from_caller_input_and_is_declared_unenforceable():
+    """The second gap in the same declaration, exhibited on the two payloads that open it.
+
+    `approval_token` and `tier` both arrive in `tool_input`, so the agent whose action is being
+    judged supplies the evidence it is judged on. `{"tier": 1}` puts the action below the rule, and
+    **any** non-`None` token satisfies it because nothing validates the value -- so the class is
+    suppressible two ways by the caller. `UNENFORCEABLE_HERE` asserted a completeness that did not
+    hold, which is worse than no declaration: the module's own comment says a subset declaration
+    that lists a closable gap reads as exhaustive while being incomplete.
+
+    Credit to the shape that is right and is kept: `tier` **defaults to 2**, so *absence* is
+    fail-closed. The hole is presence, and no default can close it.
+
+    Both rows deny in process on the same class, so this is a disagreement between the layers and
+    not a draft that was compliant all along.
+    """
+    assert ViolationClass.NO_APPROVAL_TOKEN in policy_hook.UNENFORCEABLE_HERE
+
+    for label, override in (
+        ("a tier the caller lowered", {"tier": 1, "approval_token": None}),
+        ("a token nothing validates", {"approval_token": "not-a-real-approval"}),
+    ):
+        row = {**_DEFAULTS, "approval_token": None, "tier": 2}
+        assert _run_hook({"tool_input": {**row, **override}}).returncode == 0, label
+        outcome = _in_process(row)
+        assert outcome.allow is False, label
+        assert outcome.payload["category"] == ViolationClass.NO_APPROVAL_TOKEN.value, label
 
 
 def test_the_shared_artefact_is_the_predicate_set_and_not_the_configuration():
