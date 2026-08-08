@@ -24,6 +24,7 @@ REPO = Path(__file__).resolve().parent.parent
 README = REPO / "README.md"
 DOCS = sorted((REPO / "docs").glob("*.md"))
 READER_FACING = [README, *DOCS]
+RESULTS_PAGE = REPO / "docs" / "RESULTS.md"
 
 TEST_NAME = re.compile(r"`(test_[a-z0-9_]+)`")
 SOURCE_PATH = re.compile(r"`((?:src|tests|tools|demo|corpus)/[A-Za-z0-9_./]+)`")
@@ -65,9 +66,20 @@ def _defined_test_names() -> set[str]:
 
 
 def test_the_docs_directory_is_not_silently_empty():
-    """Every other test here passes vacuously if the pages are missing."""
+    """Every other test here passes vacuously if the pages are missing.
+
+    `RESULTS.md` is named separately because one guard below is conditional on it.
+    `test_no_reader_facing_page_denies_the_results_this_tree_publishes` asks whether a page denies
+    results *that exist*, so deleting the page makes every denial true again and silences it. That
+    is the fail-open shape this repository has met six times, and it is closed here rather than by
+    citing the link checker, because the edit that deletes a page plausibly deletes the link to it
+    in the same commit.
+    """
     assert README.exists(), "README.md is missing"
     assert len(DOCS) >= 4, f"expected the four docs pages, found {[p.name for p in DOCS]}"
+    assert RESULTS_PAGE.exists(), (
+        "docs/RESULTS.md is missing; regenerate it with `python tools/report.py`"
+    )
 
 
 @pytest.mark.parametrize("path", READER_FACING, ids=lambda p: p.name)
@@ -227,12 +239,23 @@ def test_the_cross_turn_residual_is_named_as_a_limit():
 
 
 #: The modules whose designed-vs-built row can go stale, mapped to the text of their table row.
+#:
+#: **The registry is the guard's blind spot, and it had one.** This map covered five subsystems and
+#: the table listed more, so the row reading "Matching: **Designed, not built**" stood while
+#: `src/chaperone/matching/ablation.py` shipped and `tools/perturbation_log.py` imported its
+#: sibling. The test below was correct and was asked the wrong question, which is the failure its
+#: own docstring predicts one paragraph up. Every row whose subsystem has a module under `src/` is
+#: entered here; a row naming no module cannot be checked this way and is checked by reading.
 DESIGNED_VS_BUILT = {
     "src/chaperone/evals/calibration.py": "Checker calibration",
     "src/chaperone/evals/discrimination.py": "Discrimination",
     "src/chaperone/audit/recovery.py": "Crash-recovery",
     "src/chaperone/gates/refine.py": "Refinement loop",
     "src/chaperone/gates/ladder.py": "Capability ladder",
+    "src/chaperone/matching/ablation.py": "Matching: shared eligibility predicates",
+    "src/chaperone/policy/tripwires.py": "Lexical tripwires as a second disjunct",
+    "src/chaperone/gates/hook.py": "Executor chokepoint",
+    "src/chaperone/audit/chain.py": "Hash-linked audit",
 }
 
 
@@ -316,3 +339,93 @@ def test_the_reader_facing_docs_carry_no_em_dashes(path: Path):
     superpowers specs predate the rule and are not rewritten."""
     text = path.read_text(encoding="utf-8")
     assert "—" not in text, f"{path.name} contains an em-dash"
+
+
+def test_the_full_demo_runs_both_scenes_and_enters_the_send_tool_in_neither():
+    """The README's money demo is two scenes, and only one of them is `demo/day2.py`.
+
+    Scene 2 is the one a reader will not predict: the refinement loop resolves the denial, and the
+    resolved redraft **still** goes into the handoff for approval rather than transmitting. A
+    redraft that transmitted by itself after a permission failure would be an auto-retry of a
+    permission failure, which is the thing this architecture exists to refuse.
+
+    Production changes that break this: handing `refine`'s resolved body to the send registry
+    instead of to `build_handoff`; a futile denial that spends a redraft round; and a scene 2 whose
+    loop never runs, which would leave `refine` exercised by unit tests alone while the README
+    described a loop nobody had watched turn.
+
+    The script's own `assert not entered` runs before each print and `check=True` surfaces it, so
+    the effect is asserted inside the run and the shape of the run is asserted here.
+    """
+    completed = subprocess.run(
+        [sys.executable, str(REPO / "demo" / "full.py")],
+        capture_output=True, text=True, cwd=REPO, check=True,
+    )
+    out = completed.stdout
+
+    assert "SCENE 1" in out and "SCENE 2" in out, f"both scenes did not print:\n{out}"
+    assert out.count("send_message entered 0 times") == 2, (
+        f"the send tool was entered, or a scene did not route through the chokepoint:\n{out}"
+    )
+    assert "stopped_for=futile" in out, "scene 1 did not stop as futile"
+    assert "refinement_rounds=0" in out, "scene 1 spent a redraft round on a futile denial"
+    assert "stopped_for=resolved" in out, "scene 2 did not resolve"
+    assert re.search(r"refinement_rounds=[1-9]", out), (
+        f"scene 2's handoff carries no completed refinement round:\n{out}"
+    )
+
+
+#: Sentences that assert this tree publishes no results. Each was true once, and each is the kind of
+#: claim that stays on the page long after it stops being true, because nothing reads it.
+RESULTS_DENIALS = (
+    "the arms have not been run",
+    "no arm has been run",
+    "no rate has been computed",
+    "there is no `results.md` in this tree",
+    "a results section that does not exist",
+    "no rate is printed here yet",
+)
+
+
+@pytest.mark.parametrize("path", READER_FACING, ids=lambda p: p.name)
+def test_no_reader_facing_page_denies_the_results_this_tree_publishes(path: Path):
+    """A page that denies its own results is worse than a page with no results.
+
+    This exact drift has been corrected twice by hand, in the README and in `docs/measurement.md`
+    section 7, and both times a reader following a citation is who would have found it. The correction
+    is a guard rather than a third careful read.
+
+    The direction that stays open, stated rather than discovered: deleting `docs/RESULTS.md` makes
+    every phrase below true again and silences this test. That direction is closed by
+    `test_every_relative_link_in_the_reader_facing_docs_resolves`, because the README links the page.
+    """
+    published = RESULTS_PAGE.exists()
+    text = _unwrapped(path.read_text(encoding="utf-8"))
+    for phrase in RESULTS_DENIALS:
+        assert not (phrase in text and published), (
+            f"{path.name} says {phrase!r} while docs/RESULTS.md is in this tree"
+        )
+
+
+def test_the_readme_states_the_smallest_production_v1_and_names_the_surface_it_would_ship():
+    """A first-deployment section that names no surface is an opinion with a heading on it.
+
+    Production change that breaks this: dropping the section, or softening it into a paragraph that
+    recommends shipping the demo. The demo is an outbound surface at tier 2, and the whole point of
+    the section is that the first rung is the read-only one.
+    """
+    text = _unwrapped(README.read_text(encoding="utf-8"))
+    assert "smallest production v1" in text, "the README states no smallest production v1"
+    for named in ("research agent", "read-only", "nothing leaves"):
+        assert named in text, f"the smallest production v1 does not name {named!r}"
+
+
+def test_the_readme_carries_the_ladder_honesty_line():
+    """Promotion keyed to a suite score is the judgment error this artifact argues against, so the
+    refusal is stated rather than left to be inferred from `on_pass` having no caller.
+
+    Production change that breaks this: deleting the sentence, which costs nothing to do and is
+    exactly what an artifact wanting to look finished would delete.
+    """
+    text = _unwrapped(README.read_text(encoding="utf-8"))
+    assert "never to synthetic suite scores" in text, "the ladder honesty line is gone"
