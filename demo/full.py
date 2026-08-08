@@ -34,6 +34,7 @@ from tempfile import mkdtemp
 from chaperone.audit.chain import verify
 from chaperone.audit.gateway import Gateway
 from chaperone.audit.store import AuditStore
+from chaperone.evals.discrimination import QUALITY_PASS_THRESHOLD
 from chaperone.evals.judge import QualityScores, score_quality
 from chaperone.gates.checker import Checker, Verdict
 from chaperone.gates.engine import denial_result
@@ -92,7 +93,11 @@ def _scene(title: str, draft: Draft, transport, scores: QualityScores, redraft_b
     print(f"\nSCENE {title}")
     checker = Checker("sonnet-tier", "sonnet-tier", transport=transport, retries=0)
     judged = score_quality(draft, RECORD, transport=lambda m: scores)
-    print(f"QUALITY LANE   -> PASS  grounding={judged.grounding} fluency={judged.fluency} "
+    # Computed, not narrated. An earlier version printed the token `PASS` unconditionally, so the
+    # line said the judge approved whatever it was handed and the demo's own claim that everything
+    # between the stipulated inputs is computed was one word too generous.
+    lane = "PASS" if judged.mean() >= QUALITY_PASS_THRESHOLD else "FAIL"
+    print(f"QUALITY LANE   -> {lane}  grounding={judged.grounding} fluency={judged.fluency} "
           f"fit={judged.fit}")
 
     store = AuditStore(Path(mkdtemp()) / "audit.jsonl")
@@ -120,9 +125,15 @@ def _scene(title: str, draft: Draft, transport, scores: QualityScores, redraft_b
                             rounds=outcome.rounds)
 
     # The clause the scene exists for. A resolved redraft is a **proposal**: it rides to a human
-    # inside the escalation and the original attempt stays terminal. Asserted rather than printed,
-    # because a redraft that transmitted would still print exactly this line.
-    assert not entered, f"a redraft transmitted without approval: {entered!r}"
+    # inside the escalation and the original attempt stays terminal.
+    #
+    # **Asserted on the log rather than on `entered`.** `refine` is handed no registry and no
+    # gateway, so nothing it does could ever append to `entered` and `assert not entered` here
+    # cannot fail -- it read as the load-bearing clause and was decoration. The log can fail: a
+    # future edit routing the redraft through `guarded_call` would pass the gate, because the
+    # redraft resolves, and would write an `allowed` outcome. That is the regression this catches.
+    outcomes = [e.outcome for e in store.read_all()[0]]
+    assert "allowed" not in outcomes, f"a redraft transmitted without approval: {outcomes!r}"
     assert handoff.proposed_alternative == outcome.alternative, (
         "the escalation does not carry the alternative the loop produced"
     )

@@ -38,6 +38,7 @@ from tempfile import mkdtemp
 from chaperone.audit.chain import verify
 from chaperone.audit.gateway import Gateway
 from chaperone.audit.store import AuditStore
+from chaperone.evals.discrimination import QUALITY_PASS_THRESHOLD
 from chaperone.evals.judge import QualityScores, score_quality
 from chaperone.gates.checker import Checker, Verdict
 from chaperone.gates.engine import denial_result
@@ -65,7 +66,11 @@ def main() -> None:
         retries=0,
     )
     scores = score_quality(DRAFT, RECORD, transport=lambda m: QualityScores(0.94, 0.91, 0.89))
-    print(f"QUALITY LANE   -> PASS  grounding={scores.grounding} fluency={scores.fluency} fit={scores.fit}")
+    # Computed against `QUALITY_PASS_THRESHOLD`, not narrated. Printing `PASS` unconditionally made
+    # this line say the judge approved whatever it was handed, which is one word more than the
+    # docstring above may claim.
+    lane = "PASS" if scores.mean() >= QUALITY_PASS_THRESHOLD else "FAIL"
+    print(f"QUALITY LANE   -> {lane}  grounding={scores.grounding} fluency={scores.fluency} fit={scores.fit}")
 
     store = AuditStore(Path(mkdtemp()) / "audit.jsonl")
     gateway = Gateway(store, principal="conversation-agent", tier=2)
