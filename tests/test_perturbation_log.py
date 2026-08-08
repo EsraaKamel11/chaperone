@@ -68,17 +68,28 @@ def test_the_generator_writes_to_the_repository_and_not_to_the_directory_it_was_
     """`Path("docs/PERTURBATIONS.md")` resolves against the process cwd, so the document lands
     wherever the tool happened to be invoked and the committed one silently goes stale.
 
-    Production change that breaks this: a relative write target. The assertion is the effect on the
-    filesystem, in both directions: nothing appears beside the caller, and the repository's own
-    document is what the run refreshed.
+    Production changes that break this: a relative write target, and a `main` that writes nothing.
+
+    **The document is perturbed before the run, and that is the whole point.** Comparing the
+    committed bytes against themselves after a run passes whether the generator wrote to the
+    repository or never wrote anywhere at all, because the generator is deterministic and
+    `not (tmp_path / "docs").exists()` is satisfied by writing nothing too. Measured: with `main`
+    replaced by `pass`, that version of this test still reported green. A stale marker is written
+    first so that only a real write at the repository path can restore it, and it is restored in a
+    `finally` because this touches a committed file.
     """
     before = DOCUMENT_PATH.read_bytes()
+    DOCUMENT_PATH.write_bytes(b"# stale, and only a write at this path can undo it\n")
+    try:
+        completed = subprocess.run([sys.executable, str(REPO / "tools" / "perturbation_log.py")],
+                                   capture_output=True, text=True, cwd=tmp_path, check=True)
 
-    completed = subprocess.run([sys.executable, str(REPO / "tools" / "perturbation_log.py")],
-                               capture_output=True, text=True, cwd=tmp_path, check=True)
-
-    assert not (tmp_path / "docs").exists(), f"wrote beside the caller: {completed.stdout}"
-    assert DOCUMENT_PATH.read_bytes() == before
+        assert not (tmp_path / "docs").exists(), f"wrote beside the caller: {completed.stdout}"
+        assert DOCUMENT_PATH.read_bytes() == before, (
+            "the run left the repository's document stale, so it wrote elsewhere or not at all"
+        )
+    finally:
+        DOCUMENT_PATH.write_bytes(before)
 
 
 def test_the_content_gate_rows_are_answered_by_the_content_lane_and_not_by_the_act_lane():
