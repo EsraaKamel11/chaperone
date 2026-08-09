@@ -945,10 +945,13 @@ def test_no_shipped_path_derives_a_send_count_and_hands_it_to_an_act_context():
 #: **`pre_tool_use_deny` is deliberately not entered, and the reason is a measurement rather than a
 #: preference.** `_shipped_call_sites` does return `[]` for it, so it would measure uncalled and
 #: would need both a census entry and a backticked disclosure. But that entry would be literally
-#: true and substantively false. `demo/sdk_hook.py:44` registers the function with a `HookMatcher`
-#: as a bare name, for the SDK runtime to invoke; the shipped tree does drive that layer, and what
-#: the scan cannot see is an `ast.Call` node, because there is none to see. This is the shape the
-#: ledger guard below already rules out for `Branch.COMPLETE`: a roster entry that cannot be
+#: true and substantively false. `build_options` in `demo/sdk_hook.py` registers the function with a
+#: `HookMatcher` as a bare name, for the SDK runtime to invoke; the shipped tree does drive that
+#: layer, and what the scan cannot see is an `ast.Call` node, because there is none to see. (Named
+#: rather than line-numbered: this pointer cited a line, and the line moved when the live lane
+#: landed. What it describes is how the *function* is passed -- uncalled, as an `ast.Name` -- which
+#: the live lane did not change.) This is the shape the ledger guard below already rules out for
+#: `Branch.COMPLETE`: a roster entry that cannot be
 #: measured is a census reporting a name as uncalled because the scan cannot see it, which is worse
 #: than a disclosed gap. **The decline is about the scan, not about the symbol**, so there are two
 #: ways in: the commit that gives it a call site `_shipped_call_sites` can read, or the commit that

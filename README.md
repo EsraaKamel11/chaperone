@@ -708,9 +708,11 @@ reproduces*, not *the cycle was watched*, and this page does not say otherwise.
 
 **There is no live judging arm.** No test in this repository has ever contacted a model; there is no
 key-gated live judging arm, and every verdict any test consumes is a frozen recording. That is a
-different thing from the SDK demo's live lane, which is also unbuilt, and it is the far side of the
-gap the "Arm 1 is absent on purpose" note below describes: the first rung of the ladder has no
-honest verdict source here precisely because nothing here calls a model.
+different thing from the SDK demo's live lane, which is built and has been run once by hand: it is a
+demo rather than a test, no test imports it, and neither the suite nor CI runs it, so no verdict any
+test consumes came from it either. It is the far side of the gap the "Arm 1 is absent on purpose"
+note below describes: the first rung of the ladder has no honest verdict source here precisely
+because nothing under `tests/` calls a model.
 
 **The log orders events; it does not date them or classify their failures.** Audit entries carry a
 sequence number and no wall-clock timestamp, and every tool failure is logged under the single word
@@ -802,8 +804,9 @@ python demo/full.py            # both scenes, futile then refinable
 python tools/report.py         # regenerates docs/RESULTS.md
 python tools/static_audit.py   # the policy purity check that CI runs
 
-pip install -e ".[sdk]"                  # only the line below needs this; nothing else does
+pip install -e ".[sdk]"                  # only the two lines below need this; nothing else does
 python demo/sdk_hook.py --show-wiring    # the in-process registration, printed, connecting nowhere
+python demo/sdk_hook.py --live           # one real turn; needs credentials in the environment, and spends money
 ```
 
 No network access is used by any test. Model transports are recorded and replayed, which is what makes

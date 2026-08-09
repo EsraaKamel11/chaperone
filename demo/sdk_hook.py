@@ -31,6 +31,14 @@ to the model, as the tool's own result. `deny_reasons` reads the first channel a
 `refusals_in_results` the second; both demand the same reason string, so which channel spoke is
 reported rather than assumed, and a runtime that does populate the events is read without an edit.
 
+**The act classes decide this payload, and no content class is reached.** `evaluate_act_classes`
+runs ahead of the tripwires, and a payload carrying only a body has no approval token, no consented
+jurisdiction, and a namespaced tool identity outside the grant -- three act classes, before the
+draft's wording is looked at once. So what a run demonstrates is the refusal of an unapproved,
+ungranted send, and never a verdict on what the draft says. The body below is plain for that reason,
+and the printed block says so too, because a reader who runs this once sees a refusal and a claim
+that it governed and would otherwise be entitled to think the content lane had been exercised.
+
 **The gate is the flag, never a credential.** Without `--live` this prints the offline explanation
 and exits 0; under `--live` it attempts the connection and lets the runtime's own errors surface. A
 credential probe would gate on something other than what the run uses: the runtime is a separate
@@ -195,6 +203,12 @@ def deny_reasons(messages: list[Any]) -> list[str]:
     Keyed on the reason and not on the presence of an event, because an event proves the hook ran
     and the reason is what proves it refused. With no filesystem setting able to contribute one, a
     reason in this shape on this options object came from `pre_tool_use_deny`.
+
+    **Not paired to a `tool_use_id`, unlike `refusals_in_results`, and the pairing is not missing.**
+    A lifecycle event is not addressed to a call the way a tool result is, so there is no id here to
+    pair against. What rules out a refusal belonging to some other call is the composite the lane
+    asserts: `send_attempts` must be non-empty, and the matcher is a single qualified tool, so no
+    other tool on this options object has a hook that could contribute one.
     """
     return [
         text
@@ -292,8 +306,11 @@ def _print_transcript(messages: list[Any], entered: list[dict]) -> None:
                 else:
                     print(f"[user {type(block).__name__}]")
         elif isinstance(message, ResultMessage):
+            # `permission_denials` is printed because nothing establishes whether a hook deny
+            # populates it; an empty list settles that on the next run rather than by argument.
             print(f"[result] subtype={message.subtype} is_error={message.is_error} "
-                  f"num_turns={message.num_turns} cost_usd={message.total_cost_usd}")
+                  f"num_turns={message.num_turns} cost_usd={message.total_cost_usd} "
+                  f"permission_denials={message.permission_denials}")
         else:
             # Keys, never values: the session's own configuration is not this demo's to print.
             data = getattr(message, "data", {})
@@ -346,6 +363,8 @@ async def _run_live() -> None:
     print(f"tool results carrying the refusal:          {in_results}")
     print(f"the contract that fired: {(in_events + in_results)[0]}")
     print("entered == [], the refusal is in the transcript, no send result came back: it governed")
+    print("the act classes decide first, so this refused an unapproved, ungranted send -- no content"
+          " class was reached, and nothing above is a verdict on what the draft says")
 
 
 def main(argv: list[str]) -> int:
