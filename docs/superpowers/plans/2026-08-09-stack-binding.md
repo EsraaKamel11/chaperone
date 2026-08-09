@@ -911,7 +911,7 @@ from __future__ import annotations
 
 from chaperone.policy.act_classes import evaluate_act_classes
 from chaperone.policy.citations import validate_citations
-from chaperone.policy.payload import UNENFORCEABLE_HERE, build_act_inputs
+from chaperone.policy.payload import build_act_inputs
 from chaperone.policy.tripwires import evaluate_tripwires
 
 
@@ -922,7 +922,6 @@ async def pre_tool_use_deny(input_data: dict, tool_use_id, context) -> dict:
         + tuple(validate_citations(draft, record))
         + tuple(evaluate_tripwires(draft))
     )
-    findings = tuple(f for f in findings if f.violation_class not in UNENFORCEABLE_HERE)
     if not findings:
         return {}
     first = findings[0]
@@ -935,6 +934,16 @@ async def pre_tool_use_deny(input_data: dict, tool_use_id, context) -> dict:
 
 Match the predicate call signatures against `tools/policy_hook.py`'s decision block; it is the
 authority on order and arguments.
+
+**The sketch above originally filtered `UNENFORCEABLE_HERE` out of the findings, and that line was
+a fail-open. It is removed, and it must not come back.** The set declares classes that cannot be
+relied on to *fire* on this payload shape — not classes to suppress when they do. `policy/payload.py`
+says so where the set is defined, and `tools/policy_hook.py` does not filter either; it re-exports
+the set and denies on `findings[0]` whatever class that is. Filtering would take a genuine
+`act:figure_not_in_record` denial and turn it into an allow, which is the exact direction this
+surface exists to close. Measured both ways during implementation: applied to the finished module,
+the filter empties the findings on this task's own deny payload and returns `{}`. Carry the
+declaration in the module docstring, never in a filter.
 
 **Two guards live outside the block Task 8 extracts, and the sketch above omits both. Adding them
 is this task's work, not Task 8's.** `policy_hook.main` checks for an absent `body` *before*
