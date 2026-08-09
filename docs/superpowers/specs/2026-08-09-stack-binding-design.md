@@ -68,8 +68,12 @@ with the error text so the model sees what to fix. It is shared, not moved: a va
 never re-run.
 
 **The span rule.** A second output validator, closing over the draft, enforces that a non-null
-`Verdict.span` is a verbatim substring of `draft.body`, raising `ModelRetry` otherwise. This rule
-cannot live on the `Verdict` type (no draft in scope there). Before the rule is claimed anywhere,
+`Verdict.span` is a verbatim substring of `draft.body`, raising `ModelRetry` otherwise. Both
+output validators return a `FlagForReview` unchanged: the union member has no span and no class,
+and a validator that touched it would raise `AttributeError` into the availability loop,
+reintroducing the exact multiplication this section kills. The span rule applies only to a
+`Verdict` with a non-null span. This rule cannot live on the `Verdict` type (no draft in scope
+there). Before the rule is claimed anywhere,
 a permanent corpus test asserts substring-ness across all 160 recorded rows (spot-checks pass
 today); if that test ever finds a paraphrase, the rule is scoped to the live binding and the README
 says so.
@@ -114,9 +118,16 @@ result: one control, two effects, stop and route.
 
 Tests assert effects only: after a denied send the payload is retrievable from the named queue;
 a scripted run that never violates leaves every queue empty; a refinable denial and a futile denial
-both land (pinned separately). The queue becomes the single reviewer surface: `demo/full.py` and
-the scripted runs read the queue rather than calling `build_handoff` themselves, so a denial
-produces one handoff artifact, not two.
+both land (pinned separately). The queue becomes the single reviewer surface: `demo/day2.py`,
+`demo/full.py` and the scripted runs read the queue rather than calling `build_handoff`
+themselves, so a denial produces one handoff artifact, not two; both demos run in CI, so a second
+artifact would be a red gate, not a style point.
+
+One mechanical consequence, priced here because the guard is right when it fires: the
+`CheckerUnavailable` branch in `gates/engine.py` is the anchor line for the
+`checker_unavailable_fails_open` mutant in `tools/mutate.py`, and `apply_mutant` refuses a stale
+anchor. The commit that adds `Decision.outage` re-derives that anchor in the same change, per the
+precedent already recorded in `mutate.py`'s own comments.
 
 Scope, stated in the module docstring and README: this is in-process routing that makes the
 redirect real at the chokepoint. The audit log proves a redirect happened (`outcome=redirected`);
@@ -167,18 +178,26 @@ fired" is provable rather than assumed: no filesystem hook can have contributed.
 The genuinely new surface is not `decide()` (1,193 tests cover it); it is the payload adapter.
 The mapping from `tool_input` to `(Draft, Record, ActContext)` is extracted from
 `tools/policy_hook.py` into one pure module, `src/chaperone/policy/payload.py`, imported by both
-the exit-2 hook and the SDK callback, carrying `UNENFORCEABLE_HERE` with it (re-exported by
-`policy_hook` so the AST-derived declaration tests keep holding). The callback receives `tool_input` from the model,
+the exit-2 hook and the SDK callback, carrying `UNENFORCEABLE_HERE` and `CONSUMED_KEYS` with it.
+The test consequences are priced, not assumed: the equality assertions survive via re-export, but
+the two AST-derivation tests parse `policy_hook.py`'s file text and would go blind or red when the
+logic moves, so they are repointed to parse `policy/payload.py`'s builder (its `tool_input`
+parameter is the taint root) with their anti-vacuity floors kept. The callback itself is a plain
+async function in an SDK-free module, `src/chaperone/gates/sdk_callback.py`: payload in, deny-dict
+out (the deny shape is plain JSON and imports nothing). `demo/sdk_hook.py` is the only module in
+the tree that imports `claude_agent_sdk`, it only wires the callback into a `HookMatcher`, and it
+is imported by no test, so CI collection never touches the SDK and the static audit can read the
+callback it is asked to trust. The callback receives `tool_input` from the model,
 the same trust boundary as the exit-2 hook, so the same classes are caller-suppressible and the
 demo's README claim states its deny surface as content classes plus the declared-enforceable act
 classes only.
 
-**B-core** (about one day, shippable alone): the shared adapter, offline tests pinning the
-adapter's five documented traps (absent body is not empty body; payload-level `tool_name` wins;
-no default approval token; tier defaults to 2; unconsumed keys are refused), the existing
-three-layer parity tests extended to feed the callback the same payloads (a fourth decision
-surface joins the drift rule), the README claim, and the SDK version pin (0.2.130) in the demo
-docstring. **B-live** (final half day, the sole slip casualty inside B): the live run under a real
+**B-core** (about one and a half days once the derivation-test repointing is priced in, shippable
+alone): the shared adapter, the repointed derivation tests, offline tests pinning the adapter's
+five documented traps (absent body is not empty body; payload-level `tool_name` wins; no default
+approval token; tier defaults to 2; unconsumed keys are refused), the existing three-layer parity
+tests extended to feed the callback the same payloads (a fourth decision surface joins the drift
+rule), the README claim, and the SDK version pin (0.2.130) in the demo docstring. **B-live** (final half day, the sole slip casualty inside B): the live run under a real
 key, never in CI, asserting from effects: the send tool's closure sentinel is empty, a PreToolUse
 `HookEventMessage` deny is present in the stream (`include_hook_events=True`), and no successful
 `ToolResult` for the send tool exists in the transcript. Framing, backed by the Harness corpus's
@@ -199,7 +218,9 @@ in this repository, the drift its own source corpus shipped (an allowlist token 
 prompt it was coupled to). Second: `build_checker_messages` becomes keyword-only,
 `(*, draft, record)`; twelve call sites update mechanically, emitted messages are byte-identical
 so replay digests survive, and one README sentence records the signature change because
-`testing/recorded.py` is a replay surface external callers key against.
+`testing/recorded.py` is a replay surface external callers key against. These closures land
+**before** Section 1, so the binding's transport is written keyword-only from birth as the
+thirteenth caller rather than a retrofit.
 
 **The evals reporting adapter (conditional).** `evals/` gains an adapter, never a re-computation:
 the frozen recordings wrapped as `pydantic_evals.Case` and `Dataset`, the task function replaying
@@ -247,12 +268,16 @@ point: when the deny must be terminal, the enforcement provable by reading, and 
 the object the model drives.
 
 **Step 0, one commit, before anything else.** All three unbound dependencies move to
-`[project.optional-dependencies]`: `claude-agent-sdk`, `pydantic-evals`, and `pydantic-ai` itself,
-each at the floor the design verified (`pydantic-ai>=2.23`, `pydantic-evals>=2.23`,
-`claude-agent-sdk>=0.2.130`). A raised runtime floor on an unimported package would replace a
-stale claim with a fresher one; the extras state is the truthful one until each section restores
+`[project.optional-dependencies]` under named groups, `ai`, `evals` and `sdk`, each at the floor
+the design verified (`pydantic-ai>=2.23`, `pydantic-evals>=2.23`, `claude-agent-sdk>=0.2.130`),
+so a reader cloning at any point can run each surface from the manifest alone
+(`pip install .[sdk]` for the demo). A raised runtime floor on an unimported package would replace
+a stale claim with a fresher one; the extras state is the truthful one until each section restores
 its own dependency: Section 1 promotes `pydantic-ai` to runtime, Section 3 documents the
-`claude-agent-sdk` pin, Section 4 promotes `pydantic-evals`. The em-dash rule joins the Step 0
+`claude-agent-sdk` pin and keeps it an extra (the demo is the only importer and no test imports
+the demo), Section 4 promotes `pydantic-evals`. Each promotion lands in the same commit as the
+first test that imports the promoted package, so the manifest and the import graph never disagree
+in either direction at any commit. The em-dash rule joins the Step 0
 checklist: the README and `docs/architecture.md` contain zero em dashes today, and every new
 reader-facing sentence must hold that line.
 
@@ -289,8 +314,10 @@ committed-page binding test keeps holding.
 Section 5, with the withdrawn half stated as withdrawn.
 
 **7.3 The Agent SDK backing decision.** The out-of-process contract is documented with the
-wired-to-no-runtime qualifier (Section 3); the in-process path ships as B-core plus optionally
-B-live. Exact claim text for the README:
+wired-to-no-runtime qualifier (Section 3, unconditional); the in-process path is conditional,
+B-core then B-live, per 7.4. Exact claim text for the README, with the final sentence shipping
+only if B-core ships (the path guard in `tests/test_readme_claims.py` fails any README citing a
+file that does not exist, so the sentence and the demo land together or not at all):
 
 > `tools/policy_hook.py` implements the Agent SDK's out-of-process PreToolUse command-hook
 > contract: JSON on stdin, exit code 2 blocks, the reason on stderr. It is exercised from
@@ -301,10 +328,11 @@ B-live. Exact claim text for the README:
 > disabled, and its offline tests pin the payload adapter and the callback's decisions; nothing
 > in CI contacts a model.
 
-**7.4 Feasibility.** Bound this week: Step 0, Section 1 (2d), Section 2 (1d), G-core (2h),
-contract documentation (0.5d), Section 5 corrections (1h): about four days. Conditional, in
-order: B-core (1d), B-live (0.5d), the evals adapter (1d): the week does not hold all three, and
-the named casualties are B-live first, the evals adapter second. Not this week, delta sentences
+**7.4 Feasibility.** Bound this week: Step 0, G-core (2h, lands first), Section 1 (2d),
+Section 2 (1d), contract documentation (0.5d), Section 5 corrections (1h): about four days.
+Conditional, in order: B-core (1.5d, derivation-test repointing included), B-live (0.5d), the
+evals adapter (1d): three conditional days against roughly one remaining, so the week does not
+hold all three, and the named casualties are B-live first, the evals adapter second, B-core last. Not this week, delta sentences
 shipping in the README's Limits regardless:
 
 - Live judging arm: "No test in this repository has ever contacted a model; there is no key-gated
