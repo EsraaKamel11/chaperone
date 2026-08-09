@@ -1,4 +1,5 @@
 import ast
+import asyncio
 import dataclasses
 import inspect
 import json
@@ -14,6 +15,7 @@ from chaperone.audit.store import AuditStore
 from chaperone.gates.checker import Checker, Verdict
 from chaperone.gates.engine import decide, denial_result
 from chaperone.gates.hook import guarded_call, pre_tool_use
+from chaperone.gates.sdk_callback import pre_tool_use_deny
 from chaperone.policy.act_classes import ActContext
 from chaperone.policy.arguments import BODY_KEYS, TOO_DEEP, sendable_text, unsendable_in
 from chaperone.policy.payload import build_act_inputs
@@ -89,8 +91,13 @@ def test_the_same_policy_denies_at_all_three_layers(tmp_path: Path):
     """Portability: the control is architectural, not an artefact of one integration.
 
     Layer 1 is an out-of-process command hook that receives JSON on stdin and blocks by exit code.
-    Layer 2 is the in-process framework hook. Layer 3 is the executor chokepoint. One predicate set,
-    three enforcement points, same verdict.
+    Layer 2 is the in-process framework hook. Layer 3 is the executor chokepoint. **Layer 4 is the
+    in-process deny callback**, shaped to the Agent SDK's `PreToolUse` contract and importing no SDK,
+    so it takes the same payload the command hook reads and returns the deny as plain JSON. One
+    predicate set, four enforcement points, same verdict.
+
+    The name is kept at three because `docs/architecture.md` and `docs/failure-modes.md` cite it,
+    and a name that understates is the safe direction: every layer it named still agrees.
     """
     import json, subprocess, sys
     from pathlib import Path as P
@@ -99,17 +106,20 @@ def test_the_same_policy_denies_at_all_three_layers(tmp_path: Path):
 
     draft = _draft("Returns are guaranteed.")
 
-    # Layer 1: a real out-of-process hook script.
-    guard = P(__file__).resolve().parents[2] / "tools" / "policy_hook.py"
-    # `approval_token` is supplied so all three layers refuse for the tripwire and not for a
+    # One payload, read by the two layers that take one, so "the same draft" is a fact about the
+    # object rather than about two literals that happen to match.
+    #
+    # `approval_token` is supplied so every layer refuses for the tripwire and not for a
     # missing token: without it the act-class fires first and this passes on an unrelated denial,
     # which is what "the same policy" would then be resting on.
+    payload = {"tool_input": {"body": draft.body, "jurisdiction": "US",
+                              "tool_name": "send_message", "cited_fields": [],
+                              "approval_token": "tok"}}
+
+    # Layer 1: a real out-of-process hook script.
+    guard = P(__file__).resolve().parents[2] / "tools" / "policy_hook.py"
     completed = subprocess.run(
-        [sys.executable, str(guard)],
-        input=json.dumps({"tool_input": {"body": draft.body, "jurisdiction": "US",
-                                         "tool_name": "send_message", "cited_fields": [],
-                                         "approval_token": "tok"}}),
-        capture_output=True, text=True,
+        [sys.executable, str(guard)], input=json.dumps(payload), capture_output=True, text=True,
     )
 
     # Layer 2: the in-process framework hook.
@@ -119,13 +129,18 @@ def test_the_same_policy_denies_at_all_three_layers(tmp_path: Path):
     executor_result = guarded_call(_gateway(tmp_path), "send_message", {}, draft, RECORD, CONTEXT,
                                    CLEAN, TrackingRegistry({"send_message": lambda **kw: "sent"}))
 
+    # Layer 4: the in-process deny callback. Offline and keyless -- a plain coroutine over a dict.
+    callback = asyncio.run(pre_tool_use_deny(payload, None, None))
+
     assert completed.returncode == 2
     assert hook_outcome.allow is False
     assert executor_result.allowed is False
-    # One draft, one reason, three layers -- not three refusals that happen to coincide.
+    assert callback["hookSpecificOutput"]["permissionDecision"] == "deny"
+    # One draft, one reason, four layers -- not four refusals that happen to coincide.
     assert "content:forward_looking_return" in completed.stderr
     assert hook_outcome.payload["category"] == "content:forward_looking_return"
     assert executor_result.decision.findings[0].violation_class.value == "content:forward_looking_return"
+    assert "content:forward_looking_return" in callback["hookSpecificOutput"]["permissionDecisionReason"]
 
 
 def test_the_out_of_process_layer_allows_a_compliant_draft(tmp_path: Path):
@@ -559,12 +574,22 @@ def test_the_two_enforcement_layers_reach_the_same_verdict_and_the_same_category
         # process replaced the draft body rather than arriving as an argument.
         assert not (set(extra) & policy_hook.CONSUMED_KEYS), f"{label}: extra key is a consumed field"
         row = {**_DEFAULTS, **{k: v for k, v in overrides.items() if k != _EXTRA}}
-        completed = _run_hook({"tool_input": {**row, **extra}})
+        payload = {"tool_input": {**row, **extra}}
+        completed = _run_hook(payload)
         outcome = _in_process(row, extra)
+        # The fourth surface, on the identical payload the command hook reads. It is the layer the
+        # unconsumed-key rows bear on hardest: it builds from the same adapter, which reaches no key
+        # outside `CONSUMED_KEYS`, so a callback that skipped that check would allow six of the rows
+        # below while the other layers refuse them.
+        callback = asyncio.run(pre_tool_use_deny(payload, None, None))
         assert completed.returncode in (0, 2), f"{label}: hook exited {completed.returncode}"
         assert (completed.returncode == 2) is (not outcome.allow), (
             f"{label}: out-of-process blocked={completed.returncode == 2}, "
             f"in-process denied={not outcome.allow} ({completed.stderr.strip()})"
+        )
+        assert (callback != {}) is (not outcome.allow), (
+            f"{label}: callback denied={callback != {}}, in-process denied={not outcome.allow} "
+            f"({callback})"
         )
         if not outcome.allow:
             match = _BLOCKED.match(completed.stderr)
@@ -573,6 +598,13 @@ def test_the_two_enforcement_layers_reach_the_same_verdict_and_the_same_category
             # The detail as well as the class: the finding is built in one shared function now,
             # and comparing categories alone would not have noticed the wording diverging back.
             assert match.group(2) == str(outcome.payload["detail"]), label
+            # The callback reports one string rather than a class and a detail, so the whole of it
+            # is compared against the pair. Equality and not containment: the primary finding is
+            # `findings[0]`, so a layer that ordered its predicates differently would report a
+            # category this row also produces, and a substring check would accept it.
+            assert callback["hookSpecificOutput"]["permissionDecisionReason"] == (
+                f"{outcome.payload['category']}: {outcome.payload['detail']}"
+            ), label
         verdicts[label] = outcome.allow
     assert set(verdicts.values()) == {True, False}, f"the corpus lost a whole outcome: {verdicts}"
 
