@@ -479,6 +479,7 @@ DESIGNED_VS_BUILT = {
     "src/chaperone/policy/tripwires.py": "Lexical tripwires as a second disjunct",
     "src/chaperone/gates/hook.py": "Executor chokepoint",
     "src/chaperone/audit/chain.py": "Hash-linked audit",
+    "src/chaperone/gates/binding.py": "Pydantic AI binding",
 }
 
 

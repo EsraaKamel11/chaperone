@@ -538,7 +538,7 @@ Everything on the right was verified absent from the tree, not assumed.
 | Four-agent topology and per-agent grants | **Designed, not built** |
 | Crash-recovery `resume` pass, branches (b) and (c) | **Built.** Nothing schedules it and nothing consults its approval gate yet. Branch (c) files no handoff: naming a recipient needs a resolver beside the log, which is undesigned. |
 | Thread-scope pass for cross-turn accumulation | **Designed, not built** |
-| Pydantic AI binding for the checker | **Designed, not built** |
+| Pydantic AI binding for the checker | **Built.** `pydantic_ai_transport` in `src/chaperone/gates/binding.py` returns the callable `Checker` takes as its transport, so the content-class checker can run through pydantic-ai; prompt assembly stays in `build_checker_messages`. Nothing outside `tests/` constructs it, and neither demo runs through it. The 160 recorded verdicts predate the binding and were not re-run through it; the binding is exercised offline against FunctionModel, and no published rate was measured through it. |
 | Ladder promotion mechanics | **Designed, not built.** `on_pass` is a state transition with no caller, and it would not be keyed to these numbers. See below. |
 | Active learning on the matching shortlist | **Designed, not built.** Routing needs-verification records to the reviewers whose answers move the most eligibility mass needs a review queue with outcomes in it, and there is none. |
 | Sliding-window rate limiting | **Designed, not built.** `act:send_cap_exceeded` is a cap over a total, not over a window. A window needs a clock, and `policy/` may not hold one, so it belongs beside the log with the count. |
