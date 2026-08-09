@@ -15,7 +15,7 @@ land at the executor chokepoint and in `Decision`/`Handoff`. The SDK callback is
 function in `gates/` that no SDK import touches; only `demo/sdk_hook.py` imports
 `claude_agent_sdk`. Spec: `docs/superpowers/specs/2026-08-09-stack-binding-design.md`.
 
-**Tech Stack:** Python 3.11+, pydantic 2.x, pydantic-ai >=2.23 (TestModel/FunctionModel offline),
+**Tech Stack:** Python 3.11+, pydantic 2.x, pydantic-ai >=2.23 (FunctionModel offline),
 claude-agent-sdk >=0.2.130 (demo only), pytest.
 
 ## Global Constraints
@@ -393,7 +393,7 @@ pydantic-ai 2.23 names the output tool differently; the RED run tells you.
 """Pydantic AI bound as a Checker transport. Prompt assembly stays in build_checker_messages.
 
 The recorded verdicts predate this module and were not re-run through it; no published rate
-was measured through it. Offline tests drive it with FunctionModel and TestModel only.
+was measured through it. Offline tests drive it with FunctionModel only.
 """
 from __future__ import annotations
 
@@ -541,7 +541,7 @@ In `README.md`, change the row to `| Pydantic AI binding for the checker | **Bui
 append, in the same cell or the adjacent Limits paragraph, exactly:
 
 > The 160 recorded verdicts predate the binding and were not re-run through it; the binding is
-> exercised offline against FunctionModel and TestModel, and no published rate was measured
+> exercised offline against FunctionModel, and no published rate was measured
 > through it.
 
 - [ ] **Step 3: Full readme-claims suite green, then commit and push (first sendable boundary)**
@@ -1043,7 +1043,8 @@ git push
   plus the evals-adapter sentence; naming discipline)
 - Modify: `docs/architecture.md` (section 2 correction; the guardrail comparison with
   provenance)
-- Test: `tests/test_readme_claims.py` (the existing guards must stay green; no new test)
+- Test: `tests/test_readme_claims.py` (the existing guards must stay green; one new guard in
+  Step 1c)
 
 **Interfaces:** none (documentation only; every claim names an existing test or file).
 
@@ -1062,7 +1063,7 @@ sentence until this one. Second, spec section 2 requires the queue's scope state
 **both** the module docstring and the README; Task 7 writes the docstring, this step writes the
 README sentence: in-process routing that makes the redirect real at the chokepoint, with the
 audit log proving a redirect happened, the queued payload not reconstructible from it, and
-durable delivery to an external inbox out of scope. Second, decide and record whether
+durable delivery to an external inbox out of scope. Third, decide and record whether
 `pre_tool_use_deny` joins `ENFORCEMENT_ROSTER` in `tests/test_readme_claims.py`. The roster is a
 hand-maintained tuple, so nothing forces the decision, but its own contract is "the names the
 documents put weight on" and the README now puts weight on this one. If it joins, it **will**
@@ -1088,6 +1089,40 @@ intact. This text is em-dash-free and ships verbatim:
 Note the word deliberately not used: "first-class surface" was proposed and rejected, because it
 collides with the spec's deliberate subordination of the SDK path to the executor chokepoint.
 The tree's own vocabulary is "fourth decision surface."
+
+- [ ] **Step 1c: A coverage claim naming a symbol must find that symbol under `tests/`**
+
+Added by amendment A3, whose incident is this guard's killer case. A sentence in a tracked markdown
+file that asserts *test coverage* of a named symbol is checkable, and until now was not checked:
+the claim "the binding is exercised offline against `FunctionModel` and `TestModel`" was published
+into the README's guarded surface while `TestModel` occurred in no file under `tests/`, and the
+full suite stayed green. Build the dual of `ABSENCE_CLAIM` (`tests/test_readme_claims.py:1297`),
+following that guard's construction exactly: a verb-scoped regex capturing the symbol, checked
+against the tree, plus a planted-case killer proving the regex still locates what it claims to.
+
+Three coverage-verb forms, and only these three — a symbol named without one of them is not a
+coverage claim:
+
+    exercised ... against `X`      tests drive it with `X`      `X` in tests
+
+Scope it to `_all_markdown()` (`:75`), not to `READER_FACING`. The absence guard's own docstring
+gives the reason and it applies unchanged here: the plan is the document most likely to describe a
+tree that has since moved. Amendment A3 edits the plan's body in place for exactly this reason —
+had it only appended, this guard could never have landed green.
+
+Write the planted case from the incident: the literal sentence
+`the binding is exercised offline against \`FunctionModel\` and \`TestModel\`` must be located by
+the regex and reported, and the killer fails if it is not. Then confirm two live cases pass:
+spec section 1's `(\`FunctionModel\` in tests)` is a real coverage claim that resolves, and
+**amendment A3 must stay green while quoting the struck sentence** — a document that records a
+retracted claim is not making it. If the regex cannot separate those two, the verb scoping is
+wrong; widen nothing to force it green.
+
+State the residual in the guard's docstring rather than leaving it implied: the plan's tech-stack
+line enumerates `FunctionModel` with no verb at all, so no claim-shaped regex can reach it. A3
+alone corrected that line, and nothing holds it.
+
+Run the killer first and watch it fail before the regex exists.
 
 - [ ] **Step 2: The architecture section 2 correction**
 

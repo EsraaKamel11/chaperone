@@ -41,7 +41,7 @@ A new module `src/chaperone/gates/binding.py` provides the factory
     pydantic_ai_transport(model, checker_tier, drafter_tier, retries=2)
         -> Callable[[list[dict]], CheckerResult]
 
-`model` is a pydantic-ai model spec or `Model` instance (`TestModel`/`FunctionModel` in tests);
+`model` is a pydantic-ai model spec or `Model` instance (`FunctionModel` in tests);
 the two tier names feed `assert_checker_not_weaker(checker_tier, drafter_tier)` inside the factory,
 so the strength ordering is enforced at both construction points from one predicate. The returned
 transport is accepted by `Checker` unchanged; `gates/checker.py` gains exactly one clause (below).
@@ -100,8 +100,11 @@ checker tests survive unedited; every change is additive.
 **Claims.** The README row flips to Built in the same commit that adds
 `src/chaperone/gates/binding.py` to the `DESIGNED_VS_BUILT` registry, and ships with this sentence:
 the 160 recorded verdicts predate the binding and were not re-run through it; the binding is
-exercised offline against `FunctionModel` and `TestModel`, and no published rate was measured
+exercised offline against `FunctionModel`, and no published rate was measured
 through it.
+
+The clause naming what exercises the binding is written from the tree at ship time, never quoted
+forward from here — see A3.
 
 ## 2. The redirect destination and the outage marker
 
@@ -378,3 +381,31 @@ the process environment; its authentication is the CLI's own OAuth credentials, 
 credential-gated lane could skip silently forever on a CLI-login machine and be recorded as landed
 without ever having run. Under `--live` the SDK's own errors surface; a silent skip under the flag
 is forbidden.
+
+**A3 (review round, 2026-08-09).** `TestModel` is struck from sections 0 and 1 and from the plan's
+three matching lines. It named nothing: no section specified a `TestModel` test, and the plan
+contradicted itself inside one task by mandating a test-file docstring reading "run offline on
+FunctionModel" alongside a module docstring reading "FunctionModel and TestModel only". The word
+survived in two prose asides and propagated from there into a claim sentence marked
+verbatim-mandatory, which reached the README's shipping commit and was cut there by the
+implementer, on the grounds that shipping it would have contradicted — in the same commit — the
+docstring of the module the sentence describes. The README therefore shipped narrowed ahead of
+this amendment; this entry ratifies it.
+
+The amendment edits the body rather than appending, because a brief is generated from the body
+and an appendix cannot stop the body from re-seeding the struck word.
+
+**The rule this teaches.** A claim sentence marked verbatim-mandatory may fix invariants and
+provenance — "predate the binding", "never re-run", "no published rate was measured" — because
+those are properties of how the work is done and cannot drift as the tree changes. Any clause
+enumerating tree contents ("exercised against X", "tests drive it with X") is written from the
+tree at ship time. Design documents state intent; only the tree states what exists.
+
+Rejected here: adding a `TestModel` test to make the sentence true. A test written to make a
+sentence true has no honest RED, and the property it would add — that the output union is
+satisfiable by a generic schema-driven generator — belongs to the library, not to this tree. Its
+pass would hinge on the stub's filler values: a filler emitting `violates=True` with
+`violation_class=None` is schema-valid, trips the semantic validator, and reddens the build from
+library internals with nothing in this repository having changed. No sentence naming a production
+change in this repository could be written for it, which is this project's own test for whether a
+test earns its place.
