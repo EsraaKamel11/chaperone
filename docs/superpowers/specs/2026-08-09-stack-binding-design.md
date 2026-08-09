@@ -67,13 +67,16 @@ with the error text so the model sees what to fix. It is shared, not moved: a va
 `Verdict` type itself would make frozen recorded rows raise at construction, and the recordings are
 never re-run.
 
-**The span rule.** A second output validator, closing over the draft, enforces that a non-null
-`Verdict.span` is a verbatim substring of `draft.body`, raising `ModelRetry` otherwise. Both
-output validators return a `FlagForReview` unchanged: the union member has no span and no class,
-and a validator that touched it would raise `AttributeError` into the availability loop,
-reintroducing the exact multiplication this section kills. The span rule applies only to a
-`Verdict` with a non-null span. This rule cannot live on the `Verdict` type (no draft in scope
-there). Before the rule is claimed anywhere,
+**The span rule.** Plan-time correction, recorded here so spec and plan agree: at the transport
+seam the draft is out of scope (`Checker.check` builds messages and calls `transport(messages)`;
+no draft reaches the binding), so the span rule cannot be an output validator closing over the
+draft. It is instead a shared pure predicate in `gates/checker.py`, enforced in `Checker.check`
+after `_reject_unusable` for every transport alike: a non-null `Verdict.span` that is not a
+verbatim substring of `draft.body` is refused, and the refusal fails closed through the existing
+loop. Feedback retry applies to the semantic rule only; span violations deny rather than being
+fed back, and the README states that scope. The predicate returns `None` for a `FlagForReview`
+(no span to check) and for a null span. This rule cannot live on the `Verdict` type (no draft in
+scope there). Before the rule is claimed anywhere,
 a permanent corpus test asserts substring-ness across all 160 recorded rows (spot-checks pass
 today); if that test ever finds a paraphrase, the rule is scoped to the live binding and the README
 says so.
