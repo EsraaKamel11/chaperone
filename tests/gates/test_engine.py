@@ -6,9 +6,12 @@ import pytest
 
 from chaperone.gates.checker import Checker, CheckerUnavailable, FlagForReview, Verdict
 from chaperone.gates.engine import decide, denial_result, disposition_for
-from chaperone.policy.act_classes import ActContext
+from chaperone.policy.act_classes import ActContext, evaluate_act_classes
+from chaperone.policy.citations import validate_citations
 from chaperone.policy.tripwires import evaluate_tripwires
-from chaperone.policy.types import Disposition, Draft, Finding, Message, Record, ViolationClass
+from chaperone.policy.types import (
+    Decision, Disposition, Draft, Finding, Message, Record, ViolationClass,
+)
 
 RECORD = Record(fields={"round_size": "10000000"})
 CONTEXT = ActContext(approval_token="tok", tier=2, consented_jurisdictions=frozenset({"US"}),
@@ -140,6 +143,20 @@ def test_disposition_is_derived_from_category_in_one_place():
 # ---   test_every_denial_in_the_battery_is_a_usable_denial_result
 # ---   test_no_decision_in_the_battery_is_allowed_while_carrying_findings
 # ---       -- a denial returned with an empty finding tuple, and an allow returned carrying one.
+# ---
+# --- Three more guards, listed apart because they were watched failing against something other
+# --- than a mutant and the sentence above stays true only of the entries it covers:
+# ---   test_an_unavailable_checker_names_the_outage_on_the_decision
+# ---   test_a_judged_violation_carries_no_outage
+# ---       -- watched failing against `Decision` carrying no `outage` field at all. The pair is
+# ---          what stops the field from being set on every denial or on none.
+# ---   test_every_battery_cell_exercises_the_mechanism_its_label_names
+# ---       -- watched failing against the SHIPPED `_CHECKERS` fixture rather than a mutant, which
+# ---          is the stronger provenance. The "violating" verdict quoted a span present in only
+# ---          one of the five bodies, so `Checker.check` refused it everywhere else and all four
+# ---          cells that reached a checker took the "down" route while wearing the other label.
+# ---          Both battery tests stayed green throughout: their assertions are structural and
+# ---          neither reads a span. The fixture is corrected below; this is what holds it.
 # --- Every test above this banner is the brief's own.
 
 
@@ -170,25 +187,90 @@ _BODIES = (
 _CHECKERS = (
     ("clean", lambda: _checker(CLEAN)),
     ("flag", lambda: _checker(FlagForReview(reason="unclear"))),
+    # `span=None`, which is the minimal fix and not the only one. A verdict's span must be a
+    # verbatim substring of the draft body, and this one verdict is decided against all five bodies
+    # -- so any single quoted span is absent from four of them, `Checker.check` refuses it, and the
+    # cell routes through `CheckerUnavailable` while still being labelled "violating". Measured on
+    # the `"accept $8M"` this replaces: all four cells that reach a checker took the "down" route.
+    # A per-body span table would serve equally well and would cost a fixture rebuild; quoting
+    # nothing costs nothing, because no battery test reads a span.
+    # `test_every_battery_cell_exercises_the_mechanism_its_label_names` is what holds this.
     ("violating", lambda: _checker(Verdict(violates=True, violation_class=ViolationClass.NEGOTIATES_TERMS,
-                                           confidence=0.7, span="accept $8M"))),
+                                           confidence=0.7, span=None))),
     ("unnamed", lambda: _RawChecker(Verdict(violates=True, confidence=0.9))),
     ("down", lambda: _checker(TimeoutError("down"))),
 )
 
 
-def _battery() -> dict[str, object]:
-    """Every combination of body, checker answer and jurisdiction, decided.
+def _battery_cells() -> list[tuple[tuple[str, str, str], Draft, Decision]]:
+    """Every combination of body, checker answer and jurisdiction: its key, its draft, its decision.
 
     A battery, not a proof: it is the cross product of five bodies chosen to reach each branch,
     five checker answers and both jurisdictions. It says nothing about a body nobody thought of.
+
+    **The key is a tuple and the draft comes back with the decision**, both so that a test can ask
+    which checker answer a cell was built from without parsing a formatted string, and so that
+    asking what the act lane does to a cell needs no second construction of the draft -- a second
+    one would be free to drift from this one, and the label test below would then be asserting
+    about a draft the battery never decided.
     """
-    return {
-        f"{body!r}/{name}/{juris}": decide(_draft(body, recipient_jurisdiction=juris), RECORD, CONTEXT, make())
-        for body in _BODIES
-        for name, make in _CHECKERS
-        for juris in ("US", "DE")
-    }
+    cells = []
+    for body in _BODIES:
+        for name, make in _CHECKERS:
+            for juris in ("US", "DE"):
+                draft = _draft(body, recipient_jurisdiction=juris)
+                cells.append(((body, name, juris), draft, decide(draft, RECORD, CONTEXT, make())))
+    return cells
+
+
+def _battery() -> dict[tuple[str, str, str], Decision]:
+    """The battery keyed by cell, for the tests that read only the decisions."""
+    return {key: decision for key, _, decision in _battery_cells()}
+
+
+def _checker_contribution(draft: Draft, decision: Decision) -> tuple[Finding, ...]:
+    """The findings the checker contributed, with the tripwire findings stripped off the end.
+
+    `decide` writes `checker_findings + tripwire_findings` on every route that consults a checker and
+    gets an answer back, so the tripwire findings are a suffix and whatever precedes them is what the
+    checker added. The suffix is **checked rather than assumed**: the unavailable route returns its
+    finding alone and appends no tripwires, so on that route the suffix does not match and the whole
+    tuple is the contribution -- which is the right answer there too.
+    """
+    tripwires = evaluate_tripwires(draft)
+    if tripwires and decision.findings[-len(tripwires):] == tripwires:
+        return decision.findings[:-len(tripwires)]
+    return decision.findings
+
+
+def _mechanism_shown(draft: Draft, decision: Decision) -> str:
+    """Which `_CHECKERS` answer this decision shows it acted on, read off effects and nothing else.
+
+    The return value is compared against the cell's label, so a cell whose label names one mechanism
+    and whose decision shows another fails rather than being counted.
+
+    **Only one of the three plumbing routes is structural, and it is the one this task added.**
+    `outage` names the unavailable route as a field. The flag route and the violation-without-a-class
+    route both produce `OTHER` and differ only in the prose `decide` writes into `Finding.detail`, so
+    they are told apart by that prose -- a substring match over a sentence in another module, which is
+    the weakest discriminator here and is named as such rather than left to be discovered. An
+    unrecognised shape returns a string no label equals, so it fails loudly instead of being
+    attributed to whichever branch happened to be last.
+    """
+    if decision.outage is not None:
+        return "down"
+    contributed = _checker_contribution(draft, decision)
+    if not contributed:
+        return "clean"
+    first = contributed[0]
+    if first.violation_class is not ViolationClass.OTHER:
+        return "violating"
+    detail = first.detail or ""
+    if "flagged for review" in detail:
+        return "flag"
+    if "without naming a class" in detail:
+        return "unnamed"
+    return f"unrecognised({first.violation_class.value}: {detail!r})"
 
 
 def _engine_functions(matches) -> set[str]:
@@ -392,6 +474,49 @@ def test_a_verdict_that_names_the_unclassified_class_is_futile_too():
     assert denial_result(decision)["span"] == "round is $10M"
 
 
+def test_an_unavailable_checker_names_the_outage_on_the_decision():
+    """A denial for downtime and a denial for a judgement are otherwise the same shape.
+
+    Both are `allowed is False` carrying `OTHER` and a futile disposition, and the only thing that
+    told them apart was prose inside `Finding.detail` -- which `Handoff` does not carry at all, so
+    a human reviewing an escalation could not tell whether a checker had judged the draft or had
+    been down. The difference is carried as a field because it is the reviewer's, not a grep's.
+    """
+    decision = decide(_draft("The round is $10M."), RECORD, CONTEXT, _checker(TimeoutError("down")))
+    assert decision.allowed is False
+    assert decision.outage is not None and "down" in decision.outage
+
+
+def test_an_outage_the_transport_never_explained_still_says_something_actionable():
+    """`str(TimeoutError())` is `""`, so the field could be non-`None` and falsy at the same time.
+
+    `Checker.check` raises `CheckerUnavailable(str(last))`, and an exception raised with no message
+    stringifies to the empty string -- so a real transport failure produced `outage=""`. Every test
+    here asks `is not None` and would not have noticed. A consumer asking the natural question, `if
+    decision.outage:`, reads an empty outage as a judgement, which is the direction that looks like a
+    clean denial and so is never questioned. The empty string is the value a reviewer can act on
+    least, so it is the one value this field must never carry.
+    """
+    decision = decide(_draft("The round is $10M."), RECORD, CONTEXT, _checker(TimeoutError()))
+    assert decision.allowed is False
+    assert decision.outage, "a falsy outage reads as no outage to any consumer testing truthiness"
+    assert "unavailable" in decision.outage
+
+
+def test_a_judged_violation_carries_no_outage():
+    """The other direction, and the one that stops the field from just meaning "denied".
+
+    A checker that answered, and answered "violates", is the case the outage field must stay empty
+    on. Without this half, `outage=str(exc)` moved onto any denial branch would still pass the test
+    above while telling the reviewer every block was downtime.
+    """
+    verdict = Verdict(violates=True, violation_class=ViolationClass.ADVISES_ON_MERITS,
+                      confidence=0.9, span="a strong deal")
+    decision = decide(_draft("Honestly, this is a strong deal."), RECORD, CONTEXT, _checker(verdict))
+    assert decision.allowed is False
+    assert decision.outage is None
+
+
 def test_the_denial_result_renders_the_class_and_the_disposition_as_their_values():
     """`f"{ViolationClass.ADVISES_ON_MERITS}"` is `"ViolationClass.ADVISES_ON_MERITS"`.
 
@@ -462,6 +587,87 @@ def test_no_decision_in_the_battery_is_allowed_while_carrying_findings():
     for label, decision in decisions.items():
         assert (decision.allowed is True) == (decision.findings == ()), label
         assert (decision.allowed is True) == (decision.disposition is Disposition.ALLOW), label
+
+
+def test_every_battery_cell_exercises_the_mechanism_its_label_names():
+    """The labels in `_CHECKERS` were decoration until `Decision.outage` existed to check them.
+
+    A cell labelled `"violating"` is meant to exercise the checker-finding path and one labelled
+    `"down"` the fail-closed path. Nothing held them to it. `Checker.check` refuses a span the draft
+    body does not contain verbatim, and the `"violating"` verdict quoted `"accept $8M"` -- a
+    substring of exactly one of the five bodies -- so on every other body that verdict was unusable
+    and the cell routed through `CheckerUnavailable` instead. Measured before the fixture was
+    corrected: **all four `"violating"` cells that reach a checker at all were taking the `"down"`
+    route**, and both battery tests above stayed green throughout, because their assertions are
+    structural and neither reads a span. `outage` is the first field that can see the difference.
+
+    Two directions, and only one of them may be filtered:
+
+    - **Over every cell, unfiltered**: an outage marks a `"down"` cell and nothing else. This is the
+      direction that catches a mislabelled cell, so it is asserted over the whole battery. A filter
+      here could exclude the very cells carrying the defect and pass.
+    - **Over act-clean cells only**: a `"down"` cell carries an outage. `decide` returns on the act
+      lane before consulting any checker, so on the cells the act lane denies -- every `DE` cell and
+      every cell whose body cites a figure the record does not hold -- no checker label names
+      anything at all. The filter is `decide`'s own short-circuit condition, evaluated with the same
+      two policy predicates, rather than a guess at which cells it covers.
+
+    The coverage assertion between them is what stops that filter from excluding everything: a label
+    no act-clean cell carries is a mechanism this test would otherwise silently stop checking.
+
+    **All five labels, not only the outage dimension.** The first version of this test asserted the
+    outage direction alone, which held `"down"` to something and the other four labels to nothing but
+    "not the outage route". Demonstrated, not argued: flipping the `"violating"` verdict to
+    `violates=False` turned every one of its cells into an *allow* and this test stayed green. So each
+    label is now compared against the mechanism its cell actually shows, by `_mechanism_shown`.
+
+    **Scope, stated rather than hedged.** The universal is over cells that reach a checker. Thirty of
+    the fifty reach none -- all twenty-five `DE` cells, denied `act:jurisdiction_not_consented`, and
+    the five `US` cells whose body cites `$8M` against a record holding only `$10M`. On those, no
+    checker label names anything, and asserting a mechanism would be asserting about a call that
+    never happened.
+    """
+    cells = _battery_cells()
+    for (body, name, juris), _, decision in cells:
+        if decision.outage is not None:
+            assert name == "down", (
+                f"{body!r}/{name}/{juris}: labelled as a checker that answered, and denied for a "
+                "detector outage instead -- the cell exercises a mechanism its label does not name"
+            )
+
+    # The filter **restates** `decide`'s short-circuit (`engine.py`, first statement of `decide`)
+    # rather than deriving from it, so a third act predicate added there would leave this copy stale.
+    # No invocation spy is permitted here, and nothing else observable separates "the checker was
+    # consulted" from "the act lane answered first", so this is the least-bad option rather than a
+    # good one. **The drift is asymmetric and only one side is silent.** A predicate `decide` has and
+    # this does not lets act-denied cells into the assertions below, where a `"down"` cell carrying no
+    # outage fails loudly. A predicate this has and `decide` does not merely drops cells, and the
+    # coverage assertion notices only if it drops every cell carrying some label -- that direction is
+    # the quiet one.
+    reachable = [
+        (name, f"{body!r}/{name}/{juris}", draft, decision)
+        for (body, name, juris), draft, decision in cells
+        if not (evaluate_act_classes(draft, RECORD, CONTEXT) + validate_citations(draft, RECORD))
+    ]
+    assert {name for name, _, _, _ in reachable} == {name for name, _ in _CHECKERS}, (
+        "a checker answer that no act-clean cell carries is a label the battery asserts nothing "
+        f"about: {sorted({name for name, _ in _CHECKERS} - {name for name, _, _, _ in reachable})}"
+    )
+    for name, cell, draft, decision in reachable:
+        assert _mechanism_shown(draft, decision) == name, (
+            f"{cell}: the decision shows the {_mechanism_shown(draft, decision)!r} mechanism, so "
+            f"the cell does not exercise the {name!r} one its label names"
+        )
+
+    # The `"violating"` label names a verdict this file writes, so the class it carries is pinned
+    # here too: `_mechanism_shown` answers `"violating"` for any class outside `OTHER`, and the
+    # fixture naming a different one would satisfy it while the battery stopped covering the class
+    # the label was chosen for.
+    for name, cell, draft, decision in reachable:
+        if name == "violating":
+            assert [f.violation_class for f in _checker_contribution(draft, decision)] == [
+                ViolationClass.NEGOTIATES_TERMS
+            ], f"{cell}: the violating verdict no longer reaches the findings as the class it names"
 
 
 # --- Below this line, and ONLY below it, are limits: behaviours asserted in executable form

@@ -59,13 +59,14 @@ def test_a_futile_class_carries_a_deflection_at_zero_rounds():
 
 
 def test_omitting_any_single_field_is_refused():
-    """`Handoff(reason_category=...)` raising proves *one* field is required, not nine.
+    """`Handoff(reason_category=...)` raising proves *one* field is required, not ten.
 
-    Eight of the nine could carry a default and the one-argument construction above would still
+    Nine of the ten could carry a default and the one-argument construction above would still
     raise. Design spec 4.7 needs every field the reviewer reads, so every field is dropped in turn
     from a complete payload and each drop has to be refused on its own. The payload is built from
     the model's own field list, so a field added later is covered without editing this test --
-    and `proposed_alternative: str | None` is the one a default would look most natural on.
+    and the two `str | None` fields, `proposed_alternative` and `detector_outage`, are the ones a
+    default would look most natural on.
     """
     complete = build_handoff(DRAFT, RECORD, DECISION, alternative="a deflection", rounds=1).model_dump()
     assert set(complete) == set(Handoff.model_fields), "the complete payload is missing a field"
@@ -100,6 +101,12 @@ def test_every_field_traces_to_the_draft_the_record_or_the_decision():
     verbatim, so an investor who opens with "as discussed" fails it on a correct handoff. This
     pins each field to the argument it came from instead, which is what 4.7 actually asks: the
     reviewer cannot see the conversation, so nothing may be reachable only from there.
+
+    **`detector_outage` needs a second decision, and the first version of this did not have one.**
+    `DECISION` carries no outage, so `handoff.detector_outage == DECISION.outage` was `None == None`
+    -- satisfied by `build_handoff` hardcoding `None` and never reading the decision at all. A
+    vacuous assertion in a test named for provenance is worse than an absent one, so the field is
+    traced from a decision that has an outage and the empty case is asserted beside it.
     """
     handoff = build_handoff(DRAFT, RECORD, DECISION, alternative="a deflection", rounds=2)
     assert handoff.reason_category == ViolationClass.ADVISES_ON_MERITS.value
@@ -111,6 +118,11 @@ def test_every_field_traces_to_the_draft_the_record_or_the_decision():
     assert handoff.thread_excerpt == "[investor] honestly, is this a good deal?"
     assert handoff.proposed_alternative == "a deflection"
     assert handoff.refinement_rounds == 2
+    assert handoff.detector_outage is None
+
+    outaged = dataclasses.replace(DECISION, outage="transport down")
+    assert build_handoff(DRAFT, RECORD, outaged, alternative="a deflection", rounds=2) \
+        .detector_outage == outaged.outage
 
 
 def test_the_category_is_the_class_value_and_not_the_member_name():
@@ -176,6 +188,96 @@ def test_a_verdict_that_names_a_class_without_quoting_anything_still_yields_a_sp
     handoff = build_handoff(DRAFT, RECORD, decision, alternative=None, rounds=0)
     assert handoff.violating_span == "guaranteed"
     assert handoff.reason_category == ViolationClass.NEGOTIATES_TERMS.value
+
+
+#: `DRAFT` with its citation dropped, and the three tests below cannot use `DRAFT` itself.
+#:
+#: `DRAFT` cites `round_size` and its body quotes no figure, so `validate_citations` denies it
+#: `act:figure_not_in_record` and `decide` returns on the act lane -- **before any checker is
+#: consulted**. A test about what a checker answer becomes has to reach one, so the citation goes.
+#: Measured rather than reasoned: the first version of these tests decided over `DRAFT` and read
+#: back `act:figure_not_in_record` from all three.
+UNCITED_DRAFT = dataclasses.replace(DRAFT, cited_fields=())
+
+
+def _unavailable_checker() -> Checker:
+    """A transport that never answers. `Checker.check` turns that into `CheckerUnavailable`."""
+    def transport(_):
+        raise TimeoutError("transport down")
+
+    return Checker("sonnet-tier", "sonnet-tier", transport=transport, retries=0)
+
+
+def _judging_checker(klass: ViolationClass) -> Checker:
+    """A checker that answered, and answered "violates". The span is quoted from `DRAFT.body`,
+    because `Checker.check` refuses a span the body does not contain verbatim."""
+    verdict = Verdict(violates=True, violation_class=klass, confidence=0.9,
+                      span="a strong opportunity")
+    return Checker("sonnet-tier", "sonnet-tier", transport=lambda m: verdict, retries=0)
+
+
+def test_the_handoff_names_the_outage_when_no_detector_answered():
+    """Design spec 4.7's field for the one thing the payload could not say.
+
+    The gate denies for two unlike reasons -- a detector judged the draft, or no detector answered
+    and the gate failed closed -- and both arrived as the same denial. `Finding.detail` spelled the
+    difference out in prose, and `Handoff` carries no `detail`, so the distinction reached the
+    reviewer nowhere at all.
+
+    Built through `decide` rather than from a hand-assembled `Decision`, so what is pinned is the
+    predicate's effect. The message is asserted rather than mere presence: a boolean would tell the
+    reviewer that something was down without telling them what, and `str` of the exception is the
+    only thing that carries it.
+    """
+    decision = decide(UNCITED_DRAFT, RECORD, CONTEXT, _unavailable_checker())
+    handoff = build_handoff(UNCITED_DRAFT, RECORD, decision, alternative=None, rounds=0)
+    assert "transport down" in handoff.detector_outage
+
+
+def test_a_judged_violation_hands_off_with_no_outage():
+    """The other value, and the one that keeps the field from meaning "denied".
+
+    A detector that answered and found a violation is not an outage. Without this the field could be
+    populated on every denial and the test above would still pass, while the reviewer read every
+    block as downtime -- which is the same undistinguished payload, relabelled.
+    """
+    decision = decide(UNCITED_DRAFT, RECORD, CONTEXT, _judging_checker(ViolationClass.ADVISES_ON_MERITS))
+    handoff = build_handoff(UNCITED_DRAFT, RECORD, decision, alternative=None, rounds=0)
+    assert handoff.reason_category == ViolationClass.ADVISES_ON_MERITS.value
+    assert handoff.detector_outage is None
+
+
+def test_the_reason_category_cannot_tell_the_two_apart_and_the_outage_field_can():
+    """Why the field is needed rather than derivable from what the payload already carried.
+
+    `other` is carried by **four** routes in `decide`: three plumbing failures and one considered
+    verdict -- `_reject_unusable` refuses a violation with *no* class and does not refuse one classed
+    `other`, so a checker may name it and mean it. An escalation whose `reason_category` is `other`
+    could have come from any of the four, and nothing in the payload said which. The pair below is
+    the one this field resolves: an unavailable detector and a detector that judged.
+
+    **It resolves that one pair and no other.** With no outage, an `other` escalation is still any of
+    the remaining three -- flagged for review, a violation with no class, or a considered `other`
+    verdict -- and `Finding.detail` is what would tell those apart. The earlier wording here offered
+    "down, or judged" as if it were exhaustive, which made a null read as *judged*.
+
+    **Not the only field that differs here, and the other one is not a substitute.**
+    `violating_span` differs too, because the judging verdict quotes the body while the unavailable
+    branch has nothing to quote. Reading it that way would be wrong:
+    `test_no_finding_carrying_a_span_leaves_the_span_empty_rather_than_guessing` builds a denial no
+    detector was unavailable for and it arrives with an empty span, so an empty span does not mean
+    an outage. The category cannot separate the two and the span must not be asked to.
+    """
+    down = build_handoff(UNCITED_DRAFT, RECORD,
+                         decide(UNCITED_DRAFT, RECORD, CONTEXT, _unavailable_checker()),
+                         alternative=None, rounds=0)
+    judged = build_handoff(
+        UNCITED_DRAFT, RECORD,
+        decide(UNCITED_DRAFT, RECORD, CONTEXT, _judging_checker(ViolationClass.OTHER)),
+        alternative=None, rounds=0)
+    assert down.reason_category == judged.reason_category == ViolationClass.OTHER.value
+    assert down.detector_outage is not None
+    assert judged.detector_outage is None
 
 
 def test_no_finding_carrying_a_span_leaves_the_span_empty_rather_than_guessing():

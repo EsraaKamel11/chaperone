@@ -15,11 +15,16 @@ FIELD_NOT_IN_RECORD = "<not in record>"
 
 
 class Handoff(BaseModel):
-    """Self-contained. Every field comes from tool input or a stored record.
+    """Self-contained. Every field comes from tool input, a stored record, or the gate's decision.
 
     Design spec 4.7: the reviewer cannot see the conversation, so nothing here may be reachable
     only from there. Every field is `required` -- a default would let an escalation arrive with
     the field the reviewer needs quietly empty, and a test drops each field in turn to hold that.
+
+    **The decision is named in that list rather than folded into "tool input".** `reason_category`,
+    `violating_span` and `detector_outage` are what the gate concluded, not what it was handed, and
+    `test_every_field_traces_to_the_draft_the_record_or_the_decision` has always held them to the
+    third source; the summary line said two and so described a narrower model than the one shipped.
     """
 
     # `extra="forbid"` for the same reason every field is required: a schema that quietly accepts
@@ -29,6 +34,22 @@ class Handoff(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     reason_category: str
+    #: Why no detector answered, when that is why the draft was blocked -- `None` when one did.
+    #:
+    #: `reason_category` cannot carry this. `other` is four routes in `decide`: the checker was
+    #: unavailable, it flagged for review, it reported a violation and declined to name a class, or
+    #: it named `other` and meant it.
+    #:
+    #: **This field separates the first from the other three, and does not separate those three from
+    #: each other.** An escalation reading `other` with no outage is still any of them, and what
+    #: tells them apart is `Finding.detail`, which is prose and which this model does not carry. The
+    #: sentence this replaces offered a reviewer the choice "down, or judged", which made a null read
+    #: as *judged* and so answered a question this field does not answer.
+    #:
+    #: **Required, like every field here, and here the default would be the plausible one.** A
+    #: `= None` would let a construction site that forgot to copy it report every outage as a
+    #: judgement, which is the direction that reads as a clean denial and so is never questioned.
+    detector_outage: str | None
     violating_span: str
     blocked_body: str
     recipient_domain: str
@@ -68,6 +89,7 @@ def build_handoff(
     primary = decision.findings[0]
     return Handoff(
         reason_category=primary.violation_class.value,
+        detector_outage=decision.outage,
         violating_span=next((f.span for f in decision.findings if f.span), ""),
         blocked_body=draft.body,
         recipient_domain=draft.recipient_domain,

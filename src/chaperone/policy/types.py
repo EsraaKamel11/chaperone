@@ -78,3 +78,9 @@ class Decision:
     allowed: bool
     findings: tuple[Finding, ...]
     disposition: Disposition
+    #: Why no detector answer was available, when that is why this denial exists -- `None` on every
+    #: denial a detector actually judged. A denial for downtime and a denial for a judgement are the
+    #: same shape in every other field, so without this the two are told apart only by prose inside
+    #: `Finding.detail`, which the escalation payload does not carry. Defaulted because `decide` sets
+    #: it on one branch and the value is passed in: `policy/` reads no clock and calls no checker.
+    outage: str | None = None

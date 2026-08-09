@@ -96,6 +96,16 @@ FUTILE_CLASSES = frozenset({
 })
 
 
+#: What `Decision.outage` carries when the checker was unavailable and nothing said why.
+#:
+#: `Checker.check` raises `CheckerUnavailable(str(last))`, and an exception raised without a message
+#: stringifies to `""` -- `str(TimeoutError())` is the empty string. So `outage=str(exc)` alone made
+#: the field non-`None` and falsy at once, and `if decision.outage:` -- the natural way to ask
+#: whether there was one -- answered no. That reads a detector outage as a judgement, which is the
+#: direction that looks like an ordinary denial and so is never questioned.
+OUTAGE_WITHOUT_MESSAGE = "checker unavailable, and the failure carried no message"
+
+
 def disposition_for(findings: tuple[Finding, ...]) -> Disposition:
     if not findings:
         return Disposition.ALLOW
@@ -115,7 +125,12 @@ def decide(draft: Draft, record: Record, context: ActContext, checker: Checker) 
         result = checker.check(draft, record)
     except CheckerUnavailable as exc:
         unavailable = (Finding(ViolationClass.OTHER, f"checker unavailable: {exc}", None),)
-        return Decision(False, unavailable, disposition_for(unavailable))
+        # The one branch that sets `outage`. It is the difference between a draft a detector judged
+        # and a draft nothing looked at, and it survives to the reviewer as a field rather than as
+        # the prose in `detail` above, which `Handoff` does not carry. Never the empty string: see
+        # `OUTAGE_WITHOUT_MESSAGE` for why a falsy outage is worse than a missing one.
+        outage = str(exc) or OUTAGE_WITHOUT_MESSAGE
+        return Decision(False, unavailable, disposition_for(unavailable), outage=outage)
 
     if isinstance(result, FlagForReview):
         flagged = (Finding(ViolationClass.OTHER, f"flagged for review: {result.reason}", None),) + tripwire_findings

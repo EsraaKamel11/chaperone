@@ -96,10 +96,17 @@ MUTANTS: list[Mutant] = [
     # branch -- was invalidated when `decide` was rewritten to take every disposition from
     # `disposition_for`, and a stale anchor records a survivor rather than raising. This form flips
     # the same fail-closed branch: the checker gave no usable answer and the draft goes out.
+    #
+    # **Re-derived twice more, in the commit that gave that branch an `outage`.** The anchor is the
+    # branch's whole return line, so any edit to it makes this entry stale -- and a stale anchor is
+    # refused rather than quietly recorded as a kill. It went stale first when the return gained
+    # `outage=str(exc)`, and again when that became a named local so the empty-message fallback had
+    # somewhere to live. Both times the audit was watched failing on the changed line before this
+    # string was touched, which is the only thing that shows the anchor is read rather than assumed.
     Mutant(
         "checker_unavailable_fails_open",
         SRC / "gates" / "engine.py",
-        "        return Decision(False, unavailable, disposition_for(unavailable))",
+        "        return Decision(False, unavailable, disposition_for(unavailable), outage=outage)",
         "        return Decision(True, (), Disposition.ALLOW)",
     ),
     # Re-derived, and not as the brief wrote it. `finally:` -> `else:` does not parse -- a `try`
