@@ -76,12 +76,14 @@ GRANTED = frozenset({"send_message", "send_reply", "draft_message", "read_policy
 #: **This set is no longer maintained by hand.** It was, and it was found under-inclusive twice --
 #: created holding `act:send_cap_exceeded` alone, then grown for the approval class, then for the
 #: record. The count in that sentence is read off this set's history, not recalled.
-#: `tests/gates/test_hook.py` now derives the requirement, and reads two files to do it: this
+#: `tests/gates/test_hook.py` now derives the requirement, and no single file holds it: this
 #: module's own AST for which `Record` and `ActContext` inputs `build_act_inputs` fills from
 #: `tool_input`, `tools/policy_hook.py`'s `main` for which predicates are then handed those objects,
-#: and each predicate's AST for which class each branch turns on. So a class that starts turning on
-#: payload evidence fails on the commit that does it rather than on the review that happens to
-#: notice.
+#: and each predicate's own AST -- `act_classes.py` and `citations.py` -- for which class each
+#: branch turns on. So a class that starts turning on payload evidence fails on the commit that does
+#: it rather than on the review that happens to notice. **How many files that is, is a question for
+#: the list and not for this sentence**, which is why it no longer carries a count: it said "two"
+#: while naming three sources, which is the error the paragraph above records against the set.
 #:
 #: **The residual, because declaring a gap does not close it.** Every predicate still runs, so a
 #: layer building from here can still *deny* on `act:no_approval_token` and on
@@ -124,17 +126,28 @@ CONSUMED_KEYS = frozenset({
 def build_act_inputs(payload: dict) -> tuple[Draft, Record, ActContext]:
     """The three objects every deterministic predicate takes, read out of one hook payload.
 
-    **Two guards that belong beside this one are deliberately not in it**, because both need
-    something a pure constructor does not have -- somewhere to send a refusal -- and a caller that
-    omits either is weaker than `tools/policy_hook.py`:
+    **This validates nothing. Every guard that belongs beside it is the caller's**, because each
+    needs something a pure constructor does not have -- somewhere to send a refusal -- and a caller
+    that omits one is weaker than `tools/policy_hook.py`, which holds all of them. Listed rather
+    than counted, because the count is the thing that goes stale:
 
+    - **The payload must be a mapping, and so must its `tool_input`.** Neither is checked here, and
+      neither raises informatively: both reach `.get` on the wrong type. Measured --
+      `build_act_inputs("not a dict")`, `{"tool_input": "hello"}` and `{"tool_input": [1, 2]}` each
+      raise `AttributeError: 'str'/'list' object has no attribute 'get'`. `policy_hook.main` blocks
+      on `isinstance(payload, dict)` and `isinstance(tool_input, dict)` before reaching this, having
+      already refused a stdin body that would not decode as JSON at all.
     - **An absent `body` is not an empty one.** `tool_input["body"]` is a subscript, so a payload
-      carrying no body raises here rather than scoring a blank draft as clean. `policy_hook.main`
-      turns that case into a block *before* calling this, which is what makes the subscript safe
-      there; a caller that does not check first gets the raise.
+      carrying no body raises `KeyError` here rather than scoring a blank draft as clean.
+      `policy_hook.main` turns that case into a block *before* calling this, which is what makes the
+      subscript safe there; a caller that does not check first gets the raise.
     - **Keys outside `CONSUMED_KEYS` are ignored here.** They reach no predicate, so they must be
       checked as outbound content by the caller. `policy_hook.main` runs `unsendable_finding` over
       the difference as its first finding.
+
+    A raise is fail-closed only where something turns it into a refusal. `policy_hook.py` wraps
+    `main` and exits 2 on any escape, so the guard survives every entry above; a surface that lets
+    one propagate has allowed the call it did not judge.
     """
     tool_input = payload.get("tool_input") or {}
 

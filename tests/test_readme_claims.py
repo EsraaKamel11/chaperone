@@ -810,6 +810,54 @@ def test_the_documented_callers_that_hand_the_cap_a_literal_are_the_ones_the_tre
     )
 
 
+#: The catalog sentence that names where the payload-fed `ActContext` is built. Matched on the claim
+#: rather than on a path, so a sentence that stops making the claim fails the floor below instead of
+#: passing by absence -- the same reason `ENUMERATION_SENTENCE` is written the way it is.
+#:
+#: **No ordinal in the pattern, because the sentence it holds no longer carries one.** That sentence
+#: read "`tools/policy_hook.py` is the fifth construction of an `ActContext` in this tree", and when
+#: the construction moved into the adapter both enforcement layers share, the count and the path
+#: went stale in the same edit -- while `tools/policy_hook.py` went from holding one construction to
+#: holding none. This is B0's own defect one entry down: an enumeration that outlived its own
+#: correctness. So the path is derived here and the ordinal is not stated there.
+PAYLOAD_FED_CONSTRUCTION = re.compile(
+    r"the shipped construction that reads its `sent_count` from the payload is `([^`]+)`"
+)
+
+
+def test_the_catalog_names_the_construction_that_reads_its_evidence_from_the_payload():
+    """B2's whole claim rests on a shipped construction taking the cap's input from the payload.
+
+    The sentence names a file so that a reader can go and look, which makes the path load-bearing
+    rather than decorative: pointed at a file that builds no `ActContext` at all, it sends the
+    reader somewhere the mechanism is not. So it is held to the same derivation the rest of this
+    section uses -- the shipped sites, read from each module's AST, of which exactly one hands
+    `sent_count` something other than a literal.
+
+    Both directions. Move the construction again and this goes red on the commit that moves it;
+    rewrite the sentence to name a different file and it goes red too.
+    """
+    sites = _shipped_act_context_sites()
+    assert sites, "no shipped ActContext construction was found, so this guard measures nothing"
+    fed = sorted({site.split(":")[0] for site, expr in sites.items() if not expr.strip().isdigit()})
+    assert len(fed) == 1, (
+        f"{len(fed)} shipped constructions hand `sent_count` something other than a literal "
+        f"({fed}); B2 names one file and the catalog sentence has to be rewritten before this "
+        "guard can hold it to anything"
+    )
+
+    catalog = (REPO / "docs" / "failure-modes.md").read_text(encoding="utf-8")
+    match = PAYLOAD_FED_CONSTRUCTION.search(_unwrapped(catalog))
+    assert match, (
+        "docs/failure-modes.md no longer names the shipped construction that reads its `sent_count` "
+        "from the payload, so nothing here can hold that claim to the tree"
+    )
+    assert match.group(1) == fed[0], (
+        f"docs/failure-modes.md names {match.group(1)!r} as the construction the judged caller "
+        f"feeds; the tree builds it in {fed[0]!r}"
+    )
+
+
 def _derived_count_readers() -> dict[str, str]:
     """`{site: the call}` for every call that turns the audit log into a send count.
 

@@ -189,10 +189,11 @@ field is a count that has to come from the audit log, and **no shipped path deri
 `tests/audit/test_send_cap.py` and from nowhere else. Four shipped constructions of an `ActContext`
 hand the cap a literal zero, enumerated on [docs/ON_CALL.md](ON_CALL.md) and held to the tree by
 `test_the_documented_callers_that_hand_the_cap_a_literal_are_the_ones_the_tree_holds`. The fifth is
-the out-of-process hook, which does run the predicate, against a `sent_count` taken
+`src/chaperone/policy/payload.py`, the adapter the out-of-process hook builds its inputs with: the
+hook does run the predicate, against a `sent_count` that adapter takes
 from the tool payload with a permissive default of 0 against a `send_cap` defaulting to 10,000, which
-is a count the caller asserted about itself; `tools/policy_hook.py` names the class in
-`UNENFORCEABLE_HERE` for that reason.
+is a count the caller asserted about itself. The adapter names the class in `UNENFORCEABLE_HERE` for
+that reason, and `tools/policy_hook.py` re-exports the declaration.
 
 **So the predicate is live and its input is not, and the violation is not impossible in the shipped
 shape.** The guarantee is real about the arithmetic and empty about the deployment until the count is
@@ -240,11 +241,17 @@ The class is therefore suppressible two ways by the party being judged.
 **So the predicate is live and its evidence is the defendant's.** In process the fields are set by
 `guarded_call`'s caller, who already holds them, and the guarantee is the arithmetic it looks like.
 Out of process the same predicate is a question the judged party answers about itself, and that is
-a shipped caller: `tools/policy_hook.py` is the fifth construction of an `ActContext` in this tree.
+a shipped caller: the shipped construction that reads its `sent_count` from the payload is
+`src/chaperone/policy/payload.py`, the adapter both enforcement layers build their inputs with.
+That path is derived rather than recalled, by
+`test_the_catalog_names_the_construction_that_reads_its_evidence_from_the_payload`, and no ordinal
+is stated with it. This sentence used to count the construction and place it in
+`tools/policy_hook.py`; when the construction moved into the shared adapter, the count and the path
+went stale in the same edit, which is B0's own defect one entry up.
 
 **Mechanism.** Partial, and the half that is missing cannot be closed there. `tier` defaults to 2
 rather than to 0, so *absence* is fail-closed; presence is the hole and no default reaches it. The
-constant-pinning remedy the module uses for `CONSENTED` and `GRANTED` does not transfer, because an
+constant-pinning remedy the adapter uses for `CONSENTED` and `GRANTED` does not transfer, because an
 approval is granted per action: a token pinned as a module constant would make the predicate "is
 the deployment configured" rather than "was this action approved", and a `tier` pinned high would
 stop reading the action's tier at all. Declaring the class in `UNENFORCEABLE_HERE` is the true
@@ -278,7 +285,7 @@ further out: not the evidence for the action, but the truth the action is checke
 
 **Mechanism.** None available there, and the reason is worth stating rather than leaving as an
 absence. The remedy that works for `CONSENTED` and `GRANTED`, holding them as constants the caller
-cannot reach, does not transfer: a record pinned in the module would make the predicate "does the
+cannot reach, does not transfer: a record pinned in the adapter would make the predicate "does the
 draft agree with one fixed mandate" rather than "does it agree with this deal's record", and would
 refuse every correct draft about every other deal. A stateless guard holds no per-deal record, which
 is exactly the criterion `UNENFORCEABLE_HERE` states, so the class is declared there instead.

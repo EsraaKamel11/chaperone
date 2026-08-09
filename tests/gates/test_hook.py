@@ -596,6 +596,16 @@ def test_the_consumed_key_list_is_derived_from_the_adapter_rather_than_remembere
     that counted them would put `"tool_input"` -- which is not a tool argument at all -- into the
     derived set and fail against a correct literal. The right-hand side is read through
     `policy_hook`, so the re-export is held to the same set the adapter derives.
+
+    **Why this parses the adapter alone and not the adapter plus the guard**, which is the obvious
+    worry and the wrong instinct. `CONSUMED_KEYS` is an *exemption* set: membership means "skip the
+    outbound-content check". Comparing it against the adapter's reads alone pins every exempt key to
+    a read this walk can prove reaches the triple. A union with `main`'s reads would assert
+    `adapter_reads | guard_reads == CONSUMED_KEYS`, which *permits* a key read only in `main` to sit
+    in the exempt set -- and a key `main` reads need reach no predicate at all. The union is the
+    wider set on the fail-open side, so it is the weaker guard. The hole it would close is not a
+    hole: a key read in `main` and absent from the set is exactly what
+    `unsendable_finding` receives, so it is content-checked rather than let through.
     """
     tree = ast.parse(inspect.getsource(ADAPTER))
     read: set[str] = set()
@@ -1093,7 +1103,9 @@ def test_every_class_deciding_on_evidence_the_payload_supplies_is_declared_unenf
     predicate's own AST for which class each branch turns on, and requires the intersection to be
     declared.
 
-    **Two files, because the construction and the enforcement are two files.** The evidence half
+    **The evidence half and the binding half are two files, because the construction and the
+    enforcement are two files** -- the predicate ASTs named above are a third source and not part of
+    this split. The evidence half
     moved to `policy/payload.py` so a second decision surface could share it; the binding half
     stayed in `tools/policy_hook.py`, which is where the predicates are called. Reading only the
     guard derives no evidence at all -- measured on the move, and it failed on the floor below

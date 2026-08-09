@@ -218,7 +218,7 @@ two different epistemic situations, and collapsing them is the error the reposit
 | **Decided by** | A pure function over the record and the context | A model checker, plus lexical tripwires |
 | **The classes** | `act:no_approval_token`, `act:jurisdiction_not_consented`, `act:tool_outside_grant`, `act:figure_not_in_record`, `act:send_cap_exceeded` | `content:advises_on_merits`, `content:negotiates_terms`, `content:forward_looking_return` |
 | **Where they come from** | Consent, approval, grants and volume: the operating constraints | The firm's three published statements about what it does not do |
-| **What can be claimed** | **Zero by construction**, at the chokepoint, over the draft, the record and the `ActContext` the caller hands in. No model is consulted, so no confidence can lower the bar. That is a claim about the mechanism and it is exactly as true as those three inputs: for four of the five classes every field the predicate reads is set by the caller who already knows it, and for `act:send_cap_exceeded` the field is a count **no shipped path derives from the log and hands to an `ActContext`**, which `tools/policy_hook.py` defaults to 0 against a `send_cap` defaulting to 10,000. **That one class is live as a predicate and unfed as an input**, so its violation is not impossible in the shipped shape; see Limits. | **Measured, never guaranteed.** A rate, with its denominator. |
+| **What can be claimed** | **Zero by construction**, at the chokepoint, over the draft, the record and the `ActContext` the caller hands in. No model is consulted, so no confidence can lower the bar. That is a claim about the mechanism and it is exactly as true as those three inputs: for four of the five classes every field the predicate reads is set by the caller who already knows it, and for `act:send_cap_exceeded` the field is a count **no shipped path derives from the log and hands to an `ActContext`**, which the out-of-process hook's adapter, `src/chaperone/policy/payload.py`, defaults to 0 against a `send_cap` defaulting to 10,000. **That one class is live as a predicate and unfed as an input**, so its violation is not impossible in the shipped shape; see Limits. | **Measured, never guaranteed.** A rate, with its denominator. |
 | **Autonomy ceiling** | Deterministic gating, so higher tiers are defensible | Tier 2, per-message approval |
 
 The phrase "zero by construction" appears in this repository on act-class rows and nowhere else. That
@@ -483,8 +483,8 @@ artifact demonstrates and what the problem is.
 one, and it is called from `tests/audit/test_send_cap.py` and nowhere else. The hook layer *does* run
 the cap predicate, against a count taken from the tool payload and **defaulting to a permissive zero**
 when the payload omits it. So the predicate is live and its input is not, which is the precise shape
-of the claim, and `tools/policy_hook.py` declares the class unenforceable there rather than letting
-silence imply parity. Treat a re-attempt as unguarded until it is wired in.
+of the claim, and the adapter it builds from, `src/chaperone/policy/payload.py`, declares the class
+unenforceable there rather than letting silence imply parity. Treat a re-attempt as unguarded until it is wired in.
 
 **Four more things are built, reserved, and called from nowhere outside the suite.** `transmit` in
 `src/chaperone/audit/gateway.py` is the one send symbol, and its name is reserved package-wide by

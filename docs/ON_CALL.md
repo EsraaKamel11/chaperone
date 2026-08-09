@@ -51,12 +51,14 @@ exactly as true as the two inputs it was handed, and there are three ways it is 
   before this one said "three" while `demo/full.py` had already become the fourth: a correction
   whose whole claim was that it had been measured rather than recalled, gone stale in the same way.
   `test_the_documented_callers_that_hand_the_cap_a_literal_are_the_ones_the_tree_holds` derives the
-  list from the tree and holds this line to it. The remaining caller,
-  `tools/policy_hook.py`, takes the count out of the tool payload and **falls back to zero when the
+  list from the tree and holds this line to it. The remaining construction,
+  `src/chaperone/policy/payload.py`, is the adapter the out-of-process hook builds its inputs with:
+  it takes the count out of the tool payload and **falls back to zero when the
   payload omits it**, which is the permissive direction. So the hook layer does run the cap
-  predicate, against whatever count the caller asserted about itself. That module declares the class
-  in `UNENFORCEABLE_HERE` for exactly this reason: it holds no log, so it cannot decide the cap and
-  says so rather than letting silence imply parity. **If you are on call for a send cap: the
+  predicate, against whatever count the caller asserted about itself. That adapter declares the class
+  in `UNENFORCEABLE_HERE` for exactly this reason -- no layer building its inputs there holds a log,
+  so none can decide the cap -- and says so rather than letting silence imply parity;
+  `tools/policy_hook.py` re-exports the declaration. **If you are on call for a send cap: the
   predicate is live and its input is not.**
 
 So: a false block points at the record or the canonicalizer. A block that never came can also mean
