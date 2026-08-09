@@ -455,14 +455,18 @@ def write_backup(backup: Path, mutant: Mutant, original: str, mutated: str) -> N
     """Park the pre-mutation source on disk. Called before the mutation is written, never after.
 
     Written under a staging name, flushed, fsynced, and moved into place with `os.replace`, which is
-    atomic on win32 and on POSIX alike. So a death leaves one of exactly two states: *no backup and
-    no mutation*, where the tree was never touched and there is nothing to recover, or *a complete
-    backup*, which is what `recover_stranded_mutant` reads. A half-written backup -- a recovery
-    holding half the source it needs -- is not a reachable state, and that is why an atomic write
-    here is sufficient rather than merely careful.
+    atomic on win32 and on POSIX alike. **Scoped to the deaths this covers, which are the ones on
+    the list: a process that stops.** Against those, the only two states a reader can find are *no
+    backup and no mutation*, where the tree was never touched and there is nothing to recover, or *a
+    complete backup*, which is what `recover_stranded_mutant` reads -- a half-written backup, a
+    recovery holding half the source it needs, is never read because the rename publishes the file
+    whole or not at all.
 
-    The fsync is for the harsher deaths in that list: a plain close already survives the ordinary
-    one, a killed process, but not a machine that stops.
+    Two things it does **not** cover, stated rather than implied. There is no fsync of the
+    containing directory, so on POSIX the rename itself is not forced to disk: a machine that stops
+    can lose the rename while keeping the mutation, and that state is not recoverable. And a death
+    between the staged write and the rename leaves a `.staged` file behind for good -- harmless,
+    git-ignored, and overwritten by the next backup, but a third on-disk state all the same.
 
     **Read back and compared, never assumed** -- `restore` models it, and the two halves cover
     different failures: `os.replace` covers the interruption, and the comparison covers a write that
@@ -496,16 +500,18 @@ def read_backup(backup: Path) -> Backup:
     """
     try:
         record = json.loads(backup.read_bytes().decode("utf-8"))
-        original, mutated = record["original"], record["mutated"]
+        name, original, mutated = record["mutant"], record["original"], record["mutated"]
         # A field of the wrong type is the same kind of unusable as a missing one, and it gets
         # further: both comparisons in `recover_stranded_mutant` are on the encoded bytes of these
-        # two, so a `null` that reached them would crash out through a raw `AttributeError`.
-        if not isinstance(original, str) or not isinstance(mutated, str):
-            raise TypeError(
-                f"'original' and 'mutated' must be text, not {type(original).__name__} and "
-                f"{type(mutated).__name__}"
-            )
-        return Backup(record["mutant"], Path(record["path"]), original, mutated)
+        # two, so a `null` that reached them would crash out through a raw `AttributeError`. `mutant`
+        # is checked with them because it is printed, and a run that recovers should not be the run
+        # that discovers its own log line cannot be formatted.
+        wrong = {f: type(v).__name__ for f, v in
+                 (("mutant", name), ("original", original), ("mutated", mutated))
+                 if not isinstance(v, str)}
+        if wrong:
+            raise TypeError(f"these fields must be text: {wrong}")
+        return Backup(name, Path(record["path"]), original, mutated)
     except (OSError, ValueError, LookupError, TypeError) as exc:
         raise MutationHarnessError(
             f"{backup} could not be read as a mutation backup ({type(exc).__name__}: {exc}), and it "
@@ -608,16 +614,16 @@ def recover_stranded_mutant(backup: Path = SWEEP_BACKUP) -> str | None:
 
     **This runs before `audit_anchors`, and that ordering is the fix rather than a detail of it.** A
     stranded mutant usually destroys its own anchor, which is what keeps a later run from
-    snapshotting mutated source as the new "original" -- but it is also `main`'s first act and an
-    immediate `return 1`. Recovery placed after the audit never executes in the one state it exists
-    for: the tree stays broken and the fix cannot fire.
+    snapshotting mutated source as the new "original" -- but the audit would otherwise be `main`'s
+    first act and an immediate `return 1`, as it was before this existed. Recovery placed after it
+    never executes in the one state it exists for: the tree stays broken and the fix cannot fire.
 
     Three states, and exactly one of them is written to:
 
     * the file still holds the mutant -- the strand is demonstrably there, so it is put back;
     * the file already holds the original -- a human read `git status --porcelain src/` and ran
       `git checkout` -- so writing it again would change nothing, and the spent backup is dropped;
-    * anything else -- checked out and then worked on, or edited in place -- and this refuses.
+    * anything else -- checked out and then worked on, edited in place, or gone -- and this refuses.
       Writing the backup over it destroys real work, and nothing available here can tell which bytes
       are wanted. Refuse rather than guess, and say in the message what a human should do.
     """
@@ -631,12 +637,16 @@ def recover_stranded_mutant(backup: Path = SWEEP_BACKUP) -> str | None:
     if on_disk == record.original.encode("utf-8"):
         backup.unlink()
         return None
+    state = (
+        "holds neither the {name} mutant nor the source it was mutated from"
+        if on_disk is not None
+        else "is not there at all, so nothing can be compared against the {name} mutant"
+    ).format(name=record.mutant)
     raise MutationHarnessError(
-        f"{record.path} holds neither the {record.mutant} mutant nor the source it was mutated "
-        f"from, so the backup at {backup} cannot be applied without destroying whatever is there "
-        "now. Nothing was written. Compare the file against that backup's 'original' by hand, then "
-        "either keep the file and delete the backup, or write the 'original' back yourself and "
-        "delete it."
+        f"{record.path} {state}, so the backup at {backup} cannot be applied without destroying "
+        "whatever is there now. Nothing was written. Compare the file against that backup's "
+        "'original' by hand, then either keep the file and delete the backup, or write the "
+        "'original' back yourself and delete it."
     )
 
 
@@ -742,9 +752,17 @@ def main(
     survivors: list[str] = []
     with sweep_lock(lock):
         # Before the audit, and before anything reads the tree. A strand destroys its own anchor,
-        # so an audit that runs first refuses and returns -- and recovery placed after it never
-        # executes in the one state it exists for. See `recover_stranded_mutant`.
-        recovered = recover_stranded_mutant(backup)
+        # so an audit that ran first would refuse and return -- and recovery placed after it would
+        # never execute in the one state it exists for. See `recover_stranded_mutant`.
+        #
+        # Its refusal is caught and printed rather than raised: this is a program, and a refusal
+        # written to be read by whoever has to resolve the ambiguity arrives as a crash if it comes
+        # out as a traceback.
+        try:
+            recovered = recover_stranded_mutant(backup)
+        except MutationHarnessError as exc:
+            print(f"refusing: {exc}")
+            return 1
         if recovered:
             print(f"recovered {recovered}: a killed sweep had left it applied; the file is back")
 

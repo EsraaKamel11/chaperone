@@ -22,6 +22,7 @@ from tools.mutate import (
     CHILD_ENV_MARKER,
     MUTANTS,
     ROOT,
+    SWEEP_BACKUP,
     SWEEP_LOCK,
     SWEEP_MODULE,
     Mutant,
@@ -38,15 +39,42 @@ from tools.mutate import (
     restore,
     run_suite,
     sweep_lock,
+    write_backup,
 )
 
 if os.environ.get(CHILD_ENV_MARKER):
     pytest.skip("the sweep does not sweep itself", allow_module_level=True)
 
 
+def _refuse_a_tree_a_killed_sweep_left_behind(backup=SWEEP_BACKUP) -> None:
+    """Refuse the module when a backup is on disk. Recovers nothing and writes nothing.
+
+    The condition needs no heuristic: `restore` unlinks the backup on a verified write, so a backup
+    present at setup can only mean a sweep died before restoring. Sweeping on from there is what
+    makes a strand permanent -- see the test below for the sibling mechanism -- and recovering here
+    instead would have a plain `pytest` quietly rewriting `src/`, hiding the dirty tree that
+    `/verify`'s first line exists to surface. Refusing does neither.
+    """
+    if not backup.is_file():
+        return
+    raise MutationHarnessError(
+        f"a mutation backup is on disk at {backup}, so some sweep was killed before it could "
+        "restore what it mutated, and a file under src/ is probably still carrying a mutant. "
+        "Sweeping now would read that mutant as a pristine original, park it as the new backup, "
+        "and destroy the record that can still undo it. Nothing has been changed here. Run "
+        "`python -m tools.mutate` to put the file back -- it recovers before it audits -- and then "
+        "run this module again."
+    )
+
+
 @pytest.fixture(scope="module", autouse=True)
 def _hold_the_working_tree():
-    """No second sweep may mutate `src/` while this one is running. See `sweep_lock`."""
+    """No second sweep may mutate `src/` while this one is running. See `sweep_lock`.
+
+    And no sweep at all over a tree a killed run left mutated. That check comes first, before the
+    lock: a refusal must never queue behind a lock, and it has nothing to serialise anyway.
+    """
+    _refuse_a_tree_a_killed_sweep_left_behind()
     with sweep_lock():
         yield
 
@@ -72,6 +100,54 @@ def test_the_sweep_holds_the_lock_for_as_long_as_it_is_mutating_the_tree():
     assert (SWEEP_LOCK / "owner").read_bytes() == f"{os.getpid()}".encode("utf-8"), (
         "the sweep lock is held by some other process, so this run is mutating a tree it does "
         "not own"
+    )
+
+
+def test_this_module_refuses_to_sweep_a_tree_a_killed_run_left_a_backup_in():
+    """A strand does not stay put: the *next* sweep launders it into a permanent one.
+
+    `main` audits all of `MUTANTS` before mutating any, so a strand stops it. `test_every_mutant_is_
+    killed` audits only its own mutant per case -- and every file here carries siblings (3 in
+    `engine.py`, 2 in `gateway.py`, 3 in `store.py`, 5 in `recovery.py`, all mutually applicable).
+    So a run that reaches a sibling of the stranded mutant audits clean over the strand-mutated
+    file, `apply_mutant` reads that poisoned text as the "original", parks it as the backup, and
+    then `restore` puts the poison back and **unlinks the durable record**. The strand becomes
+    permanent and the thing built to undo it is gone. Recovery has the same shape: it can match its
+    recorded `mutated` exactly, restore poisoned source, announce a heal and unlink.
+
+    So the module refuses, and refuses *before* taking the lock, so that a refusal never waits and
+    this test cannot block on the lock the parent holds. It recovers nothing -- a plain `pytest`
+    silently rewriting `src/` would mask the strand `/verify`'s first line exists to catch. Nothing
+    is written either way; the message names the tool that does the writing.
+
+    Read on the effect: a real child pytest, on the real fixture, over a real backup. The node id
+    handed to the child is the one test in this module that does nothing but read a dict, so a
+    regression that stops the refusal firing costs a fast pass and a red assertion here rather than
+    a sweep.
+    """
+    planted = MUTANTS[0]
+    source = read_source(planted.path)
+    write_backup(SWEEP_BACKUP, planted, source, source.replace(planted.find, planted.replace, 1))
+    node = f"{SWEEP_MODULE}::test_the_child_is_actually_launched_under_the_marker_that_makes_it_skip"
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-m", "pytest", node],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    finally:
+        # Left behind, this backup names source that equals what is on disk, so
+        # `python -m tools.mutate` clears it as spent. The refusal is recoverable by the command it
+        # names, which is the only reason planting a real one here is acceptable.
+        SWEEP_BACKUP.unlink(missing_ok=True)
+
+    assert completed.returncode != 0, completed.stdout[-2000:]
+    assert "python -m tools.mutate" in completed.stdout, completed.stdout[-2000:]
+    assert "1 error in" in completed.stdout, (
+        "the child reported something other than a setup error, so the module ran rather than "
+        f"refusing:\n{completed.stdout[-2000:]}"
     )
 
 
@@ -195,6 +271,18 @@ def _mutant_over(tmp_path, body: str, find: str, replace: str, name: str = "prob
     return Mutant(name, path, find, replace)
 
 
+def _a_backup_under(tmp_path) -> Path:
+    """Where a probe's backup goes. Never the real `SWEEP_BACKUP`, and not merely as tidiness.
+
+    Each caller below expects `apply_mutant` to raise in `audit_anchors`, before a backup is
+    written -- but a probe that did write one would leave the real backup naming a `tmp_path` file
+    that is gone by the next run. `recover_stranded_mutant` then finds no file to compare, matches
+    neither branch, and refuses every run until a human deletes a file nobody told them about. So
+    the argument is passed rather than relied on not to matter.
+    """
+    return tmp_path / "probe-backup.json"
+
+
 def test_a_sweep_over_no_mutant_is_refused_rather_than_reporting_every_mutant_killed():
     """An empty list makes `test_every_mutant_is_killed` collect zero cases and the suite green."""
     problems = audit_anchors([])
@@ -207,7 +295,7 @@ def test_a_stale_anchor_is_refused_rather_than_recorded_as_a_survivor(tmp_path):
     mutant = _mutant_over(tmp_path, "x = 1\n", "x = 2", "x = 3")
     assert audit_anchors([mutant])
     with pytest.raises(MutationHarnessError, match="anchor is not in"):
-        apply_mutant(mutant)
+        apply_mutant(mutant, _a_backup_under(tmp_path))
 
 
 def test_a_duplicated_anchor_is_refused_rather_than_mutating_the_first_of_two(tmp_path):
@@ -215,7 +303,7 @@ def test_a_duplicated_anchor_is_refused_rather_than_mutating_the_first_of_two(tm
     mutant = _mutant_over(tmp_path, "x = 1\ny = 1\n", "= 1", "= 2")
     assert audit_anchors([mutant])
     with pytest.raises(MutationHarnessError, match="occurs 2 times"):
-        apply_mutant(mutant)
+        apply_mutant(mutant, _a_backup_under(tmp_path))
 
 
 def test_a_replacement_that_changes_no_byte_is_refused(tmp_path):
@@ -223,7 +311,7 @@ def test_a_replacement_that_changes_no_byte_is_refused(tmp_path):
     mutant = _mutant_over(tmp_path, "x = 1\n", "x = 1", "x = 1")
     assert audit_anchors([mutant])
     with pytest.raises(MutationHarnessError, match="changes no byte"):
-        apply_mutant(mutant)
+        apply_mutant(mutant, _a_backup_under(tmp_path))
 
 
 def test_a_mutant_whose_mutated_source_does_not_parse_is_refused(tmp_path):
@@ -236,7 +324,7 @@ def test_a_mutant_whose_mutated_source_does_not_parse_is_refused(tmp_path):
     mutant = _mutant_over(tmp_path, body, "    finally:", "    else:")
     assert audit_anchors([mutant])
     with pytest.raises(MutationHarnessError, match="does not parse"):
-        apply_mutant(mutant)
+        apply_mutant(mutant, _a_backup_under(tmp_path))
 
 
 def test_a_run_that_collected_no_test_raises_rather_than_reading_as_a_killed_mutant():
@@ -367,11 +455,21 @@ def test_restoration_puts_every_byte_back_and_introduces_no_carriage_return(tmp_
 
 
 def test_restoration_that_did_not_land_raises_rather_than_reporting_a_clean_tree(tmp_path):
-    """A restore nobody checked is how a verification step leaves what it verified mutated."""
+    """A restore nobody checked is how a verification step leaves what it verified mutated.
+
+    **And it leaves the backup for the next run to recover from.** `restore` unlinks last, past the
+    comparison, for exactly this: the backup is the only record of the pre-mutation source, so
+    dropping it before those bytes are known to have landed turns a restore that failed into one
+    that can never be retried. Measured by moving the unlink above the comparison, which turns the
+    last assertion here red.
+    """
     directory = tmp_path / "not-a-file"
     directory.mkdir()
+    backup = _a_backup_under(tmp_path)
+    backup.write_bytes(b"{}")
     with pytest.raises((MutationHarnessError, OSError)):
-        restore(directory, "x = 1\n")
+        restore(directory, "x = 1\n", backup)
+    assert backup.is_file(), "a failed restore threw away what a retry would have to read"
 
 
 def test_the_sweep_leaves_every_mutated_file_exactly_as_it_found_it():
@@ -472,9 +570,10 @@ def test_the_original_reaches_the_disk_before_the_mutation_that_replaces_it(tmp_
 def test_a_mutant_stranded_by_a_killed_sweep_is_put_back_on_the_next_run(tmp_path):
     """The heal. Constructed as a killed sweep leaves it, then recovered, then compared byte for byte.
 
-    `read_source`/`restore` are on bytes throughout for the CRLF reason in the module docstring, and
-    the backup is dropped only once those bytes are known to have landed -- so a strand survives its
-    own failed recovery rather than being forgotten by it.
+    `read_source`/`restore` are on bytes throughout for the CRLF reason in the module docstring. That
+    the backup outlives a recovery which *failed* is a separate property and is asserted separately,
+    in `test_restoration_that_did_not_land_raises_rather_than_reporting_a_clean_tree`, rather than
+    claimed here over a path this test never takes.
     """
     target, backup = _a_sweep_killed_between_the_mutation_and_the_restore(
         tmp_path, "x = 1\n", "x = 1", "x = 2"
@@ -543,10 +642,11 @@ def test_a_tree_holding_neither_the_mutant_nor_the_original_is_refused_rather_th
 def test_a_stranded_mutant_is_recovered_before_the_anchor_audit_can_refuse_the_run(tmp_path, capsys):
     """The ordering the whole fix hangs on, and the one that is invisible in a test of recovery alone.
 
-    `audit_anchors` is `main`'s first act and an immediate `return 1`, and a stranded mutant is
+    `audit_anchors` was `main`'s first act and an immediate `return 1`, and a stranded mutant is
     exactly what makes it fire -- the mutant destroyed its own anchor. Recovery placed after it
-    never runs in the one state it exists for: the run refuses, the tree stays broken, and every
-    later run refuses the same way. A test that recovers in isolation passes under both orderings.
+    would never run in the one state it exists for: the run refuses, the tree stays broken, and
+    every later run refuses the same way. A test that recovers in isolation passes under both
+    orderings.
 
     Read on `main`'s effects, and on the two that disagree independently: the tree is healed, and
     the anchor problems `main` printed name only the mutant that really is stale. The stale second
@@ -571,3 +671,25 @@ def test_a_stranded_mutant_is_recovered_before_the_anchor_audit_can_refuse_the_r
     assert not any("stranded" in line for line in anchors), (
         "the audit still saw the mutant applied, so it examined the tree before recovery healed it"
     )
+
+
+def test_a_refusal_from_recovery_reaches_the_human_as_the_tool_s_own_printed_message(tmp_path, capsys):
+    """`main` is a program, so its exit code and its printed lines are the entire interface.
+
+    The refusal is written to be read by whoever has to resolve the ambiguity -- it names the file,
+    the backup, and the two things they may do. Let out as a traceback it arrives as a crash with
+    the message buried in it, which reads as the tool breaking rather than as the tool refusing.
+    """
+    target, backup = _a_sweep_killed_between_the_mutation_and_the_restore(
+        tmp_path, "x = 1\n", "x = 1", "x = 2", name="ambiguous"
+    )
+    target.write_bytes(b"x = 3  # worked on since the checkout\n")
+
+    code = main(
+        [Mutant("ambiguous", target, "x = 1", "x = 2")],
+        backup=backup,
+        lock=tmp_path / "sweep.lock",
+    )
+
+    assert code == 1
+    assert "holds neither" in capsys.readouterr().out
