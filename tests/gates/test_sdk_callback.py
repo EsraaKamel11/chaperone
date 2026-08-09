@@ -1,9 +1,16 @@
 """The fourth decision surface: an in-process deny callback shaped to the `PreToolUse` contract.
 
-The module under test imports no SDK, which is the whole premise -- the static audit can read a
-gate written as plain Python producing plain JSON. Everything here is offline and synchronous:
-`asyncio.run` drives the coroutine, because this repository configures no async test plugin and an
-`async def` test would be collected as a skip rather than run.
+The module under test imports no SDK, which is the whole premise, and the two tests at the foot of
+this file are what hold it to that -- `tools/static_audit.py` does not, for the reason the module's
+own docstring gives.
+
+Everything here is offline and synchronous. `asyncio.run` drives the coroutine because an unmarked
+`async def` test **fails** in this repository: `pytest-asyncio` 1.3.0 is installed but unconfigured,
+which leaves it in strict mode, so an async test without the marker is collected and then errors
+with *"async def functions are not natively supported"*. Measured. That is a stronger reason than
+the skip this note first claimed -- a skip is a quiet subtraction from the suite, while this is a
+red build -- and it is the reason worth writing down, because the wrong one would have made an
+`async def` here look merely untidy rather than broken.
 """
 from __future__ import annotations
 
@@ -202,11 +209,16 @@ def test_an_interruption_that_is_not_an_exception_is_still_a_refusal():
     `BaseException` and none from `Exception`, so a narrower net lets each of them past -- and past,
     in an async hook, means the call was never judged.
 
-    **`asyncio.CancelledError` is the deliberate half.** Catching it means a cancelled hook returns a
-    refusal rather than propagating the cancellation, which is a real cost and is chosen anyway: a
-    guard interrupted mid-decision has decided nothing, and a refusal is the only outcome that cannot
-    be read as permission. Asserted rather than left to inheritance, so narrowing the net later is a
-    decision somebody has to make on purpose.
+    **What the `asyncio.CancelledError` row pins, stated exactly, because it is easy to overread.**
+    It pins that a `CancelledError` raised *inside* the decision becomes a refusal like any other
+    `BaseException`. It does **not** pin anything about task cancellation, and the callback does not
+    in fact swallow one: the coroutine contains no `await`, so a cancellation before its first step
+    is thrown into a body that never runs and propagates out, and after its first step the body has
+    already completed and there is nothing to cancel. Measured both ways. The row is kept because the
+    property it does pin is real -- these four types derive from `BaseException` and not from
+    `Exception`, so a narrower net lets each past, and past in an async hook means the call was never
+    judged. Asserted rather than left to inheritance, so narrowing the net later is a decision
+    somebody has to make on purpose.
     """
     for exception in (KeyboardInterrupt("interrupted mid-decision"),
                       asyncio.CancelledError("torn down mid-decision")):
@@ -257,11 +269,15 @@ def test_the_classes_declared_unenforceable_still_deny_here_rather_than_being_su
 
 
 # ---------------------------------------------------------------------------
-# The premise: no SDK is imported, so the audit can read the gate it is asked to trust.
+# The premise: no SDK is imported, so the gate is legible without one. These two tests are the only
+# thing in the repository enforcing it -- see the module docstring for why the static audit is not.
 # ---------------------------------------------------------------------------
 
-#: The client the deny shape is modelled on. Named once, and taken from the audit's own denylist
-#: rather than written out again, so a rename there cannot leave this watching a string nothing uses.
+#: The client the deny shape is modelled on. Written out once here and then asserted to be a member
+#: of the audit's denylist, which is where the guarantee comes from: the literal cannot be read off
+#: `FORBIDDEN_IN_POLICY`, because that set holds nine other names and nothing marks which is this
+#: one. So the assertion is the mechanism and this constant is only the spelling -- a rename in the
+#: audit turns that assertion red rather than leaving this watching a string nothing enforces.
 _SDK = "claude_agent_sdk"
 
 
@@ -280,9 +296,14 @@ def test_the_callback_module_imports_no_sdk():
     """The whole reason this surface exists in plain Python, asserted rather than assumed.
 
     `tools/static_audit.py` forbids `claude_agent_sdk` under `policy/` and this module lands in
-    `gates/`, so nothing else in the repository holds it to this. The SDK import is confined to the
-    demo; here the deny dict is plain JSON, which is what lets a static audit read the gate instead
-    of taking its word.
+    `gates/`, so nothing else in the repository holds it to this -- which makes this test the
+    enforcement rather than a restatement of it.
+
+    **Nothing in the shipped tree imports the SDK at all today.** Measured: the only occurrences
+    anywhere are the two denylist literals in `tools/static_audit.py` and `tools/guard_edit.py`, and
+    `demo/` holds `day2.py` and `full.py`, neither of which imports it. A later task introduces a
+    demo that does, and confining it there is that task's property to establish; this test asserts
+    only what is true now, which is that the property holds of this module whatever else arrives.
 
     Both directions, because a scan of a clean tree is green whether or not the detector works. The
     synthetic sources below are the detector being exercised on text this module does not contain --

@@ -14,6 +14,7 @@ from chaperone.audit.gateway import Gateway
 from chaperone.audit.store import AuditStore
 from chaperone.gates.checker import Checker, Verdict
 from chaperone.gates.engine import decide, denial_result
+from chaperone.gates import sdk_callback
 from chaperone.gates.hook import guarded_call, pre_tool_use
 from chaperone.gates.sdk_callback import pre_tool_use_deny
 from chaperone.policy.act_classes import ActContext
@@ -136,7 +137,12 @@ def test_the_same_policy_denies_at_all_three_layers(tmp_path: Path):
     assert hook_outcome.allow is False
     assert executor_result.allowed is False
     assert callback["hookSpecificOutput"]["permissionDecision"] == "deny"
-    # One draft, one reason, four layers -- not four refusals that happen to coincide.
+    # One draft, four layers, one category -- but every assertion below compares against the same
+    # hardcoded literal, so what this earns is "four refusals of one draft for one stated reason"
+    # and not "the layers agree". A layer that refused everything would pass here. Agreement is
+    # earned by `test_the_two_enforcement_layers_reach_the_same_verdict_and_the_same_category`,
+    # which runs a corpus containing allows and compares each layer against the in-process gate's
+    # computed category and detail rather than against a literal.
     assert "content:forward_looking_return" in completed.stderr
     assert hook_outcome.payload["category"] == "content:forward_looking_return"
     assert executor_result.decision.findings[0].violation_class.value == "content:forward_looking_return"
@@ -198,6 +204,20 @@ GUARD = Path(__file__).resolve().parents[2] / "tools" / "policy_hook.py"
 #: path can be repointed at a file nothing imports, and the walk would then derive facts about a
 #: module that governs nothing. `GUARD` stays a path because that one is executed as a subprocess.
 ADAPTER = inspect.getmodule(build_act_inputs)
+
+#: Every surface that builds its inputs from the adapter and then runs the predicate set itself, as
+#: `{label: the source the walk below parses}`. Both are held to the same derived requirement,
+#: because a predicate the in-process gate consults ports to each of them for the same reason: it is
+#: pure by the static audit's own guarantee.
+#:
+#: The callback's path is taken from the imported module rather than written out, for the reason
+#: `ADAPTER` is: a path can be repointed at a file nothing imports, and the walk would then derive
+#: facts about a module that governs nothing. `GUARD` stays a literal path because it is executed as
+#: a subprocess elsewhere in this file.
+_PORTED_SURFACES = {
+    "tools/policy_hook.py": GUARD,
+    "src/chaperone/gates/sdk_callback.py": Path(inspect.getfile(sdk_callback)),
+}
 
 _COMPLIANT = {"body": "The round is $10M.", "jurisdiction": "US", "tool_name": "send_message",
               "cited_fields": [], "record": {"round_size": "10000000"}, "approval_token": "tok"}
@@ -450,34 +470,44 @@ def test_the_hook_runs_every_pure_predicate_the_in_process_gate_consults():
     # Both spellings counted, for the reason `_pure_predicates_reachable_from` now reads both:
     # `citations.validate_citations(...)` in the guard is the predicate running, and a set that
     # only saw bare names would have demanded a call that was already there.
-    guard_tree = ast.parse(GUARD.read_text(encoding="utf-8"))
-    invoked = set()
-    for node in ast.walk(guard_tree):
-        if not isinstance(node, ast.Call):
-            continue
-        if isinstance(node.func, ast.Name):
-            invoked.add(node.func.id)
-        elif isinstance(node.func, ast.Attribute):
-            invoked.add(node.func.attr)
-    assert sorted(pure - invoked) == []
+    #
+    # **Every ported surface, not only the command hook.** Rooting the requirement at the in-process
+    # gate and then asking it of one file left the fourth surface outside the derivation entirely: a
+    # predicate added to `_decide_for` would be demanded of `tools/policy_hook.py` and not of
+    # `gates/sdk_callback.py`, and the corpus test below would catch the resulting divergence only on
+    # a row that happens to exercise the new predicate. That is sampling where this is construction.
+    for label, path in _PORTED_SURFACES.items():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        invoked = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if isinstance(node.func, ast.Name):
+                invoked.add(node.func.id)
+            elif isinstance(node.func, ast.Attribute):
+                invoked.add(node.func.attr)
+        assert sorted(pure - invoked) == [], (
+            f"{label} does not run every pure predicate the in-process gate consults: "
+            f"{sorted(pure - invoked)}"
+        )
 
-    # What makes the two sets above comparable: a callee's spelling is its name. `from
-    # chaperone.policy.citations import validate_citations as v` followed by `v(...)` puts the
-    # predicate in the guard's tree under a name neither set is looking for, and `pure - invoked`
-    # would then demand a call that is being made. Forbidding the rebinding is cheaper and more
-    # honest than chasing it, and this module has no reason to want one --
-    # `tests/testing/test_recorded.py` bans aliases in its own transport for the same reason.
-    aliased = [
-        alias.asname
-        for node in ast.walk(guard_tree)
-        if isinstance(node, (ast.Import, ast.ImportFrom))
-        for alias in node.names
-        if alias.asname
-    ]
-    assert aliased == [], (
-        f"tools/policy_hook.py binds an import under an alias ({aliased}); the predicate-parity "
-        "comparison above matches callees by name and cannot see a renamed one"
-    )
+        # What makes the two sets above comparable: a callee's spelling is its name. `from
+        # chaperone.policy.citations import validate_citations as v` followed by `v(...)` puts the
+        # predicate in the tree under a name neither set is looking for, and `pure - invoked`
+        # would then demand a call that is being made. Forbidding the rebinding is cheaper and more
+        # honest than chasing it, and neither module has a reason to want one --
+        # `tests/testing/test_recorded.py` bans aliases in its own transport for the same reason.
+        aliased = [
+            alias.asname
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.Import, ast.ImportFrom))
+            for alias in node.names
+            if alias.asname
+        ]
+        assert aliased == [], (
+            f"{label} binds an import under an alias ({aliased}); the predicate-parity "
+            "comparison above matches callees by name and cannot see a renamed one"
+        )
 
     # Function-level parity is not class-level parity, and the difference has to be declared rather
     # than inferred from silence. `evaluate_act_classes` runs here, but two of the classes it can
@@ -579,8 +609,16 @@ def test_the_two_enforcement_layers_reach_the_same_verdict_and_the_same_category
         outcome = _in_process(row, extra)
         # The fourth surface, on the identical payload the command hook reads. It is the layer the
         # unconsumed-key rows bear on hardest: it builds from the same adapter, which reaches no key
-        # outside `CONSUMED_KEYS`, so a callback that skipped that check would allow six of the rows
-        # below while the other layers refuse them.
+        # outside `CONSUMED_KEYS`, so a callback that skipped that check would diverge here.
+        #
+        # **Measured against a copy with the `unsendable_finding` call removed, because the count is
+        # easy to conflate with the number of rows carrying `_EXTRA`, which is six.** Four rows flip
+        # deny to allow: the guarantee, the guarantee nested in a container, the unbacked figure and
+        # the prose smuggled as a mapping key. Of the remaining two, the row pairing an unconsumed
+        # key with `jurisdiction: "DE"` stays a **deny** and changes only its category -- which is
+        # why the reason is compared and not just the verdict -- and the routing-token row allows at
+        # every layer either way, because `example.test` is in `sendable_text`. So the verdict
+        # assertion below is load-bearing on four rows and the reason assertion on five.
         callback = asyncio.run(pre_tool_use_deny(payload, None, None))
         assert completed.returncode in (0, 2), f"{label}: hook exited {completed.returncode}"
         assert (completed.returncode == 2) is (not outcome.allow), (

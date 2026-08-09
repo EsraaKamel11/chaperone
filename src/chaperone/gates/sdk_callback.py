@@ -1,9 +1,17 @@
 """The in-process `PreToolUse` callback: payload in, deny-dict out. Imports no SDK.
 
-The deny shape is the Agent SDK's documented `HookJSONOutput` contract, produced here as plain JSON
-so the static audit can read the gate it is asked to trust. The deny surface is the content classes
-(via tripwires) plus the act classes, over the same payload trust boundary as
-`tools/policy_hook.py`, carried by the shared adapter in `policy/payload.py`.
+The deny shape is the Agent SDK's documented `HookJSONOutput` contract, produced here as plain JSON,
+and the decision is plain Python over pure predicates -- so the gate is legible to static analysis
+rather than only to a runtime holding an SDK. **What reads it is a test, not the audit**, and the
+distinction is worth keeping straight: `audit_policy_purity` is rooted at `policy/` and this module
+is in `gates/`, while `audit_send_references` walks all of `src/` for one symbol and never looks at
+imports here. So nothing in `tools/static_audit.py` holds this module to importing no SDK.
+`tests/gates/test_sdk_callback.py` does, in both directions, and says so where it does it.
+
+The deny surface is the content classes (via tripwires), the act classes, and `other:` -- the class
+`unsendable_finding` emits for a payload key no predicate consumes, which runs first. All of it sits
+over the same payload trust boundary as `tools/policy_hook.py`, carried by the shared adapter in
+`policy/payload.py`.
 
 **`UNENFORCEABLE_HERE` is not consulted here, and that is deliberate.** The set in
 `policy/payload.py` declares the classes a layer building its inputs from that adapter holds no
@@ -87,13 +95,22 @@ async def pre_tool_use_deny(input_data: dict, tool_use_id, context) -> dict:
     `Exception`. Enumerating the exception types was tried in that file first and missed the one that
     mattered.
 
-    **The cost, stated because `BaseException` is a wider net in an async function than in a script.**
-    `asyncio.CancelledError` does not derive from `Exception`, so a cancelled hook returns a refusal
-    instead of propagating the cancellation, and cooperative cancellation is broken to that extent.
-    That is a deliberate choice and not an oversight: this repository's doctrine is that every way of
-    not getting a usable answer ends in a denial, a guard interrupted mid-decision has decided
-    nothing, and a refusal is the one outcome that cannot be read as permission. The caller is
-    tearing the call down in any case, so the refusal costs it nothing it wanted.
+    **The cancellation cost this looks like it pays, and does not.** `asyncio.CancelledError` does
+    not derive from `Exception`, so the net above appears to swallow a cancellation and break
+    cooperative cancellation. Measured, it does neither, and the reason is that **this coroutine
+    contains no `await`**. Cancelled before its first step, the loop throws into a coroutine that has
+    not started, the body is never entered, the `try` never engages, and `CancelledError` propagates
+    out. After its first step there is nothing left to cancel: with no suspension point the whole
+    body has already run to completion, and `task.cancel()` returns False. So the net catches a
+    `CancelledError` only when one is raised *inside* the decision, which is the same case as any
+    other `BaseException` and is refused for the same reason.
+
+    That reason is the doctrine `engine.py` states for the project: every way of not getting a usable
+    answer ends in a denial, a guard interrupted mid-decision has decided nothing, and a refusal is
+    the one outcome that cannot be read as permission. **The `await`-free body is what keeps the
+    claim narrow, so adding an `await` here changes it** -- a suspension point would give the loop
+    somewhere to throw, and the swallowed-cancellation cost this paragraph currently disclaims would
+    become real and would need deciding again.
     """
     try:
         return _decide(input_data)
