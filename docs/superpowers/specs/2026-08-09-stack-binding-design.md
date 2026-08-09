@@ -363,3 +363,18 @@ contract documentation and the Section 5 corrections are never cut: they are the
 core, and every one is independently shippable. If Section 1 itself slips, the fallback is the
 Step 0 extras state plus the drafted delta sentence for the unbuilt binding; the README row does
 not flip and the registry entry does not land.
+
+## 9. Amendments
+
+**A1 (review round, 2026-08-09).** Section 8's cut order and section 7.4's conditional list are
+superseded by the settled B-core promotion: B-core is unconditional; the evals adapter is cut for
+the week and its Limits delta sentence ships instead; B-live is the sole conditional item and the
+sole remaining casualty. Section 4's adapter design stands unchanged for a later week.
+
+**A2 (review round, 2026-08-09).** The demo's live lane is gated on an explicit `--live` flag, not
+on a credential. The installed SDK discovers the CLI through `shutil.which("claude")` and inherits
+the process environment; its authentication is the CLI's own OAuth credentials, or
+`CLAUDE_CODE_OAUTH_TOKEN`, or an environment key. No credential test is reliable, so a
+credential-gated lane could skip silently forever on a CLI-login machine and be recorded as landed
+without ever having run. Under `--live` the SDK's own errors surface; a silent skip under the flag
+is forbidden.

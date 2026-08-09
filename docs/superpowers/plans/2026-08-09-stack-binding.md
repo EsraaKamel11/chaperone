@@ -25,8 +25,15 @@ claude-agent-sdk >=0.2.130 (demo only), pytest.
 - After every task: `python tools/report.py` regenerates `docs/RESULTS.md` with **no diff**.
 - `policy/` imports no LLM client, no I/O, no clock (`tools/static_audit.py` enforces; the
   denylist includes `pydantic_ai` and `claude_agent_sdk`). Bindings land in `gates/` only.
-- The suite stays offline and keyless. The only key-gated path is the demo's live lane (Task 13),
-  which is never a test and never in CI.
+- The suite stays offline and keyless. The only non-offline path is the demo's live lane
+  (Task 13), which is **flag-gated on `--live`, never credential-gated**, is never a test and
+  never in CI. A credential gate would skip silently forever on a machine whose SDK rides the
+  Claude Code CLI login, and the ledger would record the lane as landed without it ever running.
+- **Execution order** (amended after the plan was written; task numbers are stable, only the order
+  moves): 1, 2, 3, 4, 5, 6, **8, 9, 10, 7**, 11, 12, then 13 if the timebox holds. Tasks 8 to 10
+  consume `build_act_inputs` and the policy predicates and none consumes `ReviewQueues`, so Task 7
+  (the plan's largest churn) moves behind the SDK work rather than in front of it. Task 9 Step 3
+  and Task 7 both edit the parity test in `tests/gates/test_hook.py`; the edits commute.
 - No new probabilistic rate is asserted anywhere. Counts over the frozen corpus are the only
   numeric assertions.
 - Reader-facing docs (README, docs/*.md) are em-dash-free. No organisation name anywhere,
@@ -290,12 +297,36 @@ def test_every_recorded_span_is_a_verbatim_substring_of_its_row_body():
 
 Match the drafts.jsonl field names against the file before running.
 
-- [ ] **Step 4: Run all three tests, watch them pass; name the killers**
+- [ ] **Step 4: Write the failing terminal-escape test**
+
+The escape ships in this task, so its test ships here too; leaving it for Task 4 would put
+untested behaviour on the fail-closed path if Task 4 slips. The call count is the killer: a
+`match=` alone passes today, because the loop re-wraps the last exception with the same message.
+
+```python
+def test_a_transport_that_declares_terminal_failure_is_not_retried():
+    calls = []
+
+    def declares_terminal(messages):
+        calls.append(1)
+        raise CheckerUnavailable("declared terminal by the transport")
+
+    checker = Checker("sonnet-tier", "sonnet-tier", declares_terminal, retries=2)
+    with pytest.raises(CheckerUnavailable, match="declared terminal"):
+        checker.check(DRAFT, RECORD)
+    assert len(calls) == 1
+```
+
+Run it before adding the escape clause: expected FAIL at `assert len(calls) == 1` with 3, which
+is the availability loop swallowing a terminal declaration. Then add the clause and watch it pass.
+
+- [ ] **Step 5: Run all four tests, watch them pass; name the killers**
 
 Killers: deleting the class-check breaks test 1; widening the substring rule breaks test 2;
-emptying the corpus loop breaks the `checked > 0` floor.
+emptying the corpus loop breaks the `checked > 0` floor; removing the escape clause breaks the
+call count in test 4.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/chaperone/gates/checker.py tests/gates/test_checker.py tests/evals/test_corpus.py
@@ -976,6 +1007,17 @@ Run: `python demo/sdk_hook.py --show-wiring`
 Expected: prints the matcher list and `setting_sources: []` (the suite interpreter has the SDK
 installed; a clean clone without `[sdk]` fails the import, which is the extras contract working).
 
+- [ ] **Step 2b: Price what the new demo file trips, before writing any README text**
+
+`tests/test_readme_claims.py` walks `demo/*.py` in six places: `_tracked(... "demo/*.py")` at
+line 223 and rglob sweeps at 540, 765, 822, 904 and 1259. The file's own comments at 534-537 and
+776-780 record `demo/full.py` breaking these audits when it landed, so this is the second time,
+not a hypothetical.
+
+Run: `python -m pytest tests/test_readme_claims.py`
+Expected: unknown. Whatever fires is priced and fixed here, before a single README sentence is
+written. Do not write README text against a red claim suite.
+
 - [ ] **Step 3: Land the README claim text (spec 7.3, verbatim, em-dash-free)**
 
 Add the blockquote claim from spec section 7.3 to the README's Agent SDK subsection, including
@@ -1012,6 +1054,37 @@ State: `tools/policy_hook.py` implements the out-of-process PreToolUse command-h
 and wired to no runtime; the wired hooks are the edit-time purity guard and the Stop-time secret
 scan, which enforce this repository's development rules, not the outbound policy. Every sentence
 names which contract it means.
+
+Two further items belong in this step. First, spec section 2 requires the queue's scope stated in
+**both** the module docstring and the README; Task 7 writes the docstring, this step writes the
+README sentence: in-process routing that makes the redirect real at the chokepoint, with the
+audit log proving a redirect happened, the queued payload not reconstructible from it, and
+durable delivery to an external inbox out of scope. Second, decide and record whether
+`pre_tool_use_deny` joins `ENFORCEMENT_ROSTER` in `tests/test_readme_claims.py`. The roster is a
+hand-maintained tuple, so nothing forces the decision, but its own contract is "the names the
+documents put weight on" and the README now puts weight on this one. If it joins, it **will**
+measure uncalled, because `_shipped_call_sites` counts `ast.Call` nodes and the demo passes the
+function as a bare Name to `HookMatcher`; the accompanying disclosure sentence is therefore part
+of the decision, not an afterthought.
+
+- [ ] **Step 1b: Add the asymmetry paragraph to the Agent SDK claim**
+
+Append to the section 7.3 blockquote, keeping its deny-surface sentence and compatibility framing
+intact. This text is em-dash-free and ships verbatim:
+
+> The two frameworks bind asymmetrically, and the asymmetry is the design. Pydantic AI binds at a
+> seam this repository already owned, the Checker's transport parameter, so the framework is a
+> replaceable implementation detail behind an interface the tests pin. The Agent SDK offers no
+> such seam, because it is the runtime that drives the tools; enforcement placed inside it would
+> live where a static import audit cannot follow. So the SDK's hook contract is implemented as
+> this repository's own code: `src/chaperone/gates/sdk_callback.py` produces the HookJSONOutput
+> deny shape as plain JSON and is exercised offline as the fourth decision surface in the same
+> parity tests that pin the other three layers, while `demo/sdk_hook.py` confines the
+> `claude_agent_sdk` import to wiring. The audit can read the gate; only the wiring needs the SDK.
+
+Note the word deliberately not used: "first-class surface" was proposed and rejected, because it
+collides with the spec's deliberate subordination of the SDK path to the executor chokepoint.
+The tree's own vocabulary is "fourth decision surface."
 
 - [ ] **Step 2: The architecture section 2 correction**
 
@@ -1067,8 +1140,10 @@ git push
 - [ ] **Step 1: Append the ledger**
 
 A dated list: Step 0 through Task 11 landed; the evals adapter deliberately not built this week
-(its delta sentence shipped in Limits); B-live pending Task 13 or its delta sentence. One line
-each, no promises.
+(its delta sentence shipped in Limits); B-live landed under `--live` or its delta sentence
+shipped. One line each, no promises. Record that spec amendments A1 (cut order superseded by the
+B-core promotion) and A2 (the live lane is flag-gated, not credential-gated) were taken in a
+review round before implementation, so the spec and the tree agree on what was built and why.
 
 - [ ] **Step 2: Commit**
 
@@ -1088,19 +1163,27 @@ git commit -m "docs: close the stack-binding ledger against what actually landed
 **Interfaces:**
 - Consumes: `build_options()` from Task 10.
 
-- [ ] **Step 1: Add the live lane behind an explicit key check**
+- [ ] **Step 1: Add the live lane behind an explicit `--live` flag, never a credential check**
 
 The live run registers an in-process send tool whose closure appends to `entered`, sets
 `include_hook_events=True`, drives one drafting turn that attempts the send, then asserts three
 effects and prints which contract fired: `entered == []`; a PreToolUse `HookEventMessage` deny
-present in the stream; no successful `ToolResult` for the send tool in the transcript. Without a
-key in the environment, it prints the offline explanation and exits 0.
+present in the stream; no successful `ToolResult` for the send tool in the transcript.
+
+**The gate is the flag, not a credential.** Without `--live`, print the offline explanation and
+exit 0. Under `--live`, attempt the connection and let the SDK's own errors surface
+(`CLINotFoundError`, authentication failure). A silent skip under `--live` is forbidden: the
+installed SDK discovers the CLI through `shutil.which("claude")` and inherits the process
+environment, and its authentication may be the CLI's own OAuth credentials rather than
+`ANTHROPIC_API_KEY`, so a credential-gated lane could never run on this machine while the ledger
+recorded it as landed.
 
 - [ ] **Step 2: Run it once live outside CI; keep the transcript out of the repo**
 
-Run: `python demo/sdk_hook.py` (with a key).
-Expected: the three assertions pass and the script prints the deny event. Nothing from the live
-run is committed.
+Run: `python demo/sdk_hook.py --live`
+Expected: the three assertions pass and the script prints the deny event. If the SDK raises
+instead, that error is the finding; do not convert it into a skip. Nothing from the live run is
+committed.
 
 - [ ] **Step 3: Commit the code only**
 
