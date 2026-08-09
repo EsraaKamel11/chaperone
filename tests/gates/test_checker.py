@@ -18,25 +18,25 @@ DRAFT = Draft(thread=THREAD, body="In my view it is a strong opportunity.", cite
 
 
 def test_the_checker_prompt_contains_the_transmitted_thread():
-    blob = json.dumps(build_checker_messages(DRAFT, RECORD))
+    blob = json.dumps(build_checker_messages(draft=DRAFT, record=RECORD))
     assert "honestly, is this a good deal?" in blob
     assert "Here are the round details." in blob
 
 
 def test_the_checker_prompt_contains_the_cited_records():
-    blob = json.dumps(build_checker_messages(DRAFT, RECORD))
+    blob = json.dumps(build_checker_messages(draft=DRAFT, record=RECORD))
     assert "10000000" in blob
 
 
 def test_the_checker_prompt_has_no_generator_artefacts():
-    blob = json.dumps(build_checker_messages(DRAFT, RECORD))
+    blob = json.dumps(build_checker_messages(draft=DRAFT, record=RECORD))
     for marker in ("<thinking>", "toolu_", "You are a drafting agent", "scratchpad", "chain of thought"):
         assert marker not in blob
 
 
 def test_the_checker_prompt_structure_is_exact():
     """Absence-scanning alone passes an injected turn that dodges the markers."""
-    messages = build_checker_messages(DRAFT, RECORD)
+    messages = build_checker_messages(draft=DRAFT, record=RECORD)
     assert len(messages) == 1
     assert messages[0]["role"] == "user"
     assert all(m["role"] != "assistant" for m in messages)
@@ -115,7 +115,7 @@ def test_the_checker_prompt_contains_the_candidate_draft():
     Emptying `<candidate_draft>` leaves all eleven tests above green and leaves the checker
     judging a thread without the message it is being asked to judge.
     """
-    blob = json.dumps(build_checker_messages(DRAFT, RECORD))
+    blob = json.dumps(build_checker_messages(draft=DRAFT, record=RECORD))
     assert "In my view it is a strong opportunity." in blob
 
 
@@ -139,7 +139,7 @@ def test_no_draft_or_record_field_outside_the_three_named_inputs_reaches_the_pro
     )
     record = Record(fields={"marker_cited_field": "marker_cited_value",
                             "marker_uncited_field": "marker_uncited_value"})
-    blob = json.dumps(build_checker_messages(draft, record))
+    blob = json.dumps(build_checker_messages(draft=draft, record=record))
     for included in ("marker_thread_body", "marker_draft_body", "marker_cited_field", "marker_cited_value"):
         assert included in blob, f"{included} is a named input and did not reach the prompt"
     for omitted in ("marker_jurisdiction", "marker_domain", "marker_tool",
@@ -154,7 +154,7 @@ def test_the_checker_message_carries_exactly_a_role_and_a_content_key():
     `test_the_checker_prompt_structure_is_exact`: the first scans five markers, the second pins
     the turn count and the role and never looks at the key set.
     """
-    messages = build_checker_messages(DRAFT, RECORD)
+    messages = build_checker_messages(draft=DRAFT, record=RECORD)
     assert messages, "a builder returning [] would make the loop below assert nothing"
     for message in messages:
         assert set(message) == {"role", "content"}
@@ -248,3 +248,48 @@ def test_the_model_strength_table_cannot_be_mutated_in_place():
     assert MODEL_STRENGTH["haiku-tier"] == 1
     with pytest.raises(ValueError, match="not be weaker"):
         assert_checker_not_weaker("haiku-tier", "opus-tier")
+
+
+# --- The two closures below bind the pair nothing bound. Neither is a mutant guard and neither is
+# --- covered by the banner above: they hold couplings that no behavioural test can see, because
+# --- both failure modes leave every assertion in this file green. The instruction text and the
+# --- content half of `ViolationClass` are a pair a single edit can separate, and
+# --- `build_checker_messages` is a function whose parameter list a later caller can widen
+# --- positionally. Neither closes the survivor the banner above names -- a justification sentence
+# --- appended to `CHECKER_INSTRUCTIONS` still survives, since closing that means pinning the whole
+# --- instruction string, and the instruction string is frozen under 160 recorded verdicts rather
+# --- than asserted.
+
+
+def test_checker_instructions_name_every_content_class_and_nothing_else():
+    """Coverage is derived from the enum; the phrases are hand-chosen.
+
+    The instruction text itself is frozen (the recorded verdicts were produced under these
+    exact bytes), so the map is checked against it, never composed into it. The count equality
+    is what "no other class is described as checkable" operationalizes to.
+    """
+    from chaperone.gates.checker import CHECKER_INSTRUCTIONS, CONTENT_CLASS_PHRASES
+    from chaperone.policy.types import Family, ViolationClass
+
+    content = {m for m in ViolationClass if m.family is Family.CONTENT}
+    assert set(CONTENT_CLASS_PHRASES) == content
+    for member, phrase in CONTENT_CLASS_PHRASES.items():
+        assert phrase in CHECKER_INSTRUCTIONS, member
+    assert "three" in CHECKER_INSTRUCTIONS
+    assert len(CONTENT_CLASS_PHRASES) == 3
+
+
+def test_build_checker_messages_is_keyword_only():
+    """Independence enforced by the signature: a positional channel cannot exist.
+
+    The name check is a vacuity tripwire, not decoration: `parameters` is a mapping, and a builder
+    that took no arguments at all would run the loop zero times and pass. Same shape as
+    `test_the_checker_message_carries_exactly_a_role_and_a_content_key` above, for the same reason.
+    """
+    import inspect
+    from chaperone.gates.checker import build_checker_messages
+
+    params = inspect.signature(build_checker_messages).parameters
+    assert set(params) == {"draft", "record"}, params
+    for name, param in params.items():
+        assert param.kind is inspect.Parameter.KEYWORD_ONLY, name

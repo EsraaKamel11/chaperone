@@ -109,7 +109,7 @@ def replay_over_corpus(
         # satisfied every behavioural assertion in `tests/testing/test_recorded.py`.
         if item.id not in recorded:
             raise HarnessError(f"the replay artifact covers no verdict for corpus row {item.id!r}")
-        key = key_for(build_checker_messages(item.draft, item.record))
+        key = key_for(build_checker_messages(draft=item.draft, record=item.record))
         if key in seen:
             raise HarnessError(
                 f"{item.id!r} and {seen[key]!r} put the same checker question and would share one "

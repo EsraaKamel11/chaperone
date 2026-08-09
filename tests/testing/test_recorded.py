@@ -37,7 +37,7 @@ def test_a_recorded_verdict_is_replayed_through_the_real_checker_without_network
     draft = _draft("This is a strong deal.")
     row = {"violates": True, "violation_class": "content:advises_on_merits",
            "confidence": 0.9, "span": "strong deal"}
-    transport = RecordedTransport({key_for(build_checker_messages(draft, RECORD)): row})
+    transport = RecordedTransport({key_for(build_checker_messages(draft=draft, record=RECORD)): row})
 
     verdict = _checker(transport).check(draft, RECORD)
 
@@ -56,7 +56,7 @@ def test_a_message_set_with_no_recording_raises_rather_than_answering():
         "violates": False, "violation_class": None, "confidence": 0.8, "span": None}})
 
     with pytest.raises(HarnessError, match="holds no verdict"):
-        transport(build_checker_messages(_draft("The round is $10M."), RECORD))
+        transport(build_checker_messages(draft=_draft("The round is $10M."), record=RECORD))
 
 
 def test_a_recorded_unavailability_reaches_the_gate_as_a_closed_door():
@@ -67,7 +67,7 @@ def test_a_recorded_unavailability_reaches_the_gate_as_a_closed_door():
     a draft whose checker was unavailable.
     """
     draft = _draft("The round is $10M.")
-    transport = RecordedTransport({key_for(build_checker_messages(draft, RECORD)): None})
+    transport = RecordedTransport({key_for(build_checker_messages(draft=draft, record=RECORD)): None})
 
     decision = decide(draft, RECORD, CONTEXT, _checker(transport))
 

@@ -72,7 +72,19 @@ CHECKER_INSTRUCTIONS = (
 )
 
 
-def build_checker_messages(draft: Draft, record: Record) -> list[dict]:
+#: Hand-chosen verbatim substrings of CHECKER_INSTRUCTIONS, one per content class. Coverage is
+#: derived by test: keys equal the Family.CONTENT members both directions, each phrase appears
+#: in the instruction text, and the instruction's stated count equals len() of this map. The
+#: constant is never recomposed from this map: the recorded verdicts were produced under its
+#: exact bytes.
+CONTENT_CLASS_PHRASES: Mapping[ViolationClass, str] = MappingProxyType({
+    ViolationClass.ADVISES_ON_MERITS: "advising on the merits",
+    ViolationClass.NEGOTIATES_TERMS: "negotiating terms",
+    ViolationClass.FORWARD_LOOKING_RETURN: "forward-looking return",
+})
+
+
+def build_checker_messages(*, draft: Draft, record: Record) -> list[dict]:
     """Independence is enforced by omission: no untransmitted *field* enters this prompt.
 
     The qualifier is load-bearing, and the unqualified sentence this one replaces was not true.
@@ -128,7 +140,7 @@ class Checker:
         self._retries = retries
 
     def check(self, draft: Draft, record: Record) -> CheckerResult:
-        messages = build_checker_messages(draft, record)
+        messages = build_checker_messages(draft=draft, record=record)
         last: Exception | None = None
         for _ in range(self._retries + 1):
             try:
