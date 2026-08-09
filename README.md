@@ -262,6 +262,38 @@ payload.
 
 ---
 
+## The Agent SDK hook contract, and which end of it is wired
+
+`tools/policy_hook.py` implements the Agent SDK's out-of-process `PreToolUse` command-hook contract:
+JSON on stdin, exit code 2 blocks, the reason on stderr. It is exercised from
+`tests/gates/test_hook.py` and wired to no runtime; the hooks this repository does wire are the
+edit-time purity guard and the Stop-time secret scan, which enforce this repository's own
+development rules, not the outbound policy.
+
+The in-process demonstration in `demo/sdk_hook.py` registers the same policy as a `PreToolUse` hook
+on the `ClaudeAgentOptions` an SDK client is constructed with, and empties `setting_sources` so that
+no hook settings on the filesystem can contribute a deny the printed registration does not account
+for. `python demo/sdk_hook.py --show-wiring` prints that registration and connects nowhere. It is
+the only file here that imports the SDK, which ships as an optional extra the build does not
+install, so **no test imports it and CI never runs it**: that is where this demo differs from
+`demo/day2.py` and `demo/full.py`, and what the offline tests pin instead is the decision rather
+than the wiring. That the import is confined to this one file is measured rather than guarded, and
+the distinction is the same one the callback's own tests draw: it is the arrangement described here,
+not a property any test would fail on if a second file imported the SDK tomorrow.
+
+The decision is `src/chaperone/gates/sdk_callback.py`, which imports no SDK, so the gate is legible
+to static analysis rather than only to a runtime holding one. What holds it to that is a test and
+not the audit, which is worth stating because the reverse is the natural assumption: the purity
+check in `tools/static_audit.py` is rooted at `policy/` and this module is in `gates/`, so
+`test_the_callback_module_imports_no_sdk` in `tests/gates/test_sdk_callback.py` is what pins the
+no-SDK rule. Where the callback meets the out-of-process layer is a different file:
+`test_the_two_enforcement_layers_reach_the_same_verdict_and_the_same_category` in
+`tests/gates/test_hook.py` runs the command hook and the callback over the same corpus payloads and
+compares verdict, category and detail on each row, across a corpus carrying allows as well as
+denials. Nothing in CI contacts a model.
+
+---
+
 ## Numbers, and what they are worth
 
 The corpus was frozen and the predictions were written **before any arm ran and before any number
@@ -538,7 +570,7 @@ Everything on the right was verified absent from the tree, not assumed.
 | Four-agent topology and per-agent grants | **Designed, not built** |
 | Crash-recovery `resume` pass, branches (b) and (c) | **Built.** Nothing schedules it and nothing consults its approval gate yet. Branch (c) files no handoff: naming a recipient needs a resolver beside the log, which is undesigned. |
 | Thread-scope pass for cross-turn accumulation | **Designed, not built** |
-| Pydantic AI binding for the checker | **Built.** `pydantic_ai_transport` in `src/chaperone/gates/binding.py` returns the callable `Checker` takes as its transport, so the content-class checker can run through pydantic-ai; prompt assembly stays in `build_checker_messages`. Nothing outside `tests/` constructs it, and neither demo runs through it. The 160 recorded verdicts predate the binding and were not re-run through it; the binding is exercised offline against FunctionModel, and no published rate was measured through it. |
+| Pydantic AI binding for the checker | **Built.** `pydantic_ai_transport` in `src/chaperone/gates/binding.py` returns the callable `Checker` takes as its transport, so the content-class checker can run through pydantic-ai; prompt assembly stays in `build_checker_messages`. Nothing outside `tests/` constructs it, and no demo runs through it. The 160 recorded verdicts predate the binding and were not re-run through it; the binding is exercised offline against FunctionModel, and no published rate was measured through it. |
 | Ladder promotion mechanics | **Designed, not built.** `on_pass` is a state transition with no caller, and it would not be keyed to these numbers. See below. |
 | Active learning on the matching shortlist | **Designed, not built.** Routing needs-verification records to the reviewers whose answers move the most eligibility mass needs a review queue with outcomes in it, and there is none. |
 | Sliding-window rate limiting | **Designed, not built.** `act:send_cap_exceeded` is a cap over a total, not over a window. A window needs a clock, and `policy/` may not hold one, so it belongs beside the log with the count. |
@@ -583,6 +615,9 @@ python demo/day2.py            # the two-lane demo above
 python demo/full.py            # both scenes, futile then refinable
 python tools/report.py         # regenerates docs/RESULTS.md
 python tools/static_audit.py   # the policy purity check that CI runs
+
+pip install -e ".[sdk]"                  # only the line below needs this; nothing else does
+python demo/sdk_hook.py --show-wiring    # the in-process registration, printed, connecting nowhere
 ```
 
 No network access is used by any test. Model transports are recorded and replayed, which is what makes

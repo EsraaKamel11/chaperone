@@ -299,11 +299,14 @@ def test_the_callback_module_imports_no_sdk():
     `gates/`, so nothing else in the repository holds it to this -- which makes this test the
     enforcement rather than a restatement of it.
 
-    **Nothing in the shipped tree imports the SDK at all today.** Measured: the only occurrences
-    anywhere are the two denylist literals in `tools/static_audit.py` and `tools/guard_edit.py`, and
-    `demo/` holds `day2.py` and `full.py`, neither of which imports it. A later task introduces a
-    demo that does, and confining it there is that task's property to establish; this test asserts
-    only what is true now, which is that the property holds of this module whatever else arrives.
+    **Exactly one file in the shipped tree imports the SDK, and it is the wiring.** Measured:
+    `demo/sdk_hook.py` builds the options object a client is constructed with, and nothing else
+    imports it. Every other occurrence anywhere is a name being looked for rather than used: the two
+    denylist literals in `tools/static_audit.py` and `tools/guard_edit.py`, and this module. That
+    confinement is the premise this test rests on and **not** what it measures -- measuring it needs
+    a scan of the whole tree rather than of one module, and no test in this repository runs one. So
+    what is asserted here is the narrow half, which is that the property holds of the callback
+    whatever arrives elsewhere.
 
     Both directions, because a scan of a clean tree is green whether or not the detector works. The
     synthetic sources below are the detector being exercised on text this module does not contain --
