@@ -933,9 +933,32 @@ def test_no_shipped_path_derives_a_send_count_and_hands_it_to_an_act_context():
 #: A roster rather than a sweep of every public symbol, because a sweep is dominated by helpers
 #: whose only caller is their own module and says nothing about a claim anyone made. These are the
 #: names the documents put weight on.
+#:
+#: **`pydantic_ai_transport` is entered because a reader-facing sentence rests on it.** The README's
+#: Pydantic AI row says nothing outside `tests/` constructs it, and until now that sentence was held
+#: by reading. Here it is measured, in both directions: the day anything under `src/`, `tools/` or
+#: `demo/` constructs the transport, the census flips and the disclosure has to come off the page in
+#: that same commit. `_shipped_call_sites` matches the name cleanly -- it is called by name and the
+#: name is unique -- unlike the `count` and `Branch.COMPLETE` cases the ledger guard below documents
+#: as excluded.
+#:
+#: **`pre_tool_use_deny` is deliberately not entered, and the reason is a measurement rather than a
+#: preference.** `_shipped_call_sites` does return `[]` for it, so it would measure uncalled and
+#: would need both a census entry and a backticked disclosure. But that entry would be literally
+#: true and substantively false. `demo/sdk_hook.py:44` registers the function with a `HookMatcher`
+#: as a bare name, for the SDK runtime to invoke; the shipped tree does drive that layer, and what
+#: the scan cannot see is an `ast.Call` node, because there is none to see. This is the shape the
+#: ledger guard below already rules out for `Branch.COMPLETE`: a roster entry that cannot be
+#: measured is a census reporting a name as uncalled because the scan cannot see it, which is worse
+#: than a disclosed gap. **The decline is about the scan, not about the symbol**, so there are two
+#: ways in: the commit that gives it a call site `_shipped_call_sites` can read, or the commit that
+#: teaches the census to read a registration -- an `ast.Name` in a `hooks=[...]` list is a wiring
+#: the scan could learn, and it would then measure this one called. Backticking it on a
+#: reader-facing page is free and creates no obligation here; the disclosure requirement runs from
+#: the roster outward, never inward.
 ENFORCEMENT_ROSTER = (
     "pre_tool_use", "guarded_call", "on_pass", "on_violation", "verbs_for", "max_tier_for",
-    "transmit", "resume", "requires_approval_for", "counted_sends",
+    "transmit", "resume", "requires_approval_for", "counted_sends", "pydantic_ai_transport",
 )
 
 #: Measured, not remembered: the roster members nothing under `src/`, `tools/` or `demo/` calls.
@@ -943,7 +966,7 @@ ENFORCEMENT_ROSTER = (
 #: on the commit that gives it a caller.
 UNCALLED_IN_THE_SHIPPED_TREE = frozenset({
     "pre_tool_use", "on_pass", "on_violation", "verbs_for", "transmit", "resume",
-    "requires_approval_for",
+    "requires_approval_for", "pydantic_ai_transport",
 })
 
 
@@ -1432,6 +1455,171 @@ def test_no_published_page_says_a_symbol_is_absent_that_the_tree_defines(path: P
     stale = _stale_absence_claims(path.read_text(encoding="utf-8"), defined)
     assert not stale, (
         f"{path.name} says these do not exist in this tree, and src/ defines them: {stale}"
+    )
+
+
+#: What counts as a symbol, and it is load-bearing in both directions. **Backticked, or an
+#: identifier-shaped token of at least two characters carrying an interior capital.** A
+#: backtick-requiring pattern is the natural first draft and it would miss `README.md`'s own
+#: corrected sentence, which writes its model class bare -- the single sentence this guard most
+#: exists to hold. The interior capital is what keeps the bare half off ordinary words: "no network
+#: in tests" names no symbol, and a version of this that captured `network` would be a defect in
+#: the pattern rather than grounds for an exemption.
+_BARE_SYMBOL = re.compile(r"[A-Za-z_][A-Za-z0-9_]*[A-Z][A-Za-z0-9_]*")
+_SYMBOL = rf"(?:`([A-Za-z_][A-Za-z0-9_.]*)`|\b({_BARE_SYMBOL.pattern})\b)"
+
+#: The dual of `ABSENCE_CLAIM`: that one denies a symbol exists and is refuted by `src/`, this one
+#: asserts a symbol is covered and is refuted by `tests/`.
+#:
+#: Three verb forms and only these three, because a symbol named without a coverage verb is not a
+#: coverage claim -- the plan's tech-stack line enumerates a model class with no verb at all, and
+#: this pattern deliberately cannot reach it. The symbol sits immediately after the verb, and
+#: immediately before "in tests", which is what keeps "exercised offline as the fourth decision
+#: surface" and "no network in tests" out of the population.
+COVERAGE_CLAIMS = (
+    re.compile(r"exercised[^.!?]{0,40}?against\s+" + _SYMBOL),
+    re.compile(r"tests drive it with\s+" + _SYMBOL),
+    re.compile(_SYMBOL + r"\s+in tests\b"),
+)
+
+
+def _symbols_named_under_tests() -> set[str]:
+    """Every name a test module defines, imports, calls or reads as an attribute.
+
+    **Named, not defined**, which is where this parts company with `_defined_symbols` above. A
+    coverage claim is about a symbol the tests reach for, and the symbol the incident turned on is
+    defined in a library: `FunctionModel` is imported by `tests/gates/test_binding.py` and defined
+    nowhere in this repository, so a definition scan would report the README's true sentence as
+    false.
+
+    Read from each module's AST rather than from its text, so a name that appears only in a comment
+    or in a docstring does not resolve a claim about what the tests exercise.
+    """
+    names: set[str] = set()
+    for path in (REPO / "tests").rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(node.name)
+            elif isinstance(node, ast.Name):
+                names.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                names.add(node.attr)
+            elif isinstance(node, ast.alias):
+                # `import a.b.c` gives the dotted path, so every part is added: a claim naming `c`
+                # is resolved by the module a test imports under that name.
+                names.update(node.name.split("."))
+                if node.asname:
+                    names.add(node.asname)
+    return names
+
+
+def _unresolved_coverage_claims(text: str, named: set[str]) -> list[str]:
+    """The symbols `text` claims tests cover that nothing under `tests/` names."""
+    # Whitespace collapsed so a wrapped sentence still matches, and **not** lowercased, for the
+    # reason `_stale_absence_claims` gives one guard up: the bare half of `_SYMBOL` turns on an
+    # interior capital, and a lowercased corpus makes it match nothing at all.
+    flat = re.sub(r"\s+", " ", text)
+    unresolved: list[str] = []
+    for pattern in COVERAGE_CLAIMS:
+        for match in pattern.finditer(flat):
+            symbol = next(group for group in match.groups() if group)
+            if symbol.split(".")[-1] not in named:
+                unresolved.append(symbol)
+    return unresolved
+
+
+#: The three coverage verbs, as fragments, and a symbol name no test names. Kept apart on purpose:
+#: joined, they are a violating sentence, and the killer below joins them at run time rather than
+#: this file spelling one out. The specification for this guard lives in a tracked markdown plan
+#: that the guard itself scans, so a literal example would be a real instance there and the guard
+#: would flag its own specification. The same reasoning reaches this module: a fixture that has to
+#: be carved out of a scope is a fixture that stops the scope from ever growing.
+_COVERAGE_FRAGMENTS = ("exercised offline against {}", "tests drive it with {}", "{} in tests")
+
+#: A model-class-shaped name, chosen because it is not defined, imported or read anywhere under
+#: `tests/`. The killer asserts that rather than assuming it, so the planted case stays a real one
+#: instead of a string that merely looks like one.
+_UNCOVERED_SYMBOL = "NowhereModel"
+
+
+def test_a_planted_coverage_claim_is_caught_backticked_or_bare():
+    """The killer for the guard below, which matches nothing on any page in this tree today.
+
+    Production changes this catches: requiring a backtick around the symbol, which is the natural
+    first draft and which would miss `README.md`'s own corrected sentence, where the model class is
+    written bare; and dropping any one of the three verb forms, each of which a tracked document
+    uses today.
+
+    The discriminating half is asserted too. A regex that flagged every symbol would pass the
+    planted cases and be useless, so a name `tests/` really does reach for is run through the same
+    three forms and must come out clean.
+    """
+    named = _symbols_named_under_tests()
+    assert named, "no symbols were parsed under tests/, so this guard would pass vacuously"
+    assert _UNCOVERED_SYMBOL not in named, (
+        f"{_UNCOVERED_SYMBOL} is now named under tests/, so the planted claims below are true and "
+        "this killer is asserting nothing; pick a name no test reaches for"
+    )
+
+    for template in _COVERAGE_FRAGMENTS:
+        for rendered in (template.format(_UNCOVERED_SYMBOL),
+                         template.format(f"`{_UNCOVERED_SYMBOL}`")):
+            assert _unresolved_coverage_claims(rendered, named) == [_UNCOVERED_SYMBOL], (
+                f"a coverage claim naming a symbol no test names was not caught: {rendered!r}"
+            )
+
+    covered = sorted(n for n in named if _BARE_SYMBOL.fullmatch(n))
+    assert covered, (
+        "no test names a symbol of the unbackticked shape, so the discriminating half of this "
+        "killer would compare against nothing"
+    )
+    for template in _COVERAGE_FRAGMENTS:
+        for rendered in (template.format(covered[0]), template.format(f"`{covered[0]}`")):
+            assert _unresolved_coverage_claims(rendered, named) == [], (
+                f"a claim naming {covered[0]!r}, which tests/ names, was reported unresolved: "
+                f"{rendered!r}"
+            )
+
+    # Prose describing the forms is not making a claim, and the plan's own three bullets are the
+    # live instance of that. Neither string names a symbol under this guard's definition.
+    for describing in ("a symbol, then the words in tests",
+                       "the words tests drive it with, then a symbol"):
+        assert _unresolved_coverage_claims(describing, named) == [], (
+            f"prose describing the forms was read as making a claim: {describing!r}"
+        )
+
+
+@pytest.mark.parametrize("path", _all_markdown(), ids=lambda p: p.relative_to(REPO).as_posix())
+def test_no_published_page_claims_test_coverage_of_a_symbol_no_test_names(path: Path):
+    """The claim that names a symbol the suite never reaches for, which nothing else can see.
+
+    Amendment A3 records the incident: a sentence named two model classes as driving the binding's
+    tests when only one of them existed anywhere in this repository. It reached the README's guarded
+    surface and the full suite stayed green, because every other guard here resolves backticked test
+    names and source paths, and a bare library class is neither.
+
+    **If this guard REDs on a tracked document, the document is wrong and the pattern is right.**
+    Widening the pattern to make a page pass -- an exemption list, a carve-out for quoted material,
+    a narrower verb set -- is forbidden, and the reason it is worth saying here is that the first
+    RED will land on prose someone has just written and the temptation will be immediate. The
+    correct fix is to name a symbol the tests actually reach for, or to stop claiming coverage.
+
+    **Scope is every tracked markdown file, not the reader-facing six**, for the reason the absence
+    guard above gives unchanged: the plan is the document most likely to describe a tree that has
+    since moved. A3 edits the spec and plan bodies in place rather than appending, which is what
+    lets this land green at all.
+
+    **The residual, stated.** A symbol enumerated with no coverage verb at all is out of reach of
+    any claim-shaped pattern, and the plan's tech-stack line is the live instance: it names a model
+    class inside a parenthesis, asserting nothing about what exercises it. A3 corrected that line by
+    hand and nothing holds it.
+    """
+    named = _symbols_named_under_tests()
+    assert named, "no symbols were parsed under tests/, so this guard would pass vacuously"
+    unresolved = _unresolved_coverage_claims(path.read_text(encoding="utf-8"), named)
+    assert not unresolved, (
+        f"{path.name} claims tests exercise these, and nothing under tests/ names them: "
+        f"{unresolved}"
     )
 
 
