@@ -398,8 +398,8 @@ and an appendix cannot stop the body from re-seeding the struck word.
 **The rule this teaches.** A claim sentence marked verbatim-mandatory may fix invariants and
 provenance — "predate the binding", "never re-run", "no published rate was measured" — because
 those are properties of how the work is done and cannot drift as the tree changes. Any clause
-enumerating tree contents ("exercised against X", "tests drive it with X") is written from the
-tree at ship time. Design documents state intent; only the tree states what exists.
+enumerating tree contents — any clause naming what exercises or drives a thing — is written from
+the tree at ship time. Design documents state intent; only the tree states what exists.
 
 Rejected here: adding a `TestModel` test to make the sentence true. A test written to make a
 sentence true has no honest RED, and the property it would add — that the output union is

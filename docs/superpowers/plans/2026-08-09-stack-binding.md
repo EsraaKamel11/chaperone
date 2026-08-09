@@ -1092,35 +1092,63 @@ The tree's own vocabulary is "fourth decision surface."
 
 - [ ] **Step 1c: A coverage claim naming a symbol must find that symbol under `tests/`**
 
-Added by amendment A3, whose incident is this guard's killer case. A sentence in a tracked markdown
-file that asserts *test coverage* of a named symbol is checkable, and until now was not checked:
-the claim "the binding is exercised offline against `FunctionModel` and `TestModel`" was published
-into the README's guarded surface while `TestModel` occurred in no file under `tests/`, and the
-full suite stayed green. Build the dual of `ABSENCE_CLAIM` (`tests/test_readme_claims.py:1297`),
-following that guard's construction exactly: a verb-scoped regex capturing the symbol, checked
-against the tree, plus a planted-case killer proving the regex still locates what it claims to.
+Added by amendment A3. A sentence in a tracked markdown file that asserts *test coverage* of a
+named symbol is checkable, and until now was not checked: A3 records a claim that named two model
+classes as driving the binding's tests when only one of them existed anywhere in the repository.
+It reached the README's guarded surface, and the full suite stayed green. Read A3 for the incident;
+it is deliberately not restated here, for a reason this step returns to below.
+
+Build the dual of `ABSENCE_CLAIM` (`tests/test_readme_claims.py:1297`), following that guard's
+construction exactly: a verb-scoped regex capturing the symbol, checked against the tree, plus a
+planted-case killer proving the regex still locates what it claims to.
 
 Three coverage-verb forms, and only these three — a symbol named without one of them is not a
-coverage claim:
+coverage claim. Stated as shapes rather than as literals, because a literal here is itself a
+tracked instance:
 
-    exercised ... against `X`      tests drive it with `X`      `X` in tests
+- the words "exercised" then "against", then a symbol
+- the words "tests drive it with", then a symbol
+- a symbol, then the words "in tests"
+
+**The symbol must match whether or not it is backticked, and this is the requirement most likely
+to be got wrong.** A backtick-requiring regex is the natural first draft and it would miss
+`README.md`'s own corrected sentence, which writes the model class bare — the single sentence this
+guard most exists to hold. Prove the unbackticked case with a test; do not leave it to inspection.
+
+What counts as a symbol is therefore load-bearing in both directions: backticked, or an
+identifier-shaped token of at least two characters carrying an interior capital. Prose that
+describes these forms rather than making a claim — this step's own three bullets, and the
+authoring rule in A3 — names no symbol under that definition and must come out green. If it does
+not, the regex is capturing ordinary words, which is a defect in the regex and not grounds for an
+exemption.
 
 Scope it to `_all_markdown()` (`:75`), not to `READER_FACING`. The absence guard's own docstring
 gives the reason and it applies unchanged here: the plan is the document most likely to describe a
-tree that has since moved. Amendment A3 edits the plan's body in place for exactly this reason —
-had it only appended, this guard could never have landed green.
+tree that has since moved. Amendment A3 edits the spec and plan bodies in place for exactly this
+reason — had it only appended, this guard could never have landed green.
 
-Write the planted case from the incident: the literal sentence
-`the binding is exercised offline against \`FunctionModel\` and \`TestModel\`` must be located by
-the regex and reported, and the killer fails if it is not. Then confirm two live cases pass:
-spec section 1's `(\`FunctionModel\` in tests)` is a real coverage claim that resolves, and
-**amendment A3 must stay green while quoting the struck sentence** — a document that records a
-retracted claim is not making it. If the regex cannot separate those two, the verb scoping is
-wrong; widen nothing to force it green.
+**The killer assembles its violating sentence at run time from a verb fragment and a symbol name;
+it does not spell one out.** Any literal violating sentence written into this file would be a real
+instance in tracked markdown, and the guard would flag its own specification. The killer must also
+assert that the symbol it fabricates is genuinely absent from `tests/`, so the case stays a real
+one rather than a string that merely looks like one.
+
+That constraint is the point, not an inconvenience: **if this guard REDs on a tracked document,
+the document is wrong and the regex is right.** Widening the regex to make a document pass — an
+exemption list, a quoted-material carve-out, a narrowed verb set — is forbidden. The prohibition
+is worth stating in the guard's own docstring, because the first RED will land on prose someone
+just wrote and the temptation will be immediate.
+
+Then confirm the live cases pass, and treat any failure among them as a design error in the regex
+rather than something to suppress: spec section 1 writes a model class in the third form and it
+resolves; `README.md`'s corrected sentence writes one bare in the first form and it resolves;
+**amendment A3 stays green while describing the struck claim**, because a document recording a
+retracted claim is not making one. If the regex cannot separate A3 from a live claim, the verb
+scoping is wrong — fix the scoping.
 
 State the residual in the guard's docstring rather than leaving it implied: the plan's tech-stack
-line enumerates `FunctionModel` with no verb at all, so no claim-shaped regex can reach it. A3
-alone corrected that line, and nothing holds it.
+line enumerates a model class with no verb at all, so no claim-shaped regex can reach it. A3 alone
+corrected that line, and nothing holds it.
 
 Run the killer first and watch it fail before the regex exists.
 
