@@ -1231,9 +1231,13 @@ def test_the_full_demo_runs_both_scenes_and_enters_the_send_tool_in_neither():
     permission failure, which is the thing this architecture exists to refuse.
 
     Production changes that break this: handing `refine`'s resolved body to the send registry
-    instead of to `build_handoff`; a futile denial that spends a redraft round; and a scene 2 whose
+    instead of into the escalation; a futile denial that spends a redraft round; and a scene 2 whose
     loop never runs, which would leave `refine` exercised by unit tests alone while the README
     described a loop nobody had watched turn.
+
+    *"Into the escalation"* rather than *"to `build_handoff`"* since Task 7: the demo no longer
+    builds its own payload. `guarded_call` routes one into a review queue and the scene reads it
+    back out, so the resolved body reaches a human through the queued payload.
 
     The script's own `assert not entered` runs before each print and `check=True` surfaces it, so
     the effect is asserted inside the run and the shape of the run is asserted here.

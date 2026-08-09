@@ -42,6 +42,7 @@ from typing import Mapping, Sequence
 from chaperone.audit.gateway import Gateway, GatewayResult
 from chaperone.gates.checker import Checker
 from chaperone.gates.hook import guarded_call
+from chaperone.gates.queues import ReviewQueues
 from chaperone.policy.act_classes import ActContext
 from chaperone.policy.types import Draft, Message, Record
 
@@ -76,7 +77,16 @@ class ScriptedRunner:
         context: ActContext,
         checker: Checker,
         registry: Mapping[str, object],
+        *,
+        queues: ReviewQueues,
     ) -> list[GatewayResult]:
+        """Every attempt through the chokepoint, so every denial routes where a real one would.
+
+        `queues` is required and keyword-only for the reason it is on `guarded_call`: an adversary
+        driver that made its own queue would run every scripted denial into an object its caller
+        cannot see, and a suite that cannot see where the escalations went cannot assert they were
+        produced. Forwarded rather than interpreted -- nothing here reads a queue or names one.
+        """
         results: list[GatewayResult] = []
         for attempt in self._attempts:
             draft = Draft(
@@ -88,6 +98,7 @@ class ScriptedRunner:
                 tool_name=attempt.tool_name,
             )
             results.append(
-                guarded_call(gateway, attempt.tool_name, {}, draft, record, context, checker, registry)
+                guarded_call(gateway, attempt.tool_name, {}, draft, record, context, checker,
+                             registry, queues=queues)
             )
         return results

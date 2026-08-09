@@ -16,6 +16,7 @@ from chaperone.gates.checker import Checker, Verdict
 from chaperone.gates.engine import decide, denial_result
 from chaperone.gates import sdk_callback
 from chaperone.gates.hook import guarded_call, pre_tool_use
+from chaperone.gates.queues import ReviewQueues
 from chaperone.gates.sdk_callback import pre_tool_use_deny
 from chaperone.policy.act_classes import ActContext
 from chaperone.policy.arguments import BODY_KEYS, TOO_DEEP, sendable_text, unsendable_in
@@ -53,7 +54,7 @@ def _gateway(tmp_path: Path) -> Gateway:
 def test_an_allowed_call_reaches_the_tool(tmp_path: Path):
     registry = TrackingRegistry({"send_message": lambda **kw: "sent"})
     result = guarded_call(_gateway(tmp_path), "send_message", {}, _draft("The round is $10M."),
-                          RECORD, CONTEXT, CLEAN, registry)
+                          RECORD, CONTEXT, CLEAN, registry, queues=ReviewQueues())
     assert result.allowed is True
     assert registry.lookups == ["send_message"]
 
@@ -62,7 +63,7 @@ def test_a_denied_call_never_indexes_the_registry(tmp_path: Path):
     """The ordering IS the guarantee: not 'not called', but 'never looked up'."""
     registry = TrackingRegistry({"send_message": lambda **kw: "sent"})
     result = guarded_call(_gateway(tmp_path), "send_message", {}, _draft("Returns are guaranteed."),
-                          RECORD, CONTEXT, CLEAN, registry)
+                          RECORD, CONTEXT, CLEAN, registry, queues=ReviewQueues())
     assert result.allowed is False
     assert registry.lookups == []
 
@@ -75,17 +76,94 @@ def test_a_newly_added_send_surface_is_gated_without_touching_it(tmp_path: Path)
     draft = Draft(thread=(Message(role="investor", body="?"),), body="Returns are guaranteed.",
                   cited_fields=(), recipient_jurisdiction="US", recipient_domain="example.test",
                   tool_name="send_reply")
-    result = guarded_call(_gateway(tmp_path), "send_reply", {}, draft, RECORD, context, CLEAN, registry)
+    result = guarded_call(_gateway(tmp_path), "send_reply", {}, draft, RECORD, context, CLEAN,
+                          registry, queues=ReviewQueues())
     assert result.allowed is False
     assert registry.lookups == []
 
 
 def test_deny_is_never_relabelled_as_retryable(tmp_path: Path):
     result = guarded_call(_gateway(tmp_path), "send_message", {}, _draft("Returns are guaranteed."),
-                          RECORD, CONTEXT, CLEAN, TrackingRegistry({"send_message": lambda **kw: "sent"}))
+                          RECORD, CONTEXT, CLEAN,
+                          TrackingRegistry({"send_message": lambda **kw: "sent"}), queues=ReviewQueues())
     payload = result.decision
     from chaperone.gates.engine import denial_result
     assert denial_result(payload)["is_retryable"] is False
+
+
+def test_a_denied_send_lands_in_the_named_queue(tmp_path: Path):
+    """"Redirected" is a payload somewhere a human can read, not a word in a field.
+
+    The disposition already said the draft should go to a human, and until the chokepoint put one
+    somewhere, nothing did: every escalation in this tree was assembled by whatever called the gate,
+    so a caller that skipped the step got the same disposition and produced no escalation at all.
+
+    Asserted on what is *in* the queue. A spy counting that `put` was called would pass against a
+    chokepoint that enqueued an empty payload, or the wrong draft, or put it in a queue nobody
+    reads. The blocked body ties the queued payload to this draft, and the category ties it to the
+    verdict the gate itself returned rather than to one this test computed alongside it.
+
+    The queue is read by its literal name rather than through `destination_for`. Reading it through
+    the same function the chokepoint routes with is self-consistent by construction and stays green
+    through a rename that quietly moves every escalation to a queue nobody is watching.
+    """
+    queues = ReviewQueues()
+    draft = _draft("Returns are guaranteed.")
+    result = guarded_call(_gateway(tmp_path), "send_message", {}, draft, RECORD, CONTEXT, CLEAN,
+                          TrackingRegistry({"send_message": lambda **kw: "sent"}), queues=queues)
+
+    assert result.allowed is False
+    queued = queues.items("human-review")
+    assert len(queued) == 1, f"one denial routed {len(queued)} escalations"
+    assert queued[0].blocked_body == draft.body
+    assert queued[0].reason_category == denial_result(result.decision)["category"]
+
+
+def test_a_compliant_run_leaves_every_queue_empty(tmp_path: Path):
+    """The other half, and without it the test above holds for a chokepoint that queues everything.
+
+    A gate that escalated every call would satisfy every assertion about a denied one. `all_empty`
+    rather than `items("human-review")` because the claim is that nothing was routed anywhere: a
+    chokepoint that put allowed drafts in some other queue would pass the narrower check.
+    """
+    queues = ReviewQueues()
+    result = guarded_call(_gateway(tmp_path), "send_message", {}, _draft("The round is $10M."),
+                          RECORD, CONTEXT, CLEAN,
+                          TrackingRegistry({"send_message": lambda **kw: "sent"}), queues=queues)
+
+    assert result.allowed is True
+    assert queues.all_empty()
+
+
+def test_the_chokepoint_cannot_be_called_without_somewhere_to_route_to(tmp_path: Path):
+    """`queues` is required and keyword-only, so a caller cannot route nowhere by omission.
+
+    A default would make this call legal and leave it silently dropping escalations, which is the
+    state the two tests above exist to end. Required means the compiler-equivalent -- a `TypeError`
+    at the call -- rather than a convention a caller can forget.
+    """
+    with pytest.raises(TypeError, match="queues"):
+        guarded_call(_gateway(tmp_path), "send_message", {}, _draft("Returns are guaranteed."),
+                     RECORD, CONTEXT, CLEAN, TrackingRegistry({"send_message": lambda **kw: "sent"}))
+
+
+def test_the_queue_a_denial_routes_to_cannot_be_supplied_positionally(tmp_path: Path):
+    """The other half of the interface, and the test above holds for a positional parameter too.
+
+    Required and keyword-only are separate properties, and only the first has a test above it: drop
+    the `*` and a caller omitting `queues` still gets a `TypeError`, so nothing would notice. What
+    keyword-only buys is that the destination has to be named at the call site. `guarded_call`
+    already takes eight positional arguments, two of which are the mappings `args` and `registry`,
+    and a ninth slot beside them is one transposition away from a queue arriving as a registry.
+
+    Watched failing by reversing the production code rather than by writing it after the fact:
+    with the `*` removed from the signature the positional call below succeeds and this fails,
+    while the test above stays green.
+    """
+    with pytest.raises(TypeError):
+        guarded_call(_gateway(tmp_path), "send_message", {}, _draft("Returns are guaranteed."),
+                     RECORD, CONTEXT, CLEAN, TrackingRegistry({"send_message": lambda **kw: "sent"}),
+                     ReviewQueues())
 
 
 def test_the_same_policy_denies_at_all_three_layers(tmp_path: Path):
@@ -128,7 +206,8 @@ def test_the_same_policy_denies_at_all_three_layers(tmp_path: Path):
 
     # Layer 3: the executor chokepoint.
     executor_result = guarded_call(_gateway(tmp_path), "send_message", {}, draft, RECORD, CONTEXT,
-                                   CLEAN, TrackingRegistry({"send_message": lambda **kw: "sent"}))
+                                   CLEAN, TrackingRegistry({"send_message": lambda **kw: "sent"}),
+                                   queues=ReviewQueues())
 
     # Layer 4: the in-process deny callback. Offline and keyless -- a plain coroutine over a dict.
     callback = asyncio.run(pre_tool_use_deny(payload, None, None))
@@ -800,7 +879,7 @@ def test_arguments_too_deep_to_examine_are_denied_rather_than_raised(tmp_path: P
     for label, args in (("cyclic", cyclic), ("3000 deep", deep)):
         registry = TrackingRegistry({"send_message": lambda **kw: "sent"})
         result = guarded_call(_gateway(tmp_path / label), "send_message", args, draft,
-                              RECORD, CONTEXT, CLEAN, registry)
+                              RECORD, CONTEXT, CLEAN, registry, queues=ReviewQueues())
         assert result.allowed is False, label
         assert registry.lookups == [], label
         assert denial_result(result.decision)["category"] == "other", label
@@ -1301,13 +1380,13 @@ def test_a_call_naming_a_tool_the_reviewed_draft_does_not_is_denied(tmp_path: Pa
     registry = TrackingRegistry({"send_message": lambda **kw: sent.append("send_message") or "sent",
                                  "draft_message": lambda **kw: sent.append("draft_message") or "drafted"})
     mismatched = guarded_call(_gateway(tmp_path), "send_message", {}, _drafting("The round is $10M."),
-                              RECORD, _mismatch_context(), CLEAN, registry)
+                              RECORD, _mismatch_context(), CLEAN, registry, queues=ReviewQueues())
     assert mismatched.allowed is False
     assert registry.lookups == []
     assert sent == []
 
     matched = guarded_call(_gateway(tmp_path / "b"), "draft_message", {}, _drafting("The round is $10M."),
-                           RECORD, _mismatch_context(), CLEAN, registry)
+                           RECORD, _mismatch_context(), CLEAN, registry, queues=ReviewQueues())
     assert matched.allowed is True
     assert sent == ["draft_message"]
 
@@ -1334,7 +1413,8 @@ def test_a_denial_carries_its_category_through_to_the_agent_facing_result(tmp_pa
     the tripwire that actually fired.
     """
     result = guarded_call(_gateway(tmp_path), "send_message", {}, _draft("Returns are guaranteed."),
-                          RECORD, CONTEXT, CLEAN, TrackingRegistry({"send_message": lambda **kw: "sent"}))
+                          RECORD, CONTEXT, CLEAN,
+                          TrackingRegistry({"send_message": lambda **kw: "sent"}), queues=ReviewQueues())
     payload = denial_result(result.decision)
     assert payload["category"] == "content:forward_looking_return"
     assert payload["disposition"] == "redirect_refinable"
@@ -1351,7 +1431,7 @@ def test_an_unknown_tool_never_reaches_the_registry_as_a_key_error(tmp_path: Pat
     """
     registry = TrackingRegistry({"send_message": lambda **kw: "sent"})
     result = guarded_call(_gateway(tmp_path), "wire_funds", {}, _draft("The round is $10M."),
-                          RECORD, CONTEXT, CLEAN, registry)
+                          RECORD, CONTEXT, CLEAN, registry, queues=ReviewQueues())
     assert result.allowed is False
     assert registry.lookups == []
 
@@ -1371,7 +1451,7 @@ def test_arguments_carrying_text_the_gate_never_read_are_denied(tmp_path: Path):
     delivered = {}
     registry = TrackingRegistry({"send_message": lambda **kw: delivered.update(kw) or "sent"})
     result = guarded_call(_gateway(tmp_path), "send_message", {"body": "Returns are guaranteed."},
-                          _draft("The round is $10M."), RECORD, CONTEXT, CLEAN, registry)
+                          _draft("The round is $10M."), RECORD, CONTEXT, CLEAN, registry, queues=ReviewQueues())
     assert result.allowed is False
     assert delivered == {}
     assert registry.lookups == []
@@ -1390,7 +1470,7 @@ def test_arguments_drawn_from_the_reviewed_draft_are_delivered(tmp_path: Path):
     registry = TrackingRegistry({"send_message": lambda **kw: delivered.update(kw) or "sent"})
     args = {"body": draft.body, "to": draft.recipient_domain, "draft": None, "urgent": False}
     result = guarded_call(_gateway(tmp_path), "send_message", args, draft, RECORD, CONTEXT,
-                          CLEAN, registry)
+                          CLEAN, registry, queues=ReviewQueues())
     assert result.allowed is True
     assert delivered == args
     assert registry.lookups == ["send_message"]
@@ -1405,7 +1485,7 @@ def test_a_reviewed_body_is_not_taken_apart_into_characters(tmp_path: Path):
     draft = _draft("The round is $10M. We have shared the requested details with you already.")
     registry = TrackingRegistry({"send_message": lambda **kw: "sent"})
     result = guarded_call(_gateway(tmp_path), "send_message", {"body": draft.body}, draft,
-                          RECORD, CONTEXT, CLEAN, registry)
+                          RECORD, CONTEXT, CLEAN, registry, queues=ReviewQueues())
     assert result.allowed is True
 
 
@@ -1414,7 +1494,7 @@ def test_an_unreviewed_value_nested_inside_a_container_is_still_found(tmp_path: 
     registry = TrackingRegistry({"send_message": lambda **kw: "sent"})
     args = {"parts": [{"kind": "text", "value": "Returns are guaranteed."}]}
     result = guarded_call(_gateway(tmp_path), "send_message", args, _draft("The round is $10M."),
-                          RECORD, CONTEXT, CLEAN, registry)
+                          RECORD, CONTEXT, CLEAN, registry, queues=ReviewQueues())
     assert result.allowed is False
     assert registry.lookups == []
 
@@ -1428,7 +1508,7 @@ def test_a_figure_that_reached_no_predicate_as_an_argument_is_denied(tmp_path: P
     """
     registry = TrackingRegistry({"send_message": lambda **kw: "sent"})
     result = guarded_call(_gateway(tmp_path), "send_message", {"amount": 5_000_000},
-                          _draft("The round is $10M."), RECORD, CONTEXT, CLEAN, registry)
+                          _draft("The round is $10M."), RECORD, CONTEXT, CLEAN, registry, queues=ReviewQueues())
     assert result.allowed is False
     assert registry.lookups == []
 
@@ -1453,7 +1533,7 @@ def test_the_gate_runs_before_the_registry_is_indexed_even_when_the_tool_is_abse
     """
     registry = TrackingRegistry({})
     result = guarded_call(_gateway(tmp_path), "send_message", {}, _draft("Returns are guaranteed."),
-                          RECORD, CONTEXT, CLEAN, registry)
+                          RECORD, CONTEXT, CLEAN, registry, queues=ReviewQueues())
     assert result.allowed is False
     assert registry.lookups == []
 
@@ -1468,7 +1548,7 @@ def test_the_registry_lookup_really_would_raise_if_the_order_were_wrong(tmp_path
     registry = TrackingRegistry({})
     with pytest.raises(KeyError):
         guarded_call(_gateway(tmp_path), "send_message", {}, _draft("The round is $10M."),
-                     RECORD, CONTEXT, CLEAN, registry)
+                     RECORD, CONTEXT, CLEAN, registry, queues=ReviewQueues())
     assert registry.lookups == ["send_message"]
 
 

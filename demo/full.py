@@ -23,6 +23,14 @@ transport is: it answers the violating body with a violation and the redraft wit
 What is computed is everything between them, and the sends go through `guarded_call`, the executor
 chokepoint, so each BLOCK is the category the gate returned rather than one printed alongside it.
 
+**The escalation is read out of a queue, not assembled beside the denial.** The chokepoint routes
+the blocked draft into a review queue named by `destination_for`, and each scene reads its own
+escalation back from there, so REDIRECT and PROPOSAL describe a payload that was actually routed.
+The two fields the loop produces -- the proposed alternative and the round count -- are added to
+that payload here rather than queued with it, because the chokepoint enqueues at the moment of
+denial and the loop has not run yet. Those two are the whole of the difference, and nothing else
+about the queued payload is rewritten on the way to the print.
+
 **The headline is asserted, not printed, and two different assertions carry it.** `assert not
 entered` runs after each `guarded_call` and before the BLOCK line. The redraft is guarded by
 `assert "allowed" not in outcomes` against the audit log, **not** by a third `assert not entered`,
@@ -40,9 +48,10 @@ from chaperone.audit.store import AuditStore
 from chaperone.evals.discrimination import QUALITY_PASS_THRESHOLD
 from chaperone.evals.judge import QualityScores, score_quality
 from chaperone.gates.checker import Checker, Verdict
-from chaperone.gates.engine import denial_result
-from chaperone.gates.handoff import build_handoff
+from chaperone.gates.engine import denial_result, destination_for
+from chaperone.gates.handoff import Handoff
 from chaperone.gates.hook import guarded_call
+from chaperone.gates.queues import ReviewQueues
 from chaperone.gates.refine import refine
 from chaperone.policy.act_classes import ActContext
 from chaperone.policy.types import Draft, Message, Record, ViolationClass
@@ -107,8 +116,9 @@ def _scene(title: str, draft: Draft, transport, scores: QualityScores, redraft_b
     gateway = Gateway(store, principal="conversation-agent", tier=2)
     entered: list[dict] = []
     registry = {"send_message": lambda **kw: entered.append(kw) or "sent"}
+    queues = ReviewQueues()
     result = guarded_call(gateway, "send_message", {"to": draft.recipient_domain},
-                          draft, RECORD, CONTEXT, checker, registry)
+                          draft, RECORD, CONTEXT, checker, registry, queues=queues)
     decision = result.decision
 
     assert not entered, f"the blocked tool was entered with {entered!r}"
@@ -124,8 +134,23 @@ def _scene(title: str, draft: Draft, transport, scores: QualityScores, redraft_b
     print(f"REFINEMENT     -> stopped_for={outcome.stopped_for}, rounds={outcome.rounds}, "
           f"resolved={outcome.resolved}")
 
-    handoff = build_handoff(draft, RECORD, decision, alternative=outcome.alternative,
-                            rounds=outcome.rounds)
+    # The escalation the chokepoint routed, read back out of its queue rather than assembled here
+    # beside the denial. The queue name comes from `destination_for`, so no line in this file types
+    # one, and exactly one payload for one denial is asserted rather than assumed: a scene that
+    # produced two would mean the reviewer surface printed below is not the one that was routed.
+    routed = queues.items(destination_for(decision.disposition))
+    assert len(routed) == 1, f"one denial routed {len(routed)} escalations: {routed!r}"
+    assert routed[0].blocked_body == draft.body, "the queued escalation is about another draft"
+
+    # **Enriched, not rebuilt, and the two loop fields are the whole of the difference.** The
+    # chokepoint enqueues at the moment of denial, which is before the refinement loop has run, so
+    # what it queued carries no alternative and a round count of zero. Printing those as queued
+    # would tell a reader no round was spent on the scene where one was. Rebuilt through the model
+    # rather than copied around it, because every field is required and extras are forbidden, and a
+    # payload assembled by hand should still have to satisfy both.
+    escalation = Handoff(**{**routed[0].model_dump(),
+                           "proposed_alternative": outcome.alternative,
+                           "refinement_rounds": outcome.rounds})
 
     # The clause the scene exists for. A resolved redraft is a **proposal**: it rides to a human
     # inside the escalation and the original attempt stays terminal.
@@ -137,11 +162,8 @@ def _scene(title: str, draft: Draft, transport, scores: QualityScores, redraft_b
     # redraft resolves, and would write an `allowed` outcome. That is the regression this catches.
     outcomes = [e.outcome for e in store.read_all()[0]]
     assert "allowed" not in outcomes, f"a redraft transmitted without approval: {outcomes!r}"
-    assert handoff.proposed_alternative == outcome.alternative, (
-        "the escalation does not carry the alternative the loop produced"
-    )
-    print(f"REDIRECT       -> human review, refinement_rounds={handoff.refinement_rounds}")
-    print(f"PROPOSAL       -> {handoff.proposed_alternative}")
+    print(f"REDIRECT       -> human review, refinement_rounds={escalation.refinement_rounds}")
+    print(f"PROPOSAL       -> {escalation.proposed_alternative}")
 
     entries, torn = store.read_all()
     print(f"AUDIT          -> {len(entries)} entries, chain verifies: {verify(entries, torn).ok}")

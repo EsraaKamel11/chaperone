@@ -5,6 +5,7 @@ from chaperone.audit.store import AuditStore
 from chaperone.gates.checker import Checker, Verdict
 from chaperone.gates.handoff import build_handoff
 from chaperone.gates.hook import guarded_call
+from chaperone.gates.queues import ReviewQueues
 from chaperone.gates.refine import refine
 from chaperone.policy.act_classes import ActContext
 from chaperone.policy.types import Draft, Message, Record, ViolationClass
@@ -184,7 +185,7 @@ def test_a_redraft_never_transmits_without_approval(tmp_path: Path):
     registry = {"send_message": lambda **kw: entered.append(kw) or "sent"}
     gateway = Gateway(AuditStore(tmp_path / "audit.jsonl"), principal="conversation-agent", tier=2)
     result = guarded_call(gateway, "send_message", {"to": "example.test"},
-                          original, RECORD, CONTEXT, CLEAN, registry)
+                          original, RECORD, CONTEXT, CLEAN, registry, queues=ReviewQueues())
 
     assert result.allowed is False
     assert entered == [], "a compliant alternative existed and the blocked draft was sent anyway"

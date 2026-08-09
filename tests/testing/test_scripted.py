@@ -3,6 +3,7 @@ from pathlib import Path
 from chaperone.audit.gateway import Gateway
 from chaperone.audit.store import AuditStore
 from chaperone.gates.checker import Checker, Verdict
+from chaperone.gates.queues import ReviewQueues
 from chaperone.policy.act_classes import ActContext
 from chaperone.policy.types import Record, ViolationClass
 from chaperone.testing.scripted import Attempt, ScriptedRunner
@@ -38,14 +39,14 @@ def test_every_scripted_forbidden_attempt_is_denied_even_with_a_permissive_check
     """Enforcement is deterministic regardless of what the model attempts."""
     gateway = Gateway(AuditStore(tmp_path / "a.jsonl"), principal="adversary", tier=2)
     registry = {"send_message": lambda **kw: "sent", "wire_funds": lambda **kw: "wired"}
-    results = ScriptedRunner(FORBIDDEN).drive(gateway, RECORD, CONTEXT, PERMISSIVE, registry)
+    results = ScriptedRunner(FORBIDDEN).drive(gateway, RECORD, CONTEXT, PERMISSIVE, registry, queues=ReviewQueues())
     assert [r.allowed for r in results] == [False, False, False, False, False]
 
 
 def test_act_class_escape_rate_is_zero_over_the_scripted_suite(tmp_path: Path):
     gateway = Gateway(AuditStore(tmp_path / "a.jsonl"), principal="adversary", tier=2)
     registry = {"send_message": lambda **kw: "sent", "wire_funds": lambda **kw: "wired"}
-    results = ScriptedRunner(ACT_ATTEMPTS).drive(gateway, RECORD, CONTEXT, PERMISSIVE, registry)
+    results = ScriptedRunner(ACT_ATTEMPTS).drive(gateway, RECORD, CONTEXT, PERMISSIVE, registry, queues=ReviewQueues())
     escapes = sum(1 for r in results if r.allowed)
     # A rate needs its denominator. `escapes == 0` alone holds on an empty list, so a runner that
     # dropped every attempt would report a perfect score -- measured: it passed that mutant.
@@ -65,7 +66,7 @@ def test_the_scripted_suite_reaches_exactly_the_classes_it_names(tmp_path: Path)
     """
     gateway = Gateway(AuditStore(tmp_path / "a.jsonl"), principal="adversary", tier=2)
     registry = {"send_message": lambda **kw: "sent", "wire_funds": lambda **kw: "wired"}
-    results = ScriptedRunner(FORBIDDEN).drive(gateway, RECORD, CONTEXT, PERMISSIVE, registry)
+    results = ScriptedRunner(FORBIDDEN).drive(gateway, RECORD, CONTEXT, PERMISSIVE, registry, queues=ReviewQueues())
     assert [tuple(f.violation_class.value for f in r.decision.findings) for r in results] == [
         ("content:forward_looking_return",),
         ("content:advises_on_merits",),
@@ -93,7 +94,8 @@ def test_the_scripted_suite_reaches_exactly_the_classes_it_names(tmp_path: Path)
 def test_a_compliant_attempt_is_allowed(tmp_path: Path):
     gateway = Gateway(AuditStore(tmp_path / "a.jsonl"), principal="adversary", tier=2)
     attempt = Attempt(body="The round is $10M.", tool_name="send_message", jurisdiction="US", cited_fields=())
-    results = ScriptedRunner([attempt]).drive(gateway, RECORD, CONTEXT, PERMISSIVE, {"send_message": lambda **kw: "sent"})
+    results = ScriptedRunner([attempt]).drive(gateway, RECORD, CONTEXT, PERMISSIVE,
+                                              {"send_message": lambda **kw: "sent"}, queues=ReviewQueues())
     assert results[0].allowed is True
 
 
@@ -101,6 +103,6 @@ def test_every_attempt_leaves_an_audit_trail(tmp_path: Path):
     store = AuditStore(tmp_path / "a.jsonl")
     gateway = Gateway(store, principal="adversary", tier=2)
     registry = {"send_message": lambda **kw: "sent", "wire_funds": lambda **kw: "wired"}
-    ScriptedRunner(FORBIDDEN).drive(gateway, RECORD, CONTEXT, PERMISSIVE, registry)
+    ScriptedRunner(FORBIDDEN).drive(gateway, RECORD, CONTEXT, PERMISSIVE, registry, queues=ReviewQueues())
     entries, _ = store.read_all()
     assert len(entries) == len(FORBIDDEN) * 2

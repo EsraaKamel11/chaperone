@@ -15,7 +15,10 @@ the BLOCK survives a checker that says nothing.
 the tool identity is bound to the reviewed draft, the arguments are bound to it too, and the BLOCK
 below is the category the gate itself returned rather than one this script computed alongside it.
 The registry records its calls, so `send_message entered 0 times` is evidence the tool was never
-entered and not merely a claim that it should not have been.
+entered and not merely a claim that it should not have been. **And the redirect is read rather than
+narrated.** The chokepoint puts the escalation in a review queue, keyed by `destination_for`, and
+the REDIRECT line below reads it back out of that queue: this script assembled its own escalation
+until Task 7, which made the line a description of what a reviewer ought to get.
 
 **And the headline is asserted, not printed.** `assert not entered` runs before the print, so a
 regression that let the send through fails rather than printing a different number and exiting 0.
@@ -42,9 +45,9 @@ from chaperone.audit.store import AuditStore
 from chaperone.evals.discrimination import QUALITY_PASS_THRESHOLD
 from chaperone.evals.judge import QualityScores, score_quality
 from chaperone.gates.checker import Checker, Verdict
-from chaperone.gates.engine import denial_result
-from chaperone.gates.handoff import build_handoff
+from chaperone.gates.engine import denial_result, destination_for
 from chaperone.gates.hook import guarded_call
+from chaperone.gates.queues import ReviewQueues
 from chaperone.policy.act_classes import ActContext
 from chaperone.policy.types import Draft, Message, Record, ViolationClass
 
@@ -77,8 +80,9 @@ def main() -> None:
     gateway = Gateway(store, principal="conversation-agent", tier=2)
     entered: list[dict] = []
     registry = {"send_message": lambda **kw: entered.append(kw) or "sent"}
+    queues = ReviewQueues()
     result = guarded_call(gateway, "send_message", {"to": "example.test"},
-                          DRAFT, RECORD, CONTEXT, checker, registry)
+                          DRAFT, RECORD, CONTEXT, checker, registry, queues=queues)
     decision = result.decision
 
     # The headline is a check, not a claim: without it a regression that let the send through would
@@ -87,10 +91,14 @@ def main() -> None:
     assert not entered, f"the blocked tool was entered with {entered!r}"
     print(f"PERMISSION LANE-> BLOCK {denial_result(decision)['category']}, "
           f"send_message entered {len(entered)} times")
-    handoff = build_handoff(DRAFT, RECORD, decision,
-                            alternative="I cannot offer a view on the merits. Here are the round facts and the data room.",
-                            rounds=0)
-    print(f"REDIRECT       -> human review, refinement_rounds={handoff.refinement_rounds}")
+    # Read out of the queue the chokepoint routed it to, rather than assembled here. This script
+    # used to build its own escalation beside the denial, which meant the REDIRECT line below was a
+    # claim about what a reviewer would receive rather than a reading of what one was sent. The
+    # queue name comes from `destination_for` so that no line in this file types one.
+    escalations = queues.items(destination_for(decision.disposition))
+    assert len(escalations) == 1, f"one denial routed {len(escalations)} escalations"
+    assert escalations[0].blocked_body == DRAFT.body, "the queued escalation is about another draft"
+    print(f"REDIRECT       -> human review, refinement_rounds={escalations[0].refinement_rounds}")
     entries, torn = store.read_all()
     print(f"AUDIT          -> {len(entries)} entries, chain verifies: {verify(entries, torn).ok}")
     print("\nOne draft. Two lanes. Opposite verdicts.")

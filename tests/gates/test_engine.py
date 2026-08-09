@@ -400,6 +400,38 @@ def test_the_futile_set_and_both_redirect_dispositions_are_named_only_in_disposi
             _disposition_literals("ALLOW")) == (1, 1, 2)
 
 
+def test_the_destination_is_derived_in_one_place():
+    """Where a redirect routes to is a function of the disposition, and of nothing at a call site.
+
+    `disposition_for` decides *whether* a draft is redirected; this decides *where*, so a caller
+    that wants to route one has a function to ask instead of a queue name to type. The two redirect
+    members answer with the same destination -- futile and refinable differ in whether a redraft
+    could help, not in who reads the result -- and that is asserted rather than assumed, because a
+    reader could reasonably expect two queues.
+
+    **The `None` clause covers exactly one member, and says so.** `Disposition` has three members
+    and two of them are the redirects, so "everything else routes nowhere" is `ALLOW` alone. It is
+    named rather than written as a comprehension over a set difference, which would read as a sweep
+    over a large space and be one assertion either way. The membership assertion above it is what
+    makes the claim survive a fourth member: adding one fails here, where the routing decision for
+    it has to be taken, rather than passing quietly as "not a redirect".
+
+    The destination is compared against the literal string. `destination_for` derives it from a
+    module constant, and asserting against that constant would hold through a rename that silently
+    moved every queued escalation to a queue no reader is watching.
+    """
+    from chaperone.gates.engine import destination_for
+
+    assert set(Disposition) == {
+        Disposition.ALLOW, Disposition.REDIRECT_REFINABLE, Disposition.REDIRECT_FUTILE,
+    }, "a Disposition member was added; decide where it routes rather than letting this pass"
+
+    routed = {member: destination_for(member) for member in Disposition}
+    assert routed[Disposition.REDIRECT_FUTILE] == "human-review"
+    assert routed[Disposition.REDIRECT_REFINABLE] == "human-review"
+    assert routed[Disposition.ALLOW] is None
+
+
 @pytest.mark.parametrize("klass,draft_overrides,context_overrides", [
     (ViolationClass.NO_APPROVAL_TOKEN, {}, {"approval_token": None}),
     (ViolationClass.JURISDICTION_NOT_CONSENTED, {"recipient_jurisdiction": "DE"}, {}),

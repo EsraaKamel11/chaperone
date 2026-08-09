@@ -45,7 +45,9 @@ from dataclasses import dataclass
 
 from chaperone.audit.gateway import Gateway, GatewayResult
 from chaperone.gates.checker import Checker
-from chaperone.gates.engine import decide, denial_result, disposition_for
+from chaperone.gates.engine import decide, denial_result, destination_for, disposition_for
+from chaperone.gates.handoff import build_handoff
+from chaperone.gates.queues import ReviewQueues
 from chaperone.policy.act_classes import ActContext
 from chaperone.policy.arguments import unsendable_finding
 from chaperone.policy.types import Decision, Draft, Finding, Record, ViolationClass
@@ -103,12 +105,35 @@ def guarded_call(
     context: ActContext,
     checker: Checker,
     registry: Mapping[str, object],
+    *,
+    queues: ReviewQueues,
 ) -> GatewayResult:
-    """Executor layer. Owns the full denial contract, including result shape and retryability."""
-    return gateway.call(
+    """Executor layer. Owns the full denial contract: result shape, retryability, and the redirect.
+
+    **`queues` is required and keyword-only, and that is the point.** A redirect that no caller
+    routes is a word in a field, which is what it was: the disposition said a human should see the
+    draft and every escalation payload in this tree was assembled by whatever called the gate, so a
+    caller that skipped the step reached the same disposition and produced nothing. A default here
+    would let a call site keep that behaviour while looking wired, so there is none: a call with
+    nowhere to route to does not compile past the interpreter.
+
+    The destination comes from `destination_for` and never from a literal here, so the one place
+    that decides where a redirect goes stays the one place. A `None` destination means a denial
+    whose disposition does not route, and it is skipped rather than defaulted into some queue.
+    `decide` produces no such denial, so nothing reaches that branch through this function -- but it
+    is the same shape `Gateway.call` already separates, recording it as `denied` rather than
+    `redirected`, and the two layers agreeing about it is better than this one inventing a queue.
+    """
+    result = gateway.call(
         tool_name,
         args,
         decide=lambda: _decide_for(tool_name, args, draft, record, context, checker),
         execute=lambda: registry[tool_name](**args),
         effectful=True,
     )
+    decision = result.decision
+    if not decision.allowed:
+        destination = destination_for(decision.disposition)
+        if destination is not None:
+            queues.put(destination, build_handoff(draft, record, decision, alternative=None, rounds=0))
+    return result

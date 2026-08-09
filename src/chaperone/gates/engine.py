@@ -24,6 +24,12 @@ because the test named for the rule counted occurrences of the futile set's name
 hardcoded `Disposition` member does not touch. The one literal that remains is the clean return's
 `Disposition.ALLOW`, and a test pins that site by name so a second one cannot appear quietly.
 
+**Where a redirect goes is derived here too, in `destination_for`, and it is a separate question.**
+`disposition_for` answers whether a draft is redirected; `destination_for` answers which queue reads
+it, so a caller wanting to route one asks a function rather than typing a name. This module still
+holds no queue and puts nothing in one: `gates/queues.py` is the queue and the executor chokepoint
+is what routes to it.
+
 Three things this layer does NOT do, written down because their absence is otherwise invisible:
 
 - **It runs no clock, and the split is worth stating exactly.** Design spec 3.4 has the checker
@@ -106,12 +112,47 @@ FUTILE_CLASSES = frozenset({
 OUTAGE_WITHOUT_MESSAGE = "checker unavailable, and the failure carried no message"
 
 
+#: The queue a redirected draft is routed to. One name, because futile and refinable differ in
+#: whether a redraft could help and not in who reads the result.
+HUMAN_REVIEW = "human-review"
+
+#: The dispositions that route somewhere, derived from the enum rather than written out.
+#:
+#: Derived for the reason `ACT_CLASSES` and `CONTENT_CLASSES` above are: a hand-written pair has to
+#: be remembered on the day a member is added, and the failure mode is silent -- `destination_for`
+#: would answer `None` for a new redirect, and its escalations would be dropped at the chokepoint
+#: while every call site still looked wired. A member the enum grows joins this set with no edit.
+#:
+#: **The `REDIRECT_` prefix on the member name is therefore load-bearing**, which is the price of
+#: deriving rather than listing. A redirect member named some other way would route nowhere, so
+#: `test_the_destination_is_derived_in_one_place` pins the exact membership of `Disposition`: a
+#: fourth member fails there, where the routing decision for it has to be taken.
+#:
+#: It also leaves each redirect member written exactly once in this module, inside
+#: `disposition_for`, which is the state
+#: `test_the_futile_set_and_both_redirect_dispositions_are_named_only_in_disposition_for` measures.
+#: That guard is about deriving a disposition rather than about reading one, so naming them here
+#: would not have been 4.7's drift -- but a second site is where that drift starts, and there is no
+#: reason to open one.
+REDIRECT_DISPOSITIONS = frozenset(d for d in Disposition if d.name.startswith("REDIRECT_"))
+
+
 def disposition_for(findings: tuple[Finding, ...]) -> Disposition:
     if not findings:
         return Disposition.ALLOW
     if any(f.violation_class in FUTILE_CLASSES for f in findings):
         return Disposition.REDIRECT_FUTILE
     return Disposition.REDIRECT_REFINABLE
+
+
+def destination_for(disposition: Disposition) -> str | None:
+    """Where a redirect routes. One derivation point, so no call site names a queue.
+
+    `None` for anything that is not a redirect, which today is the allow disposition alone. A name
+    there would hand an allowed call a queue to be put in, and a caller routing on "the destination
+    is not `None`" would then escalate every send it was asked to make.
+    """
+    return HUMAN_REVIEW if disposition in REDIRECT_DISPOSITIONS else None
 
 
 def decide(draft: Draft, record: Record, context: ActContext, checker: Checker) -> Decision:
