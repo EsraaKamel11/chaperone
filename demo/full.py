@@ -23,13 +23,21 @@ transport is: it answers the violating body with a violation and the redraft wit
 What is computed is everything between them, and the sends go through `guarded_call`, the executor
 chokepoint, so each BLOCK is the category the gate returned rather than one printed alongside it.
 
-**The escalation is read out of a queue, not assembled beside the denial.** The chokepoint routes
-the blocked draft into a review queue named by `destination_for`, and each scene reads its own
-escalation back from there, so REDIRECT and PROPOSAL describe a payload that was actually routed.
-The two fields the loop produces -- the proposed alternative and the round count -- are added to
-that payload here rather than queued with it, because the chokepoint enqueues at the moment of
-denial and the loop has not run yet. Those two are the whole of the difference, and nothing else
-about the queued payload is rewritten on the way to the print.
+**The escalation is read out of a queue, and the two values REDIRECT and PROPOSAL print are not.**
+The chokepoint routes the blocked draft into a review queue named by `destination_for`, and each
+scene reads its escalation back from there instead of assembling one beside the denial. What is
+routed carries `proposed_alternative=None` and `refinement_rounds=0`, in **both** scenes: the
+chokepoint enqueues at the moment of denial, the refinement loop has not run yet, and nothing in
+this tree updates a queued payload afterwards. Those two fields are replaced at the print with what
+the loop produced, so the two lines below report the loop's product rather than the queue's, while
+what the queue carries is the blocked body, the span and the record values a reviewer would read.
+
+**That is the honest boundary here, and it is worth stating rather than leaving to be inferred.**
+The redirect is real at the chokepoint for the *denial*: no caller can reach the executor without
+supplying somewhere to route to, and `_scene` asserts the queued payload by its contents rather than
+by its existence. It is **not** real for the *proposal*, and cannot be until something updates a
+queued escalation, which nothing here does. A reviewer holding only the queue would see the blocked
+draft and no proposed answer to it.
 
 **The headline is asserted, not printed, and two different assertions carry it.** `assert not
 entered` runs after each `guarded_call` and before the BLOCK line. The redraft is guarded by

@@ -3,7 +3,6 @@ from pathlib import Path
 from chaperone.audit.gateway import Gateway
 from chaperone.audit.store import AuditStore
 from chaperone.gates.checker import Checker, Verdict
-from chaperone.gates.handoff import build_handoff
 from chaperone.gates.hook import guarded_call
 from chaperone.gates.queues import ReviewQueues
 from chaperone.gates.refine import refine
@@ -159,12 +158,26 @@ def test_a_redraft_never_transmits_without_approval(tmp_path: Path):
 
     A redraft that transmits by itself after a permission failure is an auto-retry of a permission
     failure, which is the thing this architecture exists to refuse. So the loop resolving is not an
-    event that sends anything: the original attempt stays terminal, and the alternative reaches a
-    human only as `Handoff.proposed_alternative`, beside the body that was blocked.
+    event that sends anything: the original attempt stays terminal and goes to a human instead.
 
     Both halves are asserted as effects on the real chokepoint. The send tool is a closure that
     records every entry, so `entered == []` is evidence the function was never run and not a count
-    of calls to a spy; and the audit log's own outcome entry is read back off disk.
+    of calls to a spy; the audit log's own outcome entry is read back off disk; and the escalation
+    is read out of the queue the chokepoint routed it to.
+
+    **Where the alternative does and does not go, since Task 7 made half of this observable.** The
+    escalation that is actually routed carries the blocked body and `proposed_alternative=None`: the
+    chokepoint enqueues at the moment of denial, before the loop has produced anything, and nothing
+    in this tree updates a queued `Handoff` afterwards. So this asserts the boundary rather than
+    describing past it. `build_handoff`'s `alternative` parameter is how a proposal would reach a
+    reviewer and `tests/gates/test_handoff.py` holds that it is carried; what no test holds, because
+    no such composition exists, is anything routing a payload that has one.
+
+    This used to build a second `Handoff` here and assert that it carried `outcome.alternative`,
+    which compared `build_handoff`'s argument with its own output -- duplicating
+    `test_every_field_traces_to_the_draft_the_record_or_the_decision`, which already asserts that
+    field, and, worse, standing in for a claim about a reviewer that the routed escalation does not
+    support.
 
     **What this does not establish.** It holds this composition, not every composition anyone might
     write later. What holds those is `tools/static_audit.py::audit_send_references`, which reserves
@@ -184,17 +197,21 @@ def test_a_redraft_never_transmits_without_approval(tmp_path: Path):
     entered: list[dict] = []
     registry = {"send_message": lambda **kw: entered.append(kw) or "sent"}
     gateway = Gateway(AuditStore(tmp_path / "audit.jsonl"), principal="conversation-agent", tier=2)
+    queues = ReviewQueues()
     result = guarded_call(gateway, "send_message", {"to": "example.test"},
-                          original, RECORD, CONTEXT, CLEAN, registry, queues=ReviewQueues())
+                          original, RECORD, CONTEXT, CLEAN, registry, queues=queues)
 
     assert result.allowed is False
     assert entered == [], "a compliant alternative existed and the blocked draft was sent anyway"
     entries, _ = gateway.store.read_all()
     assert [e.outcome for e in entries if e.kind == "outcome"] == ["redirected"]
 
-    handoff = build_handoff(original, RECORD, result.decision, outcome.alternative, outcome.rounds)
-    assert handoff.blocked_body == original.body
-    assert handoff.proposed_alternative == outcome.alternative
+    queued = queues.items("human-review")
+    assert len(queued) == 1, f"one denial routed {len(queued)} escalations"
+    assert queued[0].blocked_body == original.body
+    assert queued[0].proposed_alternative is None, (
+        "a queued escalation now carries a proposal, so the boundary this pins has moved"
+    )
 
 
 def test_a_misclassified_content_class_skips_the_budget_a_recorded_limit():

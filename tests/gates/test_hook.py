@@ -159,8 +159,13 @@ def test_the_queue_a_denial_routes_to_cannot_be_supplied_positionally(tmp_path: 
     Watched failing by reversing the production code rather than by writing it after the fact:
     with the `*` removed from the signature the positional call below succeeds and this fails,
     while the test above stays green.
+
+    Matched on `positional` rather than on `queues`: the interpreter's message here is "takes 8
+    positional arguments but 9 were given" and names no parameter, so `match="queues"` is not
+    available -- but a bare `pytest.raises(TypeError)` would be satisfied by any unrelated
+    `TypeError` raised on the way in, which is how this assertion would go quiet without failing.
     """
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="positional"):
         guarded_call(_gateway(tmp_path), "send_message", {}, _draft("Returns are guaranteed."),
                      RECORD, CONTEXT, CLEAN, TrackingRegistry({"send_message": lambda **kw: "sent"}),
                      ReviewQueues())

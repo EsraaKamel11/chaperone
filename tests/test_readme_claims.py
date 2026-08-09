@@ -1235,9 +1235,13 @@ def test_the_full_demo_runs_both_scenes_and_enters_the_send_tool_in_neither():
     loop never runs, which would leave `refine` exercised by unit tests alone while the README
     described a loop nobody had watched turn.
 
-    *"Into the escalation"* rather than *"to `build_handoff`"* since Task 7: the demo no longer
-    builds its own payload. `guarded_call` routes one into a review queue and the scene reads it
-    back out, so the resolved body reaches a human through the queued payload.
+    *"Into the escalation"* rather than *"to `build_handoff`"* since Task 7: `guarded_call` routes a
+    payload into a review queue and the scene reads that one back instead of calling `build_handoff`
+    itself. It does still construct a `Handoff` at the print, because the routed payload carries
+    `proposed_alternative=None` and `refinement_rounds=0` -- the chokepoint enqueues before the loop
+    runs and nothing updates a queued escalation -- so the resolved body reaches the printed line
+    from the loop rather than from the queue. This test holds the printed round count; the proposal
+    text is held verbatim by `test_the_second_scene_pasted_in_the_readme_is_verbatim_from_a_fresh_run`.
 
     The script's own `assert not entered` runs before each print and `check=True` surfaces it, so
     the effect is asserted inside the run and the shape of the run is asserted here.

@@ -17,8 +17,10 @@ below is the category the gate itself returned rather than one this script compu
 The registry records its calls, so `send_message entered 0 times` is evidence the tool was never
 entered and not merely a claim that it should not have been. **And the redirect is read rather than
 narrated.** The chokepoint puts the escalation in a review queue, keyed by `destination_for`, and
-the REDIRECT line below reads it back out of that queue: this script assembled its own escalation
-until Task 7, which made the line a description of what a reviewer ought to get.
+the REDIRECT line below reads it back out of that queue. Until Task 7 this script assembled its own
+escalation instead, which left that line describing what a reviewer ought to receive rather than
+reading what one was sent. Every field it prints here was routed; unlike `demo/full.py`, no scene in
+this file runs the refinement loop, so nothing is added to the queued payload on the way to print.
 
 **And the headline is asserted, not printed.** `assert not entered` runs before the print, so a
 regression that let the send through fails rather than printing a different number and exiting 0.
