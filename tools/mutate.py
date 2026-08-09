@@ -2,7 +2,7 @@
 -- **the tests must fail.** A surviving mutant means the test that should have caught it asserts a
 proxy for the property rather than the property.
 
-This tool is itself an enforcement predicate, so the four ways it has failed before are closed here
+This tool is itself an enforcement predicate, so the five ways it has failed before are closed here
 rather than left to whoever runs it.
 
 **1. A kill is one exit code, not "anything but zero".** `returncode != 0` marks a mutant killed
@@ -35,7 +35,17 @@ mutant whose behaviour is identical on every input the suite can express survive
 be rewritten to mutate, never weakened or deleted. `binary_append_becomes_text_append` below is the
 live instance, and its comment says so.
 
-A fifth guard has no incident behind it and is here because the failure would be spectacular: the
+**5. Restoration is durable, because the sweep does not always live to perform it.** The original
+source was held in one in-memory string and put back in a `finally`, so any death that skips that
+`finally` -- an interrupt, a harness stop, a timeout, a sleeping machine -- destroyed the only record
+of it and left a mutant applied in `src/`, with no recovery available on any later run. Five times in
+one session. `apply_mutant` now parks the source on disk before writing the mutation and
+`recover_stranded_mutant` puts it back at the start of the next run, under the lock and *before*
+`audit_anchors`, which would otherwise refuse the run before recovery could fire. The asymmetry this
+closes is the lock's own precedent: `sweep_lock` keeps durable state (the owner's pid) exactly so a
+later run can reason about a dead predecessor. Restoration kept none.
+
+A sixth guard has no incident behind it and is here because the failure would be spectacular: the
 sweep runs pytest as a subprocess, and `--ignore` is resolved against the invocation directory. Run
 from anywhere but the root, the child would collect this sweep and each mutant would fan out into
 another whole sweep. `run_suite` passes `cwd=ROOT` with an absolute `--ignore`, *and* sets
@@ -44,6 +54,7 @@ another whole sweep. `run_suite` passes `cwd=ROOT` with an absolute `--ignore`, 
 from __future__ import annotations
 
 import ast
+import json
 import os
 import shutil
 import subprocess
@@ -311,6 +322,11 @@ SWEEP_LOCK = ROOT / ".pytest_cache" / "chaperone-mutation-sweep.lock"
 #: runtime -- a full pass is minutes, not hours -- so a live sweep is never broken into.
 STALE_LOCK_SECONDS = 3600.0
 
+#: Where the pre-mutation source waits while its mutant is applied. Beside the lock and under the
+#: `.pytest_cache/` that `.gitignore` already holds, so a backup left by a killed run is never
+#: mistaken for a dirty working tree by the `git status --porcelain` that guards every commit here.
+SWEEP_BACKUP = ROOT / ".pytest_cache" / "chaperone-mutation-backup.json"
+
 
 def _pid_is_running(pid: int) -> bool:
     """Whether `pid` names a live process. **Unknown answers "yes".**
@@ -420,6 +436,84 @@ def read_source(path: Path) -> str:
     return path.read_bytes().decode("utf-8")
 
 
+@dataclass(frozen=True)
+class Backup:
+    """The durable half of a mutation: which file, what was there, and what replaced it.
+
+    **Both texts, not just the original.** Recovery has to tell a strand still sitting in the tree
+    from a file a human has since edited, and only the mutated text answers that question. The
+    difference is between putting the source back and writing over somebody's work.
+    """
+
+    mutant: str
+    path: Path
+    original: str
+    mutated: str
+
+
+def write_backup(backup: Path, mutant: Mutant, original: str, mutated: str) -> None:
+    """Park the pre-mutation source on disk. Called before the mutation is written, never after.
+
+    Written under a staging name, flushed, fsynced, and moved into place with `os.replace`, which is
+    atomic on win32 and on POSIX alike. So a death leaves one of exactly two states: *no backup and
+    no mutation*, where the tree was never touched and there is nothing to recover, or *a complete
+    backup*, which is what `recover_stranded_mutant` reads. A half-written backup -- a recovery
+    holding half the source it needs -- is not a reachable state, and that is why an atomic write
+    here is sufficient rather than merely careful.
+
+    The fsync is for the harsher deaths in that list: a plain close already survives the ordinary
+    one, a killed process, but not a machine that stops.
+
+    **Read back and compared, never assumed** -- `restore` models it, and the two halves cover
+    different failures: `os.replace` covers the interruption, and the comparison covers a write that
+    reported success without landing. It raises *before* `apply_mutant` writes the mutation, so a
+    backup that cannot be trusted leaves the tree unmutated rather than unrecoverable.
+    """
+    backup.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(
+        {"mutant": mutant.name, "path": str(mutant.path), "original": original, "mutated": mutated},
+        ensure_ascii=False,
+    ).encode("utf-8")
+    staged = backup.with_suffix(".staged")
+    with staged.open("wb") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(staged, backup)
+    landed = backup.read_bytes()
+    if landed != payload:
+        raise MutationHarnessError(
+            f"{backup} holds {len(landed)} bytes against {len(payload)} written, so the source this "
+            "mutation would have to be recovered from is not on disk. Nothing has been mutated."
+        )
+
+
+def read_backup(backup: Path) -> Backup:
+    """The parked source, or a refusal naming the file. Never a raw decoding error.
+
+    A backup that cannot be read is still the only record of what a sweep mutated, so it is left
+    exactly where it is and the message tells a human to open it rather than offering to clear it.
+    """
+    try:
+        record = json.loads(backup.read_bytes().decode("utf-8"))
+        original, mutated = record["original"], record["mutated"]
+        # A field of the wrong type is the same kind of unusable as a missing one, and it gets
+        # further: both comparisons in `recover_stranded_mutant` are on the encoded bytes of these
+        # two, so a `null` that reached them would crash out through a raw `AttributeError`.
+        if not isinstance(original, str) or not isinstance(mutated, str):
+            raise TypeError(
+                f"'original' and 'mutated' must be text, not {type(original).__name__} and "
+                f"{type(mutated).__name__}"
+            )
+        return Backup(record["mutant"], Path(record["path"]), original, mutated)
+    except (OSError, ValueError, LookupError, TypeError) as exc:
+        raise MutationHarnessError(
+            f"{backup} could not be read as a mutation backup ({type(exc).__name__}: {exc}), and it "
+            "is the only record of the source some sweep mutated. It is left in place: read it by "
+            "hand, put the file back yourself, then delete it."
+        ) from exc
+
+
 def audit_anchors(mutants: list[Mutant] = MUTANTS) -> list[str]:
     """Every anchor that is missing, duplicated, inert or unparseable. `[]` means all are exact.
 
@@ -465,23 +559,39 @@ def audit_anchors(mutants: list[Mutant] = MUTANTS) -> list[str]:
     return problems
 
 
-def apply_mutant(mutant: Mutant) -> str:
+def apply_mutant(mutant: Mutant, backup: Path = SWEEP_BACKUP) -> str:
     """Write the mutant and return the original text. Raises unless the anchor is exact.
 
     A mutant that silently stops applying is a test that silently stops testing, so this refuses
     rather than warning -- and it refuses a duplicated anchor and an inert or unparseable
     replacement for the reasons in the module docstring.
+
+    **The original reaches the disk before the mutation that replaces it does.** The returned string
+    used to be the only record of it anywhere, and the `finally` that restores from it runs only if
+    this process reaches that line -- so an interrupt, a harness stop, a timeout or a sleeping
+    machine left a mutant applied in `src/` with nothing left to put it back from, on any later run.
+    Five times in one session. `sweep_lock` has kept durable state on disk (the owner's pid) since a
+    dead owner blocked a run past 600s, and for the same reason: a later run can reason about a dead
+    predecessor only from what that predecessor wrote down. Restoration wrote nothing down.
     """
     problems = audit_anchors([mutant])
     if problems:
         raise MutationHarnessError(f"{'; '.join(problems)} -- update tools/mutate.py")
     original = read_source(mutant.path)
-    mutant.path.write_bytes(original.replace(mutant.find, mutant.replace, 1).encode("utf-8"))
+    mutated = original.replace(mutant.find, mutant.replace, 1)
+    write_backup(backup, mutant, original, mutated)
+    mutant.path.write_bytes(mutated.encode("utf-8"))
     return original
 
 
-def restore(path: Path, original: str) -> None:
-    """Put the file back, and prove it. Bytes, never `write_text`; compared, never assumed."""
+def restore(path: Path, original: str, backup: Path = SWEEP_BACKUP) -> None:
+    """Put the file back, prove it, and only then drop the backup.
+
+    Bytes, never `write_text`; compared, never assumed. The unlink is last and is reached only past
+    the comparison: the backup is the sole record of the pre-mutation source, so dropping it before
+    those bytes are known to have landed would turn a restore that failed into one that can never be
+    retried. A restore that raises leaves the backup where the next run's recovery will find it.
+    """
     expected = original.encode("utf-8")
     path.write_bytes(expected)
     landed = path.read_bytes()
@@ -490,6 +600,44 @@ def restore(path: Path, original: str) -> None:
             f"{path} was not restored byte-for-byte: {len(landed)} bytes on disk against "
             f"{len(expected)} expected -- the working tree is dirty and must be checked out"
         )
+    backup.unlink(missing_ok=True)
+
+
+def recover_stranded_mutant(backup: Path = SWEEP_BACKUP) -> str | None:
+    """Put back the source a killed sweep left mutated. The mutant's name, or None if nothing was.
+
+    **This runs before `audit_anchors`, and that ordering is the fix rather than a detail of it.** A
+    stranded mutant usually destroys its own anchor, which is what keeps a later run from
+    snapshotting mutated source as the new "original" -- but it is also `main`'s first act and an
+    immediate `return 1`. Recovery placed after the audit never executes in the one state it exists
+    for: the tree stays broken and the fix cannot fire.
+
+    Three states, and exactly one of them is written to:
+
+    * the file still holds the mutant -- the strand is demonstrably there, so it is put back;
+    * the file already holds the original -- a human read `git status --porcelain src/` and ran
+      `git checkout` -- so writing it again would change nothing, and the spent backup is dropped;
+    * anything else -- checked out and then worked on, or edited in place -- and this refuses.
+      Writing the backup over it destroys real work, and nothing available here can tell which bytes
+      are wanted. Refuse rather than guess, and say in the message what a human should do.
+    """
+    if not backup.is_file():
+        return None
+    record = read_backup(backup)
+    on_disk = record.path.read_bytes() if record.path.is_file() else None
+    if on_disk == record.mutated.encode("utf-8"):
+        restore(record.path, record.original, backup)
+        return record.mutant
+    if on_disk == record.original.encode("utf-8"):
+        backup.unlink()
+        return None
+    raise MutationHarnessError(
+        f"{record.path} holds neither the {record.mutant} mutant nor the source it was mutated "
+        f"from, so the backup at {backup} cannot be applied without destroying whatever is there "
+        "now. Nothing was written. Compare the file against that backup's 'original' by hand, then "
+        "either keep the file and delete the backup, or write the 'original' back yourself and "
+        "delete it."
+    )
 
 
 def _child_command(junit_path: Path | None, extra_args: tuple[str, ...]) -> list[str]:
@@ -578,29 +726,47 @@ def failing_tests(junit_path: Path) -> tuple[str, ...]:
     )
 
 
-def main() -> int:
-    """Report every mutant, the tests that killed it, and refuse a sweep whose anchors have drifted."""
-    problems = audit_anchors()
-    if problems:
-        for problem in problems:
-            print(f"anchor: {problem}")
-        return 1
+def main(
+    mutants: list[Mutant] = MUTANTS,
+    backup: Path = SWEEP_BACKUP,
+    lock: Path = SWEEP_LOCK,
+) -> int:
+    """Report every mutant, the tests that killed it, and refuse a sweep whose anchors have drifted.
 
-    junit = ROOT / ".pytest_cache" / "mutation.xml"
-    junit.parent.mkdir(parents=True, exist_ok=True)
-    if not run_suite(junit):
-        print("the suite is not green before mutation; every kill below would be unattributable")
-        return 1
-
+    **The lock is taken first, around everything.** It used to be taken after the anchor audit and
+    the baseline run, both of which read files a concurrent sweep mutates; and recovery cannot run
+    outside it at all, since restoring a file while another sweep holds its mutant is the two-sweep
+    corruption `sweep_lock` was written for. That the lock breaks into a dead owner's lock at once is
+    what leaves the door open here: the run that strands a mutant strands its lock too.
+    """
     survivors: list[str] = []
-    with sweep_lock():
-        for mutant in MUTANTS:
-            original = apply_mutant(mutant)
+    with sweep_lock(lock):
+        # Before the audit, and before anything reads the tree. A strand destroys its own anchor,
+        # so an audit that runs first refuses and returns -- and recovery placed after it never
+        # executes in the one state it exists for. See `recover_stranded_mutant`.
+        recovered = recover_stranded_mutant(backup)
+        if recovered:
+            print(f"recovered {recovered}: a killed sweep had left it applied; the file is back")
+
+        problems = audit_anchors(mutants)
+        if problems:
+            for problem in problems:
+                print(f"anchor: {problem}")
+            return 1
+
+        junit = ROOT / ".pytest_cache" / "mutation.xml"
+        junit.parent.mkdir(parents=True, exist_ok=True)
+        if not run_suite(junit):
+            print("the suite is not green before mutation; every kill below would be unattributable")
+            return 1
+
+        for mutant in mutants:
+            original = apply_mutant(mutant, backup)
             try:
                 green = run_suite(junit)
                 killers = failing_tests(junit)
             finally:
-                restore(mutant.path, original)
+                restore(mutant.path, original, backup)
             if green:
                 survivors.append(mutant.name)
                 print(f"SURVIVED {mutant.name}")
