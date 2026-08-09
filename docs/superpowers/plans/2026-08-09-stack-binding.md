@@ -1055,7 +1055,10 @@ and wired to no runtime; the wired hooks are the edit-time purity guard and the 
 scan, which enforce this repository's development rules, not the outbound policy. Every sentence
 names which contract it means.
 
-Two further items belong in this step. First, spec section 2 requires the queue's scope stated in
+Three further items belong in this step. First, spec section 4 requires one README sentence
+recording that `build_checker_messages` became keyword-only, because `testing/recorded.py` is a
+replay surface external callers key against; Task 2 made the change and no task owned the
+sentence until this one. Second, spec section 2 requires the queue's scope stated in
 **both** the module docstring and the README; Task 7 writes the docstring, this step writes the
 README sentence: in-process routing that makes the redirect real at the chokepoint, with the
 audit log proving a redirect happened, the queued payload not reconstructible from it, and
