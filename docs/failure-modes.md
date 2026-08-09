@@ -290,8 +290,10 @@ means what it meant. This row is about the out-of-process layer and about nothin
 **Test.** `test_the_record_the_figure_class_is_checked_against_arrives_from_the_caller_being_judged`
 exhibits both halves on real payloads.
 `test_every_class_deciding_on_evidence_the_payload_supplies_is_declared_unenforceable` is why the
-declaration is no longer a hand-maintained list: it reads the guard's own AST for which `Record` and
-`ActContext` inputs come from `tool_input`, and requires every class turning on one to be declared.
+declaration is no longer a hand-maintained list: it reads the adapter's own AST in
+`policy/payload.py` for which `Record` and `ActContext` inputs come from `tool_input`, the guard's
+for which predicates are then handed those objects, and requires every class turning on one to be
+declared.
 
 **Claim: designed, not built**, for a record this process can trust. The predicate is built and
 tested; what is absent is any out-of-process source of ground truth the judged caller does not

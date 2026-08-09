@@ -16,6 +16,7 @@ from chaperone.gates.engine import decide, denial_result
 from chaperone.gates.hook import guarded_call, pre_tool_use
 from chaperone.policy.act_classes import ActContext
 from chaperone.policy.arguments import BODY_KEYS, TOO_DEEP, sendable_text, unsendable_in
+from chaperone.policy.payload import build_act_inputs
 from chaperone.policy.types import Draft, Family, Message, Record, ViolationClass
 from tools import policy_hook
 
@@ -176,6 +177,12 @@ def test_only_the_pure_layer_ports_out_of_process():
 # ---------------------------------------------------------------------------
 
 GUARD = Path(__file__).resolve().parents[2] / "tools" / "policy_hook.py"
+
+#: The module the payload adapter lives in. Taken from the imported function rather than written as
+#: a path, so the source the AST walks below parse is provably the source the tests above ran: a
+#: path can be repointed at a file nothing imports, and the walk would then derive facts about a
+#: module that governs nothing. `GUARD` stays a path because that one is executed as a subprocess.
+ADAPTER = inspect.getmodule(build_act_inputs)
 
 _COMPLIANT = {"body": "The round is $10M.", "jurisdiction": "US", "tool_name": "send_message",
               "cited_fields": [], "record": {"round_size": "10000000"}, "approval_token": "tok"}
@@ -570,15 +577,27 @@ def test_the_two_enforcement_layers_reach_the_same_verdict_and_the_same_category
     assert set(verdicts.values()) == {True, False}, f"the corpus lost a whole outcome: {verdicts}"
 
 
-def test_the_consumed_key_list_is_derived_from_the_hook_rather_than_remembered():
+def test_the_consumed_key_list_is_derived_from_the_adapter_rather_than_remembered():
     """`CONSUMED_KEYS` decides which payload keys are checked as content, so a stale entry is a leak.
 
-    A key read by `main` but missing from the literal would be treated as an unconsumed argument and
-    refused -- noisy but safe. A key *in* the literal that `main` never reads is the dangerous
-    direction: it is exempted from the content check while reaching no predicate. Both fail here,
-    because the set is compared against every key the module's own AST shows it reading.
+    A key read by the builder but missing from the literal would be treated as an unconsumed
+    argument and refused -- noisy but safe. A key *in* the literal that nothing reads is the
+    dangerous direction: it is exempted from the content check while reaching no predicate. Both
+    fail here, because the set is compared against every key the module's own AST shows it reading.
+
+    **Parsed where the reads are, which is no longer where the guard is.** The construction moved to
+    `policy/payload.py` and this walk moved with it; against `tools/policy_hook.py` it derives the
+    empty set, and the floor below is what made that a failure rather than a silent pass. Measured
+    on the move: `"body" not in tool_input` stays in `main` and never contributed anyway, because it
+    is an `ast.NotIn` and the branch below matches `ast.In`.
+
+    **The matched name stays `tool_input` and does not widen to the adapter's `payload` parameter.**
+    `payload.get("tool_input")` and `payload.get("tool_name")` read the *outer* payload, and a walk
+    that counted them would put `"tool_input"` -- which is not a tool argument at all -- into the
+    derived set and fail against a correct literal. The right-hand side is read through
+    `policy_hook`, so the re-export is held to the same set the adapter derives.
     """
-    tree = ast.parse(GUARD.read_text(encoding="utf-8"))
+    tree = ast.parse(inspect.getsource(ADAPTER))
     read: set[str] = set()
     for node in ast.walk(tree):
         target = None
@@ -876,11 +895,13 @@ def _reads_payload(node: ast.AST, tainted: set) -> bool:
 
 
 def _payload_tainted_locals(function: ast.FunctionDef) -> set:
-    """Locals of `main` carrying caller-supplied values, transitively.
+    """Locals of the builder carrying caller-supplied values, transitively.
 
     `tool_name` is why this is transitive rather than a search for the name `tool_input` inside each
     constructor call: it is read out of the payload one statement earlier, and a scan without this
-    would call that field guard-supplied.
+    would call that field guard-supplied. `tool_input` itself is now one of them -- the builder
+    takes the whole payload and reaches the arguments through it -- which `_reads_payload` already
+    covered by naming both roots.
     """
     tainted: set = set()
     for _ in range(3):
@@ -892,8 +913,16 @@ def _payload_tainted_locals(function: ast.FunctionDef) -> set:
     return tainted
 
 
-def _evidence_built_in(function: ast.FunctionDef, tainted: set):
-    """`{local: (class, {field: came from the payload})}` for each evidence object `main` builds."""
+def _evidence_built_in(function: ast.FunctionDef, tainted: set, module):
+    """`{local: (class, {field: came from the payload})}` for each evidence object `function` builds.
+
+    `module` is where the constructor names are resolved, and it is a parameter rather than a
+    hardcoded import because the two halves of this derivation now live in two files: the evidence
+    is constructed in `policy/payload.py`, and the predicates that receive it are called in
+    `tools/policy_hook.py`. Resolving `Record` against the module that no longer imports it would
+    raise rather than mislead, but a parameter says which file is being read without the reader
+    having to find that out by breaking it.
+    """
     built, opaque = {}, []
     for node in ast.walk(function):
         if not (isinstance(node, ast.Assign) and len(node.targets) == 1
@@ -905,10 +934,36 @@ def _evidence_built_in(function: ast.FunctionDef, tainted: set):
             opaque.append(node.value.func.id)
             continue
         built[node.targets[0].id] = (
-            getattr(policy_hook, node.value.func.id),
+            getattr(module, node.value.func.id),
             {keyword.arg: _reads_payload(keyword.value, tainted) for keyword in node.value.keywords},
         )
     return built, opaque
+
+
+def _unpacked_into(builder: ast.FunctionDef, caller: ast.FunctionDef, built: dict) -> dict:
+    """`built`, rekeyed from the builder's locals to the names the caller unpacks the triple into.
+
+    The construction and the predicate calls are two modules apart now, so the derivation reads two
+    ASTs and has to join them. Joining on the local name would be a coincidence -- both files happen
+    to say `record` and `context` -- and this test would then rest on it. The join follows the
+    builder's `return` order into the caller's unpacking targets instead, so a rename on either side
+    is carried rather than silently dropping the evidence on the floor.
+    """
+    returns = [node for node in ast.walk(builder) if isinstance(node, ast.Return)]
+    assert len(returns) == 1 and isinstance(returns[0].value, ast.Tuple), (
+        f"{builder.name} no longer ends in exactly one tuple return ({len(returns)} found), so the "
+        "join below reads the wrong one and would report an evidence object as never bound"
+    )
+    order = [e.id for e in returns[0].value.elts if isinstance(e, ast.Name)]
+    for node in ast.walk(caller):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                and isinstance(node.targets[0], ast.Tuple) \
+                and isinstance(node.value, ast.Call) \
+                and isinstance(node.value.func, ast.Name) \
+                and node.value.func.id == builder.name:
+            names = [e.id for e in node.targets[0].elts if isinstance(e, ast.Name)]
+            return {name: built[source] for name, source in zip(names, order) if source in built}
+    return {}
 
 
 def _evidence_parameters(function: ast.FunctionDef, built: dict) -> dict:
@@ -1033,9 +1088,16 @@ def test_every_class_deciding_on_evidence_the_payload_supplies_is_declared_unenf
     the payload while two `==` assertions pinned the set by equality and so made the gap read as
     decided. Both times the fix was to add the entry somebody had noticed, and a third omission
     would have looked exactly like the first two. So the requirement is computed: this reads the
-    guard's own AST for which `Record` and `ActContext` inputs it fills from `tool_input`, reads
-    each predicate's own AST for which class each branch turns on, and requires the intersection to
-    be declared.
+    adapter's own AST for which `Record` and `ActContext` inputs `build_act_inputs` fills from
+    `tool_input`, the guard's own AST for which predicates `main` then hands those objects to, each
+    predicate's own AST for which class each branch turns on, and requires the intersection to be
+    declared.
+
+    **Two files, because the construction and the enforcement are two files.** The evidence half
+    moved to `policy/payload.py` so a second decision surface could share it; the binding half
+    stayed in `tools/policy_hook.py`, which is where the predicates are called. Reading only the
+    guard derives no evidence at all -- measured on the move, and it failed on the floor below
+    rather than passing on an empty requirement, which is the direction that matters.
 
     **What this catches that a list cannot.** Measured on this derivation, not asserted: threading
     `consented_jurisdictions` through `tool_input` -- one plausible future edit, touching no test --
@@ -1054,13 +1116,22 @@ def test_every_class_deciding_on_evidence_the_payload_supplies_is_declared_unenf
     and nothing in this test would notice. That is a property of the payload shape, not of the
     predicate.
     """
-    tree = ast.parse(GUARD.read_text(encoding="utf-8"))
-    main = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "main")
+    guard = ast.parse(GUARD.read_text(encoding="utf-8"))
+    main = next(n for n in ast.walk(guard) if isinstance(n, ast.FunctionDef) and n.name == "main")
+    adapter = ast.parse(inspect.getsource(ADAPTER))
+    builder = next(n for n in ast.walk(adapter) if isinstance(n, ast.FunctionDef)
+                   and n.name == build_act_inputs.__name__)
 
-    built, opaque = _evidence_built_in(main, _payload_tainted_locals(main))
+    constructed, opaque = _evidence_built_in(builder, _payload_tainted_locals(builder), ADAPTER)
     assert not opaque, (
         f"an evidence object is built positionally or by `**` expansion ({opaque}); its provenance "
         "cannot be read off the call, and this derivation would report it as guard-supplied"
+    )
+    built = _unpacked_into(builder, main, constructed)
+    assert built, (
+        f"`main` does not unpack {build_act_inputs.__name__}'s return into locals this walk can "
+        f"follow (the adapter builds {sorted(constructed)}), so no evidence object reaches a "
+        "predicate here and the derivation would require nothing to be declared"
     )
     bound = _evidence_parameters(main, built)
     reached = {predicate.__name__ for predicate in bound}
@@ -1094,8 +1165,9 @@ def test_every_class_deciding_on_evidence_the_payload_supplies_is_declared_unenf
     )
     undeclared = sorted(c.value for c in required - policy_hook.UNENFORCEABLE_HERE)
     assert not undeclared, (
-        f"{undeclared} turn on evidence tools/policy_hook.py fills from `tool_input`, so the caller "
-        "being judged supplies what it is judged against, and they are not in `UNENFORCEABLE_HERE`"
+        f"{undeclared} turn on evidence policy/payload.py fills from `tool_input` and "
+        "tools/policy_hook.py hands to a predicate, so the caller being judged supplies what it is "
+        "judged against, and they are not in `UNENFORCEABLE_HERE`"
     )
 
 
@@ -1316,3 +1388,68 @@ def test_the_registry_lookup_really_would_raise_if_the_order_were_wrong(tmp_path
         guarded_call(_gateway(tmp_path), "send_message", {}, _draft("The round is $10M."),
                      RECORD, CONTEXT, CLEAN, registry)
     assert registry.lookups == ["send_message"]
+
+
+# ---------------------------------------------------------------------------
+# The payload adapter both enforcement layers build from, exercised directly.
+#
+# `policy/payload.py` turns one payload dict into the `(Draft, Record, ActContext)` triple. Every
+# test above reaches it through a subprocess, so each trap is asserted only as a hook exit code;
+# these reach it as the pure function it is, so a trap that stopped holding would fail here as
+# well as one layer up.
+# ---------------------------------------------------------------------------
+
+
+def test_the_payload_level_tool_name_wins():
+    draft, _, _ = build_act_inputs(
+        {"tool_name": "outer", "tool_input": {"tool_name": "inner", "body": "x"}})
+    assert draft.tool_name == "outer"
+
+
+def test_no_approval_token_is_invented():
+    _, _, ctx = build_act_inputs({"tool_input": {"body": "x"}})
+    assert ctx.approval_token is None
+
+
+def test_tier_defaults_closed_to_two():
+    _, _, ctx = build_act_inputs({"tool_input": {"body": "x"}})
+    assert ctx.tier == 2
+
+
+def test_an_unconsumed_key_reaches_nothing_the_adapter_builds():
+    """The trap the adapter does *not* hold, asserted so no caller can assume it does.
+
+    An unconsumed key **is** refused out of process, by `unsendable_finding` over the keys outside
+    `CONSUMED_KEYS` -- `test_the_two_enforcement_layers_reach_the_same_verdict_and_the_same_category`
+    exhibits six such payloads. That check lives in `policy_hook.main` and not in the builder,
+    because a refusal needs somewhere to go and `policy/` may not write to stderr. So the extra key
+    reaches no field of the triple, and the effect asserted is that blindness: an identical triple
+    from two different payloads, which no raise-shaped assertion would have described.
+
+    Written as `pytest.raises(ValueError)` this passes only against a builder that refuses, and the
+    cheapest way to make it pass would have been to add the refusal -- moving a guard into `policy/`
+    that cannot report there, and giving a second surface a reason to believe it is covered. The
+    obligation is the caller's, and `CONSUMED_KEYS` is exported so the caller cannot hold a second
+    copy of the list.
+    """
+    assert build_act_inputs({"tool_input": {"body": "x", "surprise_key": "y"}}) \
+        == build_act_inputs({"tool_input": {"body": "x"}})
+
+
+def test_an_absent_body_is_not_read_as_an_empty_one():
+    """Absent is not empty, and out of process the difference is a message scored as blank.
+
+    The builder subscripts `tool_input["body"]`, so a payload with no body raises here rather than
+    producing a `Draft` every content-class then finds clean. What makes the subscript safe in the
+    hook is `policy_hook.main`'s own check one statement earlier -- `if "body" not in tool_input`,
+    which blocks with a stated reason before the builder is called, and which
+    `test_a_body_the_hook_cannot_find_blocks_rather_than_evaluating_an_empty_one` holds. A caller
+    that skips it gets the raise, which is why the raise is asserted rather than left implicit.
+
+    Both halves, because the raise alone would also be satisfied by a builder that refuses every
+    body: an explicit `""` is a caller stating its draft is empty, and it still builds.
+    """
+    draft, _, _ = build_act_inputs({"tool_input": {"body": ""}})
+    assert draft.body == ""
+    with pytest.raises(KeyError):
+        build_act_inputs({"tool_input": {}})

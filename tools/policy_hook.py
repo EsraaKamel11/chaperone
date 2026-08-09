@@ -24,10 +24,11 @@ that will not import -- into fail-open paths, and each is closed below rather th
 
 **Two limits, both stated because they are otherwise invisible.**
 
-- `CONSENTED` and `GRANTED` are held here rather than taken from the payload. A guard that accepts
-  its own permissions from the caller is not a guard, so this is the fail-closed choice -- but it
-  means a deployment can configure the two layers apart, and the shared artefact across layers is
-  the predicate set, never the configuration. A test exhibits a jurisdiction the two disagree on.
+- `CONSENTED` and `GRANTED` are constants of `policy/payload.py`, re-exported here, rather than
+  values taken from the payload. A guard that accepts its own permissions from the caller is not a
+  guard, so this is the fail-closed choice -- but it means a deployment can configure the two layers
+  apart, and the shared artefact across layers is the predicate set, never the configuration. A test
+  exhibits a jurisdiction the two disagree on.
 - **This layer enforces a strict subset of the in-process policy, and the missing predicates are
   named.** `UNENFORCEABLE_HERE` is the list, a test exhibits the payload the two layers disagree on
   for each entry, and the predicate-parity test asserts the declaration rather than letting silence
@@ -37,7 +38,7 @@ that will not import -- into fail-open paths, and each is closed below rather th
   needs a count that lives in a log this process cannot read. `act:no_approval_token` and
   `act:figure_not_in_record` are decided from evidence arriving in the payload from the caller being
   judged: an approval and a tier, and the record a draft's figures are checked against. See the note
-  on the set itself.
+  on the set itself, which sits beside it in `policy/payload.py`.
 
   Same category as the model call not porting: the deterministic half is the portable half, and the
   stateful half is not. **So "the same policy is enforced at two layers" is true of the predicates
@@ -63,98 +64,21 @@ _SRC = Path(__file__).resolve().parents[1] / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from chaperone.policy.act_classes import ActContext, evaluate_act_classes
+from chaperone.policy.act_classes import evaluate_act_classes
 from chaperone.policy.arguments import unsendable_finding
 from chaperone.policy.citations import validate_citations
+# Re-exported, not merely used. `CONSENTED`, `GRANTED`, `CONSUMED_KEYS` and `UNENFORCEABLE_HERE`
+# were constants of this module before the construction they belong to moved to `policy/payload.py`,
+# and this module's public surface is read by tests and by the catalog guard in
+# `tests/test_readme_claims.py`. Imported here so the move is an internal one.
+from chaperone.policy.payload import (
+    CONSENTED,
+    CONSUMED_KEYS,
+    GRANTED,
+    UNENFORCEABLE_HERE,
+    build_act_inputs,
+)
 from chaperone.policy.tripwires import evaluate_tripwires
-from chaperone.policy.types import Draft, Message, Record, ViolationClass
-
-CONSENTED = frozenset({"US", "UK"})
-GRANTED = frozenset({"send_message", "send_reply", "draft_message", "read_policy"})
-
-#: The violation classes this layer cannot decide, so the subset relation is declared rather than
-#: discovered. Declared as a set rather than prose so the predicate-parity test can assert it, and
-#: so widening it is an edit somebody has to make on purpose.
-#:
-#: **The criterion is: this process holds no trustworthy source for the input the class turns on.**
-#: That is wider than the criterion first written here, which was "what state makes impossible",
-#: and the widening is deliberate rather than a stretch -- the second entry below fits the new
-#: wording and not the old one, and leaving the old wording in place would have been the same
-#: defect the entry records.
-#:
-#: - `act:send_cap_exceeded`. `evaluate_act_classes` runs here and can produce it, but only from a
-#:   count that lives in the audit log this process cannot read, so a caller who omits the count
-#:   gets an allow where the in-process gate denies.
-#: - `act:no_approval_token`. Worse than absent: `approval_token` and `tier` arrive in `tool_input`,
-#:   so the agent being judged supplies the evidence. `{"tier": 1}` puts the action below the rule
-#:   and any non-`None` token satisfies it, because nothing here can validate an approval. A guard
-#:   that accepts its own permissions from the caller is not a guard -- this module's docstring
-#:   holds `CONSENTED` and `GRANTED` as constants for exactly that reason -- and the same remedy
-#:   does not transfer: an approval is granted per action, so a token pinned as a module constant
-#:   or read once from the environment would make the predicate "is the deployment configured"
-#:   rather than "was this action approved", and a `tier` pinned high would stop reading the
-#:   action's tier at all. A declaration that the class is undecidable here is the true statement;
-#:   a constant that made it *look* decidable would be the stronger claim this repository exists to
-#:   refuse. `tier`'s fail-closed default of 2 is kept: it closes absence, which is the half that
-#:   can be closed.
-#:
-#: - `act:figure_not_in_record`. The same shape as the entry above, one step further out: not the
-#:   evidence *for* the action but the ground truth it is checked *against*. `record` arrives in
-#:   `tool_input`, so a draft stating a figure the real record does not hold is allowed by a payload
-#:   carrying a record that says it does, and `validate_citations` resolves against that same field,
-#:   so the citation half goes with it -- `cited_fields` defaulting to `()` suppresses that half a
-#:   second way. The constant remedy does not transfer here either, for a sharper reason than above:
-#:   a record pinned in this module would make the predicate "does the draft agree with one fixed
-#:   mandate" rather than "does it agree with this deal's record", and would refuse every correct
-#:   draft about every other deal. A stateless guard holds no per-deal record, which is this
-#:   criterion exactly.
-#:
-#: **Why a `Draft` is not on this list, when every field of one also arrives in `tool_input`.** A
-#: draft is the action's description of itself and is the thing being judged; a `Record` and an
-#: `ActContext` are what it is judged against, and only the second kind is evidence. That is why
-#: `act:jurisdiction_not_consented` and `act:tool_outside_grant` are absent: both compare the
-#: action's self-description against `CONSENTED` and `GRANTED`, held here as constants precisely so
-#: the caller cannot supply them. **The residual, because the distinction is about this payload
-#: shape rather than about the predicates:** a caller can still misdescribe its own action, and
-#: `jurisdiction` stops being self-description the moment a real send tool derives it from the
-#: recipient rather than taking it as an argument.
-#:
-#: **This set is no longer maintained by hand.** It was, and it was found under-inclusive twice --
-#: created holding `act:send_cap_exceeded` alone, then grown for the approval class, then for the
-#: record. The count in that sentence is read off this file's history, not recalled.
-#: `tests/gates/test_hook.py` now derives the requirement from this module's own AST -- which
-#: `Record` and `ActContext` inputs come from `tool_input` -- and from each predicate's AST, so a
-#: class that starts turning on payload evidence fails on the commit that does it rather than on
-#: the review that happens to notice.
-#:
-#: **The residual, because declaring a gap does not close it.** Every predicate still runs, so this
-#: layer can still *deny* on `act:no_approval_token` and on `act:figure_not_in_record` from caller
-#: input. What it cannot do is refuse to be talked out of either denial, and that is the direction
-#: the declaration names: these entries mark classes that cannot be relied on to fire, not classes
-#: that never fire.
-#:
-#: This set holds only gaps that cannot be closed here. It briefly also covered unconsumed payload
-#: keys, which was wrong twice over: refusing them is a pure function of the payload and needs no
-#: state at all, and a subset declaration that lists a *closable* gap reads as exhaustive while
-#: being incomplete -- worse than no declaration. That gap is closed below, not declared here.
-UNENFORCEABLE_HERE = frozenset({
-    ViolationClass.SEND_CAP_EXCEEDED,
-    ViolationClass.NO_APPROVAL_TOKEN,
-    ViolationClass.FIGURE_NOT_IN_RECORD,
-})
-
-#: Every key of `tool_input` this module reads. Anything else is an argument no predicate here
-#: consumes, and it is checked as outbound content rather than ignored: nine consumed keys and a
-#: silent pass on the rest meant `{"extra_text": "Returns are guaranteed."}` rode through on an
-#: otherwise-compliant payload while the in-process gate denied it -- design spec 6.3 false again,
-#: one layer over from where it was first false.
-#:
-#: A test derives this set from this module's own AST rather than trusting the literal, so a key
-#: read here and forgotten here cannot exist.
-CONSUMED_KEYS = frozenset({
-    "body", "cited_fields", "jurisdiction", "domain", "tool_name", "record",
-    "approval_token", "tier", "sent_count", "send_cap",
-})
 
 
 def _say(line: str) -> None:
@@ -198,44 +122,24 @@ def main() -> int:
     if not isinstance(tool_input, dict):
         return _block(f"tool_input is a {type(tool_input).__name__}, not a JSON object")
 
-    # A tool's own name is not one of its arguments: the runtime sends it beside `tool_input`,
-    # which is why `guard_edit.py` reads `tool_input.file_path` and no tool name at all. So the
-    # payload level is read *first* and the argument level is only a fallback. Preferring the
-    # argument level is the same confused deputy `_decide_for` refuses one layer up: a payload
-    # naming `wire_funds` beside an argument naming `send_message` would have had its grant checked
-    # against the tool that is not being run.
-    #
-    # Falls back to "" rather than None: `evaluate_act_classes` skips the grant check entirely on
-    # None, so a payload naming no tool would otherwise be the one payload never checked at all.
-    tool_name = payload.get("tool_name") or tool_input.get("tool_name") or ""
-
     # Absent is not empty. Every predicate here reads `draft.body`, so a message stored under some
     # other key was scored as a blank draft and found clean. An explicit "" is a caller saying the
     # body is empty, which is a fact about the draft; a missing key is this guard failing to find
     # the message, which is a fact about the guard.
+    #
+    # It runs *before* the builder and stays here rather than moving with it, because `_block` is
+    # what makes it a refusal and `_block` writes to stderr -- which `policy/` may not do. The
+    # builder subscripts `tool_input["body"]` and would raise instead; a raise out of `main` is a
+    # 2 by the handler at the foot of this file, so the guard is what turns it into a stated reason.
     if "body" not in tool_input:
         return _block("the payload carries no 'body', so there is no message to evaluate")
 
-    draft = Draft(
-        thread=(Message(role="investor", body=""),),
-        body=tool_input["body"],
-        cited_fields=tuple(tool_input.get("cited_fields", ())),
-        recipient_jurisdiction=tool_input.get("jurisdiction", ""),
-        recipient_domain=tool_input.get("domain", "example.test"),
-        tool_name=tool_name,
-    )
-    record = Record(fields=tool_input.get("record", {}))
-    context = ActContext(
-        # No default token. The old default was the very string the act-class looks for, so a
-        # payload carrying no token satisfied the tier-2 rule. A guard may not invent the evidence
-        # it is guarding, and tier defaults high for the same reason.
-        approval_token=tool_input.get("approval_token"),
-        tier=int(tool_input.get("tier", 2)),
-        consented_jurisdictions=CONSENTED,
-        granted_tools=GRANTED,
-        sent_count=int(tool_input.get("sent_count", 0)),
-        send_cap=int(tool_input.get("send_cap", 10_000)),
-    )
+    # The trust boundary itself lives in `policy/payload.py` so a second decision surface reads a
+    # payload the same way this one does rather than keeping a second copy of it -- the argument
+    # `arguments.py` makes for `unsendable_in`, applied to the construction instead of a predicate.
+    # Both the guard above and the unconsumed-key check below stay here: each needs somewhere to
+    # send a refusal, which a pure constructor does not have.
+    draft, record, context = build_act_inputs(payload)
 
     # The same three pure predicates `decide` consults, in `decide`'s order, so the primary finding
     # is the same one both layers report. Shipping without `validate_citations` made a fabricated
