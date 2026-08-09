@@ -43,9 +43,11 @@ there are four differences, not one:
    and appends the tripwire findings; no arm here can reach that path. No measured number moves --
    the shipped replay contains no such row because it cannot -- but the path is untested by this
    binding.
-3. **The retry budget is collapsed.** `Checker.check` retries and then raises `CheckerUnavailable`;
-   the replay records only a final answer, so every way of failing becomes the one `null` sentinel
-   and the budget itself is not modelled.
+3. **The retry budget is collapsed.** `Checker.check` spends a budget of attempts on a transport
+   that fails and then raises `CheckerUnavailable` -- and skips the budget entirely when the
+   transport raises `CheckerUnavailable` itself, which is a declaration rather than a symptom. The
+   replay records only a final answer, so every way of failing becomes the one `null` sentinel and
+   neither the budget nor the distinction between those two routes is modelled here.
 4. **Only a boolean is computed.** `ArmResult` carries no findings tuple and no `disposition`, so
    `disposition_for`, `FUTILE_CLASSES` and the ranking limit `decide` documents are untouched by
    the ladder. Two rows can block for different reasons and this harness cannot tell them apart --

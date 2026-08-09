@@ -1,7 +1,7 @@
 """What the frozen corpus is, and what it is safe to conclude from it.
 
-Three properties carry the weight, and each has its own test below because each has been got wrong
-somewhere in this project already:
+Three properties of the drafts carry the weight, and each has its own test below because each has
+been got wrong somewhere in this project already:
 
 - **No draft body originates here.** Design spec 9.3 makes the violating drafts' surface forms
   independent of the tripwire author's vocabulary. `test_every_body_and_intent_is_the_blind_authors_own`
@@ -14,6 +14,14 @@ somewhere in this project already:
 - **The label comes from provenance, never from the body.**
   `test_the_violation_class_is_read_from_provenance_and_never_from_the_body` is the one that matters
   for Task 16.
+
+**A fourth property, of `corpus/recorded_verdicts.json` rather than of the drafts.** Every recorded
+span is a verbatim substring of the body of the row it belongs to.
+`test_every_recorded_span_is_a_verbatim_substring_of_its_row_body` holds it, and it is the evidence
+`gates/checker.py::span_absent_reason` rests on: that predicate denies a verdict quoting words the
+draft does not contain, and enforcing it against a replay that violated it would deny rows for a
+reason having nothing to do with any draft. The test counts what it checked and refuses a count of
+zero: clean rows record a `null` span, so a loop that skipped every row would otherwise pass.
 
 **Deliberately not measured here: how often a tripwire fires on this corpus.** Spec 9.3 tunes the
 tripwires on dev and touches eval once. A hit-rate printed in this task's report is a number about
@@ -440,6 +448,40 @@ def test_the_corpus_documentation_states_the_measured_class_asymmetry():
         i for i in items if i.intent == "negotiates_terms" and not figures_in(i.draft.body)
     ]
     assert f"the remaining {len(silent)} of 30" in doc
+
+
+def test_every_recorded_span_is_a_verbatim_substring_of_its_row_body():
+    """The span rule is claimed only because this holds over all 160 frozen rows.
+
+    `gates/checker.py::span_absent_reason` refuses a verdict whose span the draft does not contain,
+    and `Checker.check` spends the retry budget on it and then denies. That rule is only safe to
+    enforce if the recorded verdicts this project replays actually satisfy it -- otherwise the gate
+    would deny rows for a reason that has nothing to do with any draft, and the whole replay would
+    read as a checker that was down.
+
+    The floor is the point. A rule proven over zero spans is not proven, and `recorded_verdicts.json`
+    records a JSON `null` span for every clean row, so a loop that silently skipped everything is
+    the realistic failure and not a hypothetical one. Watched failing both ways against tampered
+    copies of the two artifacts: one body edited away from its recorded span fails the substring
+    assertion naming the row, and every span nulled fails the floor.
+    """
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    bodies = {}
+    with (root / "corpus" / "drafts.jsonl").open(encoding="utf-8") as fh:
+        for line in fh:
+            row = json.loads(line)
+            bodies[row["id"]] = row["body"]
+    recorded = json.loads((root / "corpus" / "recorded_verdicts.json").read_text(encoding="utf-8"))
+    checked = 0
+    for item_id, raw in recorded.items():
+        span = (raw or {}).get("span")
+        if span is not None:
+            assert span in bodies[item_id], item_id
+            checked += 1
+    assert checked > 0, "a span rule proven over zero spans is not proven"
 
 
 def test_the_corpus_documentation_states_the_size_of_each_act_lane():

@@ -12,9 +12,23 @@ Two things this layer does NOT do, written down because their absence is otherwi
   by timing: a transport that hangs hangs the gate, and deny-on-timeout exists only insofar as the
   transport raises. That property lives in the transport, and today in no test.
 - **It does not judge whether a verdict is correct.** It refuses verdicts it cannot act on -- a
-  wrong type, or a violation reported without a class -- and a refusal costs a retry and then
-  becomes `CheckerUnavailable`, which callers fail closed on. Anything well-formed is returned as
-  given, and whether it is right is a measured question, not a structural one.
+  wrong type, a violation reported without a class, or a span the draft does not contain verbatim
+  -- and a refusal costs a retry and then becomes `CheckerUnavailable`, which callers fail closed
+  on. Anything well-formed is returned as given, and whether it is right is a measured question,
+  not a structural one.
+
+Two of those three refusals are predicates rather than inline conditions, and they are split on
+whether a caller other than this module could evaluate them. `unusable_reason` is a property of the
+verdict alone, so a transport binding holding nothing but the model's answer can apply the same rule
+and ask for another one; it is shared rather than moved, and `_reject_unusable` still calls it.
+`span_absent_reason` needs the draft, which at the transport seam is out of scope, so no binding can
+feed a span violation back and a span violation only ever denies.
+
+**The retry budget is for availability, and a transport is allowed to close the question.**
+`CheckerUnavailable` raised by the transport propagates out of `check` untouched rather than costing
+two more attempts: the replay in `testing/recorded.py` raises it for a verdict recorded as
+unavailable, and re-asking a settled question is not a retry. Every other exception is a candidate
+for another attempt, which is why the escape names one type instead of breaking the loop.
 """
 from __future__ import annotations
 
@@ -104,6 +118,20 @@ def build_checker_messages(*, draft: Draft, record: Record) -> list[dict]:
     return [{"role": "user", "content": content}]
 
 
+def unusable_reason(result: CheckerResult) -> str | None:
+    """One rule, two enforcement points: `_reject_unusable` here, `ModelRetry` in the binding."""
+    if isinstance(result, Verdict) and result.violates and result.violation_class is None:
+        return "verdict reports a violation without naming a class"
+    return None
+
+
+def span_absent_reason(result: CheckerResult, body: str) -> str | None:
+    """Gate-side only: the transport seam has no draft, so no binding can feed this back."""
+    if isinstance(result, Verdict) and result.span is not None and result.span not in body:
+        return f"span {result.span!r} is not a verbatim substring of the draft body"
+    return None
+
+
 def _reject_unusable(result: object) -> None:
     """Raise unless `result` is an answer the gate can act on. Neither case is a schema question.
 
@@ -115,15 +143,21 @@ def _reject_unusable(result: object) -> None:
     - **A violation with no class.** A `Finding` needs a class, so the engine builds one only when
       `violates` and `violation_class` are both set -- meaning an unnamed violation was
       indistinguishable from a clean draft and transmitted. `violates=False` with no class is the
-      ordinary compliant answer and is deliberately not refused.
+      ordinary compliant answer and is deliberately not refused. The rule is `unusable_reason` and
+      is called rather than restated, so this refusal and the one a transport binding raises from
+      cannot drift apart.
 
     Raised inside the retry loop, so an unusable answer costs an attempt and then becomes
     `CheckerUnavailable` rather than reaching a caller intact.
+
+    The span rule is deliberately **not** here. It needs the draft body, which this signature does
+    not take, and `Checker.check` applies it in the same loop for the same budget.
     """
     if not isinstance(result, (Verdict, FlagForReview)):
         raise TypeError(f"checker returned {type(result).__name__}, not a verdict or a review flag")
-    if isinstance(result, Verdict) and result.violates and result.violation_class is None:
-        raise ValueError("verdict reports a violation without naming a class")
+    reason = unusable_reason(result)
+    if reason is not None:
+        raise ValueError(reason)
 
 
 class Checker:
@@ -146,7 +180,16 @@ class Checker:
             try:
                 result = self._transport(messages)
                 _reject_unusable(result)
+                reason = span_absent_reason(result, draft.body)
+                if reason is not None:
+                    raise ValueError(reason)
                 return result
+            # A transport raising `CheckerUnavailable` has declared the question closed, not failed
+            # an attempt at it. Swallowed by the bare except below, that declaration cost two more
+            # calls and came back out carrying its own message, so no assertion on the message could
+            # tell the wrapper from the original and only a call count saw the difference.
+            except CheckerUnavailable:
+                raise
             except Exception as exc:
                 last = exc
         raise CheckerUnavailable(str(last)) from last

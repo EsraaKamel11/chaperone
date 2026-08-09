@@ -376,13 +376,20 @@ def test_a_verdict_that_names_the_unclassified_class_is_futile_too():
     was not a decision anyone took -- widening the futile set to let the other three derive their
     disposition changed this path from `redirect_refinable` to `redirect_futile` as a side
     effect, and no test covered it. It does now.
+
+    **The span is quoted from the body, and it did not have to be when this was written.** It read
+    `"unclear bit"` against a body that never contained those words, which `Checker.check` now
+    refuses as unusable -- so the fixture, not the property, is what changed. Every assertion below
+    is the one that stood here before; only the two spellings of the span moved, and they moved to
+    the one shape a real checker could have produced.
     """
-    verdict = Verdict(violates=True, violation_class=ViolationClass.OTHER, confidence=0.8, span="unclear bit")
+    verdict = Verdict(violates=True, violation_class=ViolationClass.OTHER, confidence=0.8,
+                      span="round is $10M")
     decision = decide(_draft("The round is $10M."), RECORD, CONTEXT, _checker(verdict))
     assert decision.allowed is False
     assert [f.violation_class for f in decision.findings] == [ViolationClass.OTHER]
     assert decision.disposition is Disposition.REDIRECT_FUTILE
-    assert denial_result(decision)["span"] == "unclear bit"
+    assert denial_result(decision)["span"] == "round is $10M"
 
 
 def test_the_denial_result_renders_the_class_and_the_disposition_as_their_values():

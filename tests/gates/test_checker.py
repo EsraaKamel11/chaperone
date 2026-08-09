@@ -293,3 +293,97 @@ def test_build_checker_messages_is_keyword_only():
     assert set(params) == {"draft", "record"}, params
     for name, param in params.items():
         assert param.kind is inspect.Parameter.KEYWORD_ONLY, name
+
+
+# --- The two rules the gate applies to a well-formed verdict, extracted as predicates so that one
+# --- of them can be enforced twice. `unusable_reason` is shared rather than moved: `_reject_unusable`
+# --- keeps calling it, and a transport binding can raise from the same predicate rather than
+# --- reimplementing it. `span_absent_reason` is gate-side only -- at the transport seam the draft is
+# --- out of scope, so nothing there can even evaluate it.
+
+
+def test_unusable_reason_names_the_missing_class_and_passes_flags_through():
+    """Production change that breaks this: deleting the class check from `unusable_reason`.
+
+    The clean verdict and the review flag are the two shapes the rule must *not* claim, and each is
+    asserted separately: a predicate that returned a reason unconditionally would deny every
+    compliant draft in the project, and one that read `.violates` off a `FlagForReview` would raise
+    instead of answering.
+    """
+    from chaperone.gates.checker import FlagForReview, Verdict, unusable_reason
+
+    bad = Verdict(violates=True, violation_class=None, confidence=0.9, span=None)
+    assert unusable_reason(bad) is not None
+    ok = Verdict(violates=False, violation_class=None, confidence=0.9, span=None)
+    assert unusable_reason(ok) is None
+    assert unusable_reason(FlagForReview(reason="unclear")) is None
+
+
+def test_span_absent_reason_refuses_a_span_not_in_the_body():
+    """Production change that breaks this: widening the rule from `in` to anything looser.
+
+    The first assertion is the one that keeps the rule usable -- a quoted span that *is* in the body
+    is the ordinary case and must not be refused -- and the third holds the shape a `FlagForReview`
+    has no field for. Verbatim is the whole property: a rule that matched case-insensitively, or on
+    a normalized form, would let the checker quote a sentence the draft does not contain, and the
+    handoff renders that span to a human as the offending words.
+    """
+    from chaperone.gates.checker import FlagForReview, Verdict, span_absent_reason
+
+    v = Verdict(violates=True, violation_class=ViolationClass.ADVISES_ON_MERITS,
+                confidence=0.9, span="great deal")
+    assert span_absent_reason(v, "this is a great deal, honestly") is None
+    assert span_absent_reason(v, "no such words here") is not None
+    assert span_absent_reason(FlagForReview(reason="x"), "anything") is None
+
+
+def test_a_verdict_quoting_a_span_the_draft_does_not_contain_exhausts_the_budget_and_then_denies():
+    """A predicate nothing calls governs nothing, so the enforcement is asserted, not the rule.
+
+    The two tests above hold `span_absent_reason` as a function. Neither of them would notice
+    `Checker.check` never calling it, and an unenforced span rule is exactly the shape this project
+    keeps meeting: the checker quotes words the draft does not contain, the verdict is returned
+    intact, and `build_handoff` renders that span to a human as the offending text.
+
+    Production change that breaks this: deleting the `span_absent_reason` call from `Checker.check`.
+    The call count is the second half and catches a different edit -- hoisting the check above the
+    loop, or into `Checker.__init__`, raises the same error after one attempt, and a `pytest.raises`
+    alone cannot tell that from a rule applied where the budget lives.
+    """
+    calls = []
+
+    def quotes_an_absent_span(messages):
+        calls.append(1)
+        return Verdict(violates=True, violation_class=ViolationClass.ADVISES_ON_MERITS,
+                       confidence=0.9, span="a bargain at twice the price")
+
+    checker = Checker("sonnet-tier", "sonnet-tier", transport=quotes_an_absent_span, retries=2)
+    with pytest.raises(CheckerUnavailable, match="verbatim substring"):
+        checker.check(DRAFT, RECORD)
+    assert len(calls) == 3, "the span rule must be applied where the retry budget is spent"
+
+
+def test_a_transport_that_declares_terminal_failure_is_not_retried():
+    """The retry budget is for *availability*, and a transport can say the question is closed.
+
+    `CheckerUnavailable` raised by the transport is a declaration, not a symptom: the replay in
+    `testing/recorded.py` raises it for a recorded unavailability, and retrying that asks the same
+    settled question two more times. Everything else the loop catches is a candidate for another
+    attempt, so the escape is narrowed to this one type rather than to the loop as a whole.
+
+    **The call count is the killer and the `match=` is not.** Measured before the clause existed:
+    with the loop swallowing this, `str(last)` is the terminal exception's own message, so the
+    re-wrapped `CheckerUnavailable` carries the identical text and the `match=` passes over three
+    calls exactly as it passes over one. Production change that breaks this: deleting the
+    `except CheckerUnavailable: raise` clause above the bare except.
+    """
+    calls = []
+
+    def declares_terminal(messages):
+        calls.append(1)
+        raise CheckerUnavailable("declared terminal by the transport")
+
+    checker = Checker("sonnet-tier", "sonnet-tier", declares_terminal, retries=2)
+    with pytest.raises(CheckerUnavailable, match="declared terminal"):
+        checker.check(DRAFT, RECORD)
+    assert len(calls) == 1

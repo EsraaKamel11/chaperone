@@ -17,8 +17,9 @@ sees a correct copy.
 **Why the key is a digest of the messages and not a corpus id.** `Checker`'s transport is
 `Callable[[list[dict]], CheckerResult]`: one argument, the messages, and nothing else. A two-argument
 `__call__(messages, key)` cannot be a `Checker` transport at all, and the failure is not a loud one --
-`Checker.check` catches every exception inside its retry loop, so the `TypeError` for the missing
-argument is swallowed and re-raised as `CheckerUnavailable`, which callers fail closed on. A
+`Checker.check` treats a `TypeError` inside its retry loop as it treats any other failure, so the
+error for the missing argument is swallowed and re-raised as `CheckerUnavailable`, which callers
+fail closed on. A
 transport that was never callable would then look exactly like a checker that was down. Measured
 before this module was written. The key therefore has to come out of the messages, and
 `build_checker_messages` is a pure function of the draft and the cited records, so a digest over the
@@ -26,8 +27,12 @@ messages is a stable name for the question that was asked.
 
 **What this collapses, stated because `harness.recorded_verdict` refuses to collapse it.** There the
 two ways of having no verdict are two values: an id the artifact does not hold raises, and a recorded
-unavailability is a JSON `null`. Behind `Checker.check` they become one outcome, `CheckerUnavailable`,
-because that loop catches everything. The distinction survives at this boundary and is tested here
+unavailability is a JSON `null`. Behind `Checker.check` they become one outcome,
+`CheckerUnavailable`, by two different routes: the miss raises `HarnessError`, which the retry loop
+catches and re-raises as `CheckerUnavailable` once the budget is spent, while a recorded
+unavailability is already a `CheckerUnavailable` and the loop's terminal escape propagates it on the
+first attempt rather than asking a settled question twice more. The outcome a caller sees is the
+same either way, which is what collapses them. The distinction survives at this boundary and is tested here
 directly -- `test_a_message_set_with_no_recording_raises_rather_than_answering` against
 `test_a_recorded_unavailability_reaches_the_gate_as_a_closed_door` -- and it does not survive one
 layer up. A caller who needs the two apart must call the transport, not the checker.
