@@ -4,10 +4,10 @@ version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.7",
+    "pydantic-ai>=2.23",
 ]
 
 [project.optional-dependencies]
-ai = ["pydantic-ai>=2.23"]
 evals = ["pydantic-evals>=2.23"]
 sdk = ["claude-agent-sdk>=0.2.130"]
 dev = ["pytest>=8.0", "hypothesis>=6.100"]
