@@ -1023,6 +1023,11 @@ written. Do not write README text against a red claim suite.
 Add the blockquote claim from spec section 7.3 to the README's Agent SDK subsection, including
 its final sentence, since `demo/sdk_hook.py` now exists and the path guard verifies it.
 
+One existing sentence goes stale in this same step, and no guard catches it because the defect is
+a word rather than a path. The Pydantic AI row says "neither demo runs through it". Creating
+`demo/sdk_hook.py` makes three demos, and "neither" means two. Change it to "no demo runs through
+it" here, in the commit that creates the third — a counting word is a claim like any other.
+
 - [ ] **Step 4: Readme-claims suite green, then commit and push (sendable boundary)**
 
 Run: `python -m pytest tests/test_readme_claims.py`
@@ -1056,7 +1061,7 @@ and wired to no runtime; the wired hooks are the edit-time purity guard and the 
 scan, which enforce this repository's development rules, not the outbound policy. Every sentence
 names which contract it means.
 
-Three further items belong in this step. First, spec section 4 requires one README sentence
+Four further items belong in this step. First, spec section 4 requires one README sentence
 recording that `build_checker_messages` became keyword-only, because `testing/recorded.py` is a
 replay surface external callers key against; Task 2 made the change and no task owned the
 sentence until this one. Second, spec section 2 requires the queue's scope stated in
@@ -1070,6 +1075,32 @@ documents put weight on" and the README now puts weight on this one. If it joins
 measure uncalled, because `_shipped_call_sites` counts `ast.Call` nodes and the demo passes the
 function as a bare Name to `HookMatcher`; the accompanying disclosure sentence is therefore part
 of the decision, not an afterthought.
+
+Fourth, added by design review round: **`pydantic_ai_transport` joins `ENFORCEMENT_ROSTER` and
+`UNCALLED_IN_THE_SHIPPED_TREE`.** `README.md`'s Pydantic AI row states that nothing in the shipped
+tree constructs it; today that sentence is held by reading, and the census is what turns such a
+sentence into a measurement. `_shipped_call_sites` matches this name cleanly — it is called by
+name and the name is unique, unlike the `count` and `Branch.COMPLETE` cases the roster documents as
+excluded — and `SHIPPED_ROOTS` already covers `demo/` (`tests/test_readme_claims.py:512`). The
+consequence is the property worth having: **the day anything under `demo/` or `src/` constructs the
+transport, the census flips and the disclosure sentence must come off the page in that same
+commit.** Both directions, which is this repository's strongest currency. The backticked name is
+already in the row, so the roster's disclosure requirement is satisfied on landing.
+
+This item is the *whole* answer to a question raised and closed in review: whether to wire the
+binding into a demo so that something outside the suite runs through it. Ruled no. The plan's
+headline defect was a manifest that disagreed with the tree, and that is discharged — the
+dependency is declared at runtime and `src/` imports it, with wire fidelity and the call budget
+pinned. "Built, exercised from the suite, disclosed on a reader-facing page" is not a gap here; it
+is an established category with members already measured by this same census. A demo lane would
+also blur the asymmetry that Step 1b spends a paragraph arguing: pydantic-ai is pinned at a seam
+this repository owns, while the SDK, being a runtime, is what gets a demo.
+
+**Do not write the tempting rationale.** "Wiring it into a demo would either contact a network or
+fake a model" is false and refutable from two files in this repository: both demos already stipulate
+their transports offline and say so in their own docstrings. The honest reasons are the asymmetry
+argument above, and that the transport's production construction site is a caller holding a live
+model, which no default lane here may be.
 
 - [ ] **Step 1b: Add the asymmetry paragraph to the Agent SDK claim**
 
