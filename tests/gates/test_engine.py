@@ -233,9 +233,18 @@ def _checker_contribution(draft: Draft, decision: Decision) -> tuple[Finding, ..
 
     `decide` writes `checker_findings + tripwire_findings` on every route that consults a checker and
     gets an answer back, so the tripwire findings are a suffix and whatever precedes them is what the
-    checker added. The suffix is **checked rather than assumed**: the unavailable route returns its
-    finding alone and appends no tripwires, so on that route the suffix does not match and the whole
-    tuple is the contribution -- which is the right answer there too.
+    checker added.
+
+    **This restates `decide`'s composition, which is the same coupling shape the act-clean filter in
+    the label test carries, and it is the lesser case.** There the drift is silent in one direction;
+    here it is loud in both. `decide` composing findings some other way makes the suffix stop matching
+    and the whole tuple come back, so a cell reports a mechanism its label does not name and the test
+    fails rather than quietly measuring the wrong thing. Checking the suffix instead of assuming it is
+    what buys that: the length arithmetic alone would slice a tuple it no longer describes.
+
+    The non-matching branch is also **defensive rather than reached**. The unavailable route appends
+    no tripwires and would land there, but no caller brings it: `_mechanism_shown` answers on `outage`
+    before calling this, and the class loop calls it only for `"violating"` cells.
     """
     tripwires = evaluate_tripwires(draft)
     if tripwires and decision.findings[-len(tripwires):] == tripwires:
@@ -244,10 +253,15 @@ def _checker_contribution(draft: Draft, decision: Decision) -> tuple[Finding, ..
 
 
 def _mechanism_shown(draft: Draft, decision: Decision) -> str:
-    """Which `_CHECKERS` answer this decision shows it acted on, read off effects and nothing else.
+    """Which `_CHECKERS` answer this decision shows it acted on, read off the decision's own effects.
 
     The return value is compared against the cell's label, so a cell whose label names one mechanism
     and whose decision shows another fails rather than being counted.
+
+    **"Off effects" and not "off effects alone".** Nothing here spies an invocation or reconstructs
+    what the answer should have been, which is the part that matters. But `_checker_contribution`
+    re-runs `evaluate_tripwires(draft)` to find the suffix to strip, so one policy predicate is
+    evaluated rather than read off the decision, and the summary line does not claim otherwise.
 
     **Only one of the three plumbing routes is structural, and it is the one this task added.**
     `outage` names the unavailable route as a field. The flag route and the violation-without-a-class
@@ -608,24 +622,34 @@ def test_every_battery_cell_exercises_the_mechanism_its_label_names():
       here could exclude the very cells carrying the defect and pass.
     - **Over act-clean cells only**: a `"down"` cell carries an outage. `decide` returns on the act
       lane before consulting any checker, so on the cells the act lane denies -- every `DE` cell and
-      every cell whose body cites a figure the record does not hold -- no checker label names
+      every cell whose body names a figure the record does not hold -- no checker label names
       anything at all. The filter is `decide`'s own short-circuit condition, evaluated with the same
-      two policy predicates, rather than a guess at which cells it covers.
+      two policy predicates, rather than a guess at which cells it covers. **`validate_citations` is
+      the second of those two and fires on no cell here**, because `_draft` builds every body with
+      `cited_fields=()`; it is called for parity with `decide` rather than because it contributes,
+      and dropping it as dead would silently narrow the filter the first time a cell cites anything.
 
     The coverage assertion between them is what stops that filter from excluding everything: a label
     no act-clean cell carries is a mechanism this test would otherwise silently stop checking.
 
     **All five labels, not only the outage dimension.** The first version of this test asserted the
     outage direction alone, which held `"down"` to something and the other four labels to nothing but
-    "not the outage route". Demonstrated, not argued: flipping the `"violating"` verdict to
-    `violates=False` turned every one of its cells into an *allow* and this test stayed green. So each
-    label is now compared against the mechanism its cell actually shows, by `_mechanism_shown`.
+    "not the outage route". Demonstrated, not argued -- and the numbers are the ones that were
+    actually measured, an earlier draft of this paragraph having claimed more than the measurement
+    showed. Flipping the `"violating"` verdict to `violates=False` turns **2 of its 10 cells into
+    allows, 2 of the 4 that reach a checker**, and the outage-only version of this test stayed green
+    through it. The other 8 stay denials for reasons that have nothing to do with the checker: 5 `DE`
+    cells on `act:jurisdiction_not_consented`, the `$8M` `US` cell on `act:figure_not_in_record`, and
+    2 `US` cells on tripwires -- `Returns are guaranteed.` and `Honestly, this is a strong deal.`
+    Two escaping cells were enough, and that is the point: a fixture stops exercising the mechanism
+    its label names without the battery changing shape. So each label is now compared against the
+    mechanism its cell actually shows, by `_mechanism_shown`.
 
     **Scope, stated rather than hedged.** The universal is over cells that reach a checker. Thirty of
     the fifty reach none -- all twenty-five `DE` cells, denied `act:jurisdiction_not_consented`, and
-    the five `US` cells whose body cites `$8M` against a record holding only `$10M`. On those, no
-    checker label names anything, and asserting a mechanism would be asserting about a call that
-    never happened.
+    the five cells whose body names `$8M` against a record holding only `$10M`, denied
+    `act:figure_not_in_record`. On those, no checker label names anything, and asserting a mechanism
+    would be asserting about a call that never happened.
     """
     cells = _battery_cells()
     for (body, name, juris), _, decision in cells:
