@@ -9,3 +9,4 @@ dist/
 venv/
 .superpowers/
 .claude/settings.local.json
+.claude/worktrees/
