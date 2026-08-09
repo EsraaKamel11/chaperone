@@ -936,6 +936,23 @@ async def pre_tool_use_deny(input_data: dict, tool_use_id, context) -> dict:
 Match the predicate call signatures against `tools/policy_hook.py`'s decision block; it is the
 authority on order and arguments.
 
+**Two guards live outside the block Task 8 extracts, and the sketch above omits both. Adding them
+is this task's work, not Task 8's.** `policy_hook.main` checks for an absent `body` *before*
+building anything, and computes `unsendable_finding` over the keys outside `CONSUMED_KEYS` as its
+**first** finding, ahead of the three predicate groups. Task 8 moves only the builder, so the
+adapter does neither.
+
+The consequence if the sketch ships unchanged is a parity hole that Step 3's own tests are supposed
+to catch: a payload carrying an unconsumed key denies at the hook and allows at the callback, and a
+payload with no `body` raises `KeyError` inside an async hook rather than denying. Both directions
+are fail-open on the new surface.
+
+So this callback runs `unsendable_finding` first, over `{k: v for k, v in ... if k not in
+CONSUMED_KEYS}`, and denies on an absent `body` rather than building from it. `CONSUMED_KEYS` is
+importable from `policy/payload.py` precisely so the two layers cannot hold two lists. Write the
+absent-body case and the unconsumed-key case as parity tests in Step 3 alongside the others — the
+hole is invisible to a parity test that only ever sends well-formed payloads.
+
 - [ ] **Step 3: Extend the three-layer parity tests to the fourth surface**
 
 Find the existing parity tests in `tests/gates/test_hook.py` (`test_the_same_policy_denies_at
