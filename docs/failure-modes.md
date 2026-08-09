@@ -349,8 +349,10 @@ could pass is a separate field, `disposition`.
 
 ### C4. The enforcement layer that can be bypassed
 
-**Failure.** The permission decision sits in a `can_use_tool` callback, which `bypassPermissions` skips
-and a competing registration can shadow. The layer is present in the source and inert at runtime.
+**Failure.** The permission decision sits in a `can_use_tool` callback, which is consulted only where
+a prompt would otherwise have been, so anything approving the call earlier means it is never reached.
+The layer is present in the source and inert at runtime. [architecture.md](architecture.md) section 2
+names the three sources with their citations.
 
 **Mechanism.** A `PreToolUse` hook, out of process, plus an executor chokepoint that cannot be reached
 around because it performs the call.

@@ -37,7 +37,7 @@ pytest -q                 the full suite, offline and keyless
 python demo/day2.py       one draft, two lanes, opposite verdicts
 python demo/full.py       both scenes: the futile deflection, then the refinable redraft
 python tools/report.py    regenerates docs/RESULTS.md from the frozen artifacts
-python tools/static_audit.py   proves the policy layer imports no LLM client
+python tools/static_audit.py   an accidental impurity in the policy layer made impossible
 ```
 
 Roughly 3 lines of tests for every line of source under `src/chaperone/`. That ratio is the claim,
@@ -232,6 +232,14 @@ clock. If a predicate needs a value, the value arrives as an argument, which is 
 refuses the edit as you make it, `tools/static_audit.py` in CI, and
 `test_the_real_policy_package_is_pure`. An intention that is not enforced is a comment.
 
+**What the audit does not do, in its own words.** It is a denylist over a statically visible import
+graph and not a sandbox. Its docstring at `tools/static_audit.py:21-25` names `__import__("time")`,
+the builtin `open()`, a module nobody put on the denylist and a shadowing redefinition as things
+that pass it, and states the job as making an accidental violation impossible and a deliberate one
+conspicuous, **not proving that none exists.** An earlier version of this page said it proved one.
+Where a repository and its own documentation disagree, the more careful of the two should win, and
+here that was the tool.
+
 ---
 
 ## What a denial actually returns
@@ -259,6 +267,23 @@ otherwise will loop. Whether a *different* draft could pass is `disposition`, a 
 actual words. It is never the raw arguments, and the audit log records an `arg_digest` rather than the
 argument values, so the record proves what happened without becoming a second copy of the sensitive
 payload.
+
+**Where the denial goes, and exactly how far that goes.** A denied effectful call does not only
+return the shape above. `guarded_call` builds the escalation payload and appends it to the queue
+`destination_for` names, at the chokepoint, before it returns, so *redirected* is something that
+happens rather than something a field says. That is **in-process routing**, and its scope is stated
+here rather than left to be assumed, in the same four clauses `src/chaperone/gates/queues.py`
+carries in its module docstring. A queue is a list in memory living as long as the object its
+caller holds, which is enough for the thing claimed: the payload exists, it is in a named queue,
+and a reviewer surface reads it from there instead of rebuilding it from whatever the caller still
+has to hand. **The audit log proves a redirect happened**, because `Gateway.call` writes an intent
+and an outcome for every guarded call and a denied one carries the `redirected` outcome. **The
+queued payload is not reconstructible from that log**, because an entry carries the fact and a
+digest and never the text, so somebody holding the log and not the queue knows a redirect happened
+and cannot read what was redirected. And **durable delivery to an external inbox is out of scope**:
+there is no inbox, no ticket, no process boundary and no persistence, a `ReviewQueues` that goes
+out of scope takes its escalations with it, and connecting this to something a human actually
+watches is deployment work this repository has not done and does not claim.
 
 ---
 
@@ -291,6 +316,127 @@ no-SDK rule. Where the callback meets the out-of-process layer is a different fi
 `tests/gates/test_hook.py` runs the command hook and the callback over the same corpus payloads and
 compares verdict, category and detail on each row, across a corpus carrying allows as well as
 denials. Nothing in CI contacts a model.
+
+The two frameworks bind asymmetrically, and the asymmetry is the design. Pydantic AI binds at a
+seam this repository already owned, the Checker's transport parameter, so the framework is a
+replaceable implementation detail behind an interface the tests pin. The Agent SDK offers no
+such seam, because it is the runtime that drives the tools; enforcement placed inside it would
+live where a static import audit cannot follow. So the SDK's hook contract is implemented as
+this repository's own code: `src/chaperone/gates/sdk_callback.py` produces the HookJSONOutput
+deny shape as plain JSON and is exercised offline as the fourth decision surface in the same
+parity tests that pin the other three layers, while `demo/sdk_hook.py` confines the
+`claude_agent_sdk` import to wiring. The audit can read the gate; only the wiring needs the SDK.
+
+Why not attach the policy to the agent object as a framework guardrail instead? That comparison is
+answered in [docs/architecture.md](docs/architecture.md) section 2.2, provenance first, because it
+is the one thing on that page no test here can hold.
+
+---
+
+## The declared stack, and the nine surfaces that did not bind
+
+Nine hand-rolled surfaces were checked one by one against the exact APIs the declared stack offers,
+at the versions installed here: pydantic-ai 2.23.0, pydantic-evals 2.23.0, claude-agent-sdk 0.2.130.
+**Nothing bound**, and that is a result rather than the absence of one. Four surfaces have no
+framework equivalent at all. Four have one that implements a different thing, or that would move a
+decision written as readable code onto an agent object where an import audit cannot follow it, or
+that would produce a number that is wrong and looks fine. One is buildable today and is declined on
+this repository's own test-discipline ground rather than blocked by anything. The ledger, with every
+API, version and line citation, is
+[docs/superpowers/specs/2026-08-09-framework-audit.md](docs/superpowers/specs/2026-08-09-framework-audit.md).
+
+A keep nobody can explain is indistinguishable from a keep nobody examined, so here is each one.
+
+**The human-approval path.** Pydantic AI 2.23 ships a human-in-the-loop round trip: a tool marked
+`requires_approval`, a run ending in `DeferredToolRequests`, and resumption with explicit results.
+This repository does not use it, because it implements the other half of the word. That round trip
+resumes a paused call; a denial here is terminal by contract and nothing in the tree resumes one.
+What reaches the human is `Handoff` in `src/chaperone/gates/handoff.py`, self contained by design
+because the reviewer cannot see the conversation, with every field required so an escalation cannot
+arrive with the field the reviewer needs quietly empty. There is a second reason to keep the
+boundary outside the agent object, and it is the stronger one. On resume the library re-validates
+the tool call through the toolset chain, but the approval predicate itself is **skipped**, because
+it short-circuits once the call is approved (`pydantic_ai/toolsets/approval_required.py:29`); and
+`ToolApproved` carries an `override_args` field that is substituted into the call
+(`pydantic_ai/tool_manager.py:1096`) *before* that re-validation runs. So **what executes can differ
+from what a human approved.** A divergence between the object reviewed and the object executed is
+precisely what `unsendable_in` in `src/chaperone/policy/arguments.py` refuses at the chokepoint,
+which is why the boundary here is code at the chokepoint and not a value on an agent.
+
+**The adversary that drives the chokepoint.** Pydantic AI ships `TestModel` and `FunctionModel`, and
+this repository uses `FunctionModel` where a model double is what is wanted, in the binding's tests.
+`ScriptedRunner` in `src/chaperone/testing/scripted.py` is not a model double and could not be
+replaced by one: it drives attempted actions through the executor chokepoint, so what it proves is
+that the gate holds when something attempts the act, not that a model produced the attempt. Its own
+docstring enumerates which classes the committed suite reaches and states its bound, which is that
+it will never emit an input nobody wrote.
+
+**The replay transport.** Pydantic AI has no replay-from-artifact model, so `RecordedTransport` in
+`src/chaperone/testing/recorded.py` is hand rolled because there was nothing to bind to, not because
+a choice was made against the library. It is keyed by a digest over the assembled checker messages
+rather than by a corpus identifier, because a `Checker` transport takes one argument and a
+two-argument transport fails as a checker outage rather than as a loud error. It reads no file and
+decodes no recorded row of its own, and a test parses this module to hold that structurally. Since
+the key is a digest over what `build_checker_messages` emits, that function's signature is part of
+the replay contract, and it is **keyword-only**, `(*, draft, record)`. The change was made
+deliberately and is recorded here because `testing/recorded.py` is a replay surface external callers
+key against: a positional call that still type-checks after two arguments are swapped would produce
+a different digest and a silent miss rather than an error.
+
+**The refinement loop.** Pydantic AI has output validators that raise `ModelRetry` against a retry
+budget, and the split looks similar at first reading. It does not apply here. `ModelRetry` feeds a
+failure back inside one run, and the output that finally validates is then used. The refinement loop
+in `src/chaperone/gates/refine.py` transmits nothing: it returns a proposed body that rides to a
+human in the handoff beside the body that was blocked, and the original attempt stays terminal.
+**Nothing here self-corrects, and the refusal is the design.** A redraft that transmitted by itself
+after a permission failure would be an auto-retry of a permission failure, which is the thing this
+architecture exists to refuse.
+
+**The in-process hook layer.** `pre_tool_use` in `src/chaperone/gates/hook.py` implements no
+framework contract on purpose. It is the same predicate set behind a plain return value, and it is
+the only surface that enforces the full set, checker included, without being the thing that performs
+the call. The SDK-shaped surface is a different file, `src/chaperone/gates/sdk_callback.py`, and the
+reason both exist rather than one is the general form of the asymmetry above: expressing the deny as
+a callable registered on an agent object would leave the decision legible only to a runtime holding
+that framework rather than to anyone reading the code, which is a downgrade whichever framework
+offers it.
+
+**The capability ladder.** Neither Pydantic AI 2.23 nor the Agent SDK 0.2.130 models graded autonomy,
+so the ladder in `src/chaperone/gates/ladder.py` has no framework equivalent to bind to. That was
+confirmed by grep rather than assumed, and a reader re-running it should expect hits that are not
+ladders: `promote` and `demote` occur in both packages, on discriminated-union part promotion and on
+tool search. The ceilings here are declared rather than derived from the verb table, deliberately, so
+that adding a row cannot raise a ceiling by what looks like a documentation edit.
+
+**The audit trail.** Logfire and the OpenTelemetry instrumentation in Pydantic AI are observability:
+they record what happened, and they are trusted to the extent the collector is. The chain in
+`src/chaperone/audit/chain.py` answers a different question, which is whether the record was altered
+after the fact. Neither Pydantic AI 2.23 nor the Agent SDK 0.2.130 offers hash linking, tamper
+evidence or torn-tail detection, so this layer exceeds both rather than duplicating either. It stores
+an argument digest and never the arguments, because an audit log is not a place to accumulate
+personal data.
+
+**The matching metrics.** Pydantic Evals ships `ROCAUCEvaluator`, `PrecisionRecallEvaluator` and
+`ConfusionMatrixEvaluator` as report evaluators, and they are the right tools for a
+binary-classification dataset. The matching surface is a ranking dataset, and on one of those the
+first two are quietly **wrong** rather than merely redundant: with `positive_from='expected_output'`
+a case is scored positive when `bool(expected_output)` is true
+(`pydantic_evals/evaluators/report_common.py:55-56`), so every case with a non-empty gold list
+becomes a positive, the negative class disappears, and the curve renders without complaint.
+That is a stronger reason than duplication, and it is independent of the frozen-measurement rule
+that would have decided this row anyway. The metrics in `src/chaperone/matching/ablation.py` stay
+this repository's own, and every published number keeps the arithmetic it was measured with.
+
+**The library-enforced offline guarantee.** Pydantic AI can enforce offline testing globally by
+setting `ALLOW_MODEL_REQUESTS` to false (`pydantic_ai/models/__init__.py:1331`), which turns a model
+request into a loud refusal before any network call. This repository does not set it, and the reason is a judgement rather than an obstacle.
+The suite is offline and keyless because no test in it constructs a provider model at all, so the
+flag would guard a mistake this tree has already decided not to be able to make, and the property it
+adds belongs to the library rather than to anything written here. That is the same ground on which a
+generic model-stub test was rejected earlier in this project. It would be available to build: an
+injected mock transport gives a failing test that opens no socket. So it is declined rather than
+blocked, and it should be taken up the first time something else in the tree needs a provider model
+for its own reasons.
 
 ---
 
@@ -403,7 +549,17 @@ the word to move.
 ### The matching ablation, with both metrics
 
 The same argument on a second surface: hard eligibility exclusions against tuned weighted features,
-over one population of 100 synthetic candidates of which 60 are eligible, shortlist `k=10`. The hard
+over one population of 100 synthetic candidates of which 60 are eligible, shortlist `k=10`.
+
+**Both arms read the same signals, and one variable moves.** Every constraint the shipped ranker
+excludes on is priced in the baseline as a penalty on that same signal, and the shared predicates
+decide the same questions on both arms; `weighted_feature_arm` in
+`src/chaperone/matching/ablation.py` states that in its own docstring. What differs is what a
+mandate violation **costs**: membership in one arm, score in the other. The baseline was engineered
+to the standard of the arm it is compared with, because a rigged baseline turns an argument into a
+demo. And what comes out is a **trade** rather than a scalar win, shortlist contamination set
+against the recall that exclusion loses.
+ The hard
 arm surfaces 10 at **contamination 0.0** and **recall loss 0.0**; the weighted arm surfaces 10 at
 **contamination 0.1** and **recall loss 0.1**. Under 30% injected missingness at seed 7 the weighted
 arm goes to **0.5 and 0.5** while the hard arm stays at 0.0 and 0.0, because a blanked eligibility
@@ -525,7 +681,7 @@ unenforceable there rather than letting silence imply parity. Treat a re-attempt
 `counted_sends` deliberately does not use it, because it reports a number and drops the torn-tail
 flag. `Branch.COMPLETE` is a vocabulary entry `resume` never writes, since branch (a) is the case it
 does not visit. And `pre_tool_use` is the in-process hook layer, described in
-[docs/architecture.md](docs/architecture.md) as one of three enforcement points and called only from
+[docs/architecture.md](docs/architecture.md) as one of four decision surfaces and called only from
 `tests/`. None of these is a permissive path. All four are listed because a reader counting layers
 would otherwise count one that nothing drives.
 `test_the_ledger_of_uncalled_layers_matches_the_census_the_tree_supports` measures the census over
@@ -545,6 +701,32 @@ implemented by a session whose transcript is gone. A later session re-verified t
 reproduced the kill counts, and it correctly refused to re-attest RED runs it had not observed; its
 own report says so in a block quote at the top. So for that one task the claim is *the outcome
 reproduces*, not *the cycle was watched*, and this page does not say otherwise.
+
+**There is no live judging arm.** No test in this repository has ever contacted a model; there is no
+key-gated live judging arm, and every verdict any test consumes is a frozen recording. That is a
+different thing from the SDK demo's live lane, which is also unbuilt, and it is the far side of the
+gap the "Arm 1 is absent on purpose" note below describes: the first rung of the ladder has no
+honest verdict source here precisely because nothing here calls a model.
+
+**The log orders events; it does not date them or classify their failures.** Audit entries carry a
+sequence number and no wall-clock timestamp, and every tool failure is logged under the single word
+`error`. `AuditEntry` in `src/chaperone/audit/entry.py` is that shape, and the outcome vocabulary
+beside it names which writer emits each word and which consumer acts on it.
+
+**There is no persistent-state layer.** This artifact governs each outbound draft at the boundary,
+and nothing in it carries relationship state across sessions. A `ReviewQueues` lives as long as the
+object holding it, and the audit log is the only thing here that outlives a process.
+
+**The checker's stated confidence routes nothing.** It is measured for calibration and never
+consulted by the gate; no threshold on it routes, promotes, or auto-approves anything, by design.
+`src/chaperone/gates/engine.py` puts the number into a finding's detail text for a reviewer to read,
+and branches on the verdict alone.
+
+**pydantic-evals is an optional extra and is imported nowhere.** Every number in
+[docs/RESULTS.md](docs/RESULTS.md) was produced by the hand-rolled harness in
+`src/chaperone/evals/`, offline, from the frozen recordings. An adapter wrapping those frozen
+results as a library dataset is designed and was cut, so nothing on the published page derives from
+library arithmetic.
 
 ---
 

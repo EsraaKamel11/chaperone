@@ -1,9 +1,20 @@
 """Two enforcement layers over one predicate set, and the ordering that makes the second binding.
 
-`pre_tool_use` is the in-process framework hook; `guarded_call` is the executor chokepoint. A third
-lives out of process in `tools/policy_hook.py`, running the pure half of the same policy as a plain
-command hook. Design spec 6.3: the same policy at more than one layer is what shows the control is
-a property of the architecture rather than an artifact of one integration.
+`pre_tool_use` is a generic in-process hook layer; `guarded_call` is the executor chokepoint. Two
+more decision surfaces run the same predicate set outside this module: `tools/policy_hook.py` is
+the out-of-process command hook, and `gates/sdk_callback.py` is the in-process deny callback shaped
+to the Agent SDK's `HookJSONOutput` contract and importing no SDK. **Four surfaces, one predicate
+set** -- this docstring said three until the fourth had been shipped for two tasks, which is the
+direction documentation goes stale in. Design spec 6.3: the same policy at more than one layer is
+what shows the control is a property of the architecture rather than an artifact of one
+integration.
+
+**`pre_tool_use` implements no framework contract, and describing it as "the framework hook" was
+wrong.** It returns `HookOutcome`, the dataclass below, which is neither the SDK's `HookJSONOutput`
+shape nor a pydantic-ai toolset return: no framework defines it. What earns the layer its place is
+a discriminator no other surface holds, namely that it is the only one enforcing the full predicate
+set, checker included, without being the thing that performs the call. Neither hook-shaped layer
+can stand in for it, because neither can reach the model checker from the payload it is handed.
 
 **Design spec 4.1 is an ordering claim, and this is where it becomes observable.** The gate runs
 before the tool function is *looked up*, not merely before it is called: `execute` closes over
@@ -88,7 +99,11 @@ def _decide_for(
 
 
 def pre_tool_use(tool_name: str, args: dict, ctx: tuple[Draft, Record, ActContext, Checker]) -> HookOutcome:
-    """Hook layer. The runtime synthesizes the tool result; the reason content is ours."""
+    """Hook layer, in process and framework-shaped by nothing. The reason content is ours.
+
+    A caller decides what to do with `HookOutcome`; no runtime consumes this shape, because no
+    framework defines it. `gates/sdk_callback.py` is where a framework's own shape is produced.
+    """
     draft, record, context, checker = ctx
     decision = _decide_for(tool_name, args, draft, record, context, checker)
     if decision.allowed:

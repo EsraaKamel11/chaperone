@@ -55,36 +55,133 @@ one participant in that resolution rather than the final word. Two consequences 
 1. **A `PreToolUse` hook survives `bypassPermissions`.** A permission mode that skips the callback does
    not skip the hook. If the enforcement boundary is the thing that must not be optional, it cannot
    live in the layer designed to be configurable.
-2. **The callback can be shadowed.** When an environment variable or a competing registration takes
-   precedence, a `can_use_tool` implementation can be silently inert: still present in the source,
-   never consulted at runtime. An enforcement layer that fails silently is worse than one that is
-   absent, because the absent one is visible.
+2. **The callback is reached only where a prompt would otherwise have been, so anything that
+   approves the call earlier means it is never consulted.** That is the property, and it is stated
+   as a property rather than as a list of causes because the list is where the previous version of
+   this page went wrong. The SDK states the rule in its own voice at
+   `claude_agent_sdk/types.py:1932-1948`, where `can_use_tool` is documented as *not* invoked for
+   calls already permitted by `allowed_tools`, by `permission_mode` such as `bypassPermissions`, or
+   by `permissions.allow` rules in a settings file, "since those never reach a prompt". Three
+   sources, one property, and the same docstring adds the case that bears hardest here: a
+   `PreToolUse` hook returning an allow decision also skips the callback. A shadowed callback is
+   still present in the source and never consulted at runtime, and an enforcement layer that fails
+   silently is worse than one that is absent, because the absent one is visible.
+
+**What the SDK does about it, and the category error worth naming.** Two of those three sources are
+visible from the options object, so the SDK detects them and warns: `CanUseToolShadowedWarning`
+(`claude_agent_sdk/types.py:1671`, emitted at `:1759`) fires when a callback is set alongside
+`permission_mode="bypassPermissions"` or an `allowed_tools` entry that allows a whole tool. The
+third source is not visible there and the warning text says so, in the same breath as its
+recommendation: "Allow rules from settings files can also shadow the callback but are not visible
+here" (`:1727-1728`). That warning's docstring names the TypeScript SDK's process-warning code for
+the same condition, `CLAUDE_SDK_CAN_USE_TOOL_SHADOWED`, and **an earlier draft of this page had
+turned that code into an environment variable.** A warning code is not a configuration knob; the
+error is recorded here rather than merely corrected, so the guess cannot come back.
+
+**The SDK recommends this repository's choice, in its own words.** The `bypassPermissions` branch of
+that message ends: "To gate every tool call, use a PreToolUse hook instead" (`:1709`). The full
+resolution order lives in the permissions documentation and is cited to it rather than counted
+here, because a count copied out of documentation this repository does not vendor is a number
+nothing would notice going stale. What is checkable from the installed package is the property
+above, its three sources, and this sentence.
 
 A hook has the opposite failure signature. It is out of process, it is declared rather than injected,
 and when it is not running you notice.
 
-### 2.1 Three layers, and what each one actually enforces
+### 2.1 Four decision surfaces, and what each one actually enforces
 
-The same predicate set is enforced at three points, and
+The same predicate set is decided at four points, and
 `test_the_same_policy_denies_at_all_three_layers` holds that they agree, while
 `test_the_two_enforcement_layers_reach_the_same_verdict_and_the_same_category` holds that they agree on
-*which* class fired rather than merely on the outcome.
+*which* class fired rather than merely on the outcome. **Both names now say less than the tests do**,
+and both keep their names on purpose. Each drives the deny callback as well as the surfaces its name
+counts, and each says so where it does it: in its docstring for the first, in a comment at the
+assertion for the second. A name claiming less than the test delivers is the safe direction for a
+name to be wrong in, and renaming would move five citations across three pages to buy nothing a
+reader is misled by.
 
-| Layer | What it is | What it enforces |
+| Surface | What it is | What it enforces |
 |---|---|---|
-| Out-of-process hook | A `PreToolUse` hook, separate process | **The pure half only.** Act-classes and tripwires. |
-| In-process hook | `pre_tool_use` in `src/chaperone/gates/hook.py` | The full predicate set, including the checker. **Called from `tests/` and from nowhere else.** |
+| Out-of-process command hook | A `PreToolUse` hook in a separate process, `tools/policy_hook.py` | **The pure half only.** Act-classes and tripwires. |
+| In-process deny callback | `pre_tool_use_deny` in `src/chaperone/gates/sdk_callback.py`, which produces the Agent SDK deny shape as plain JSON and imports no SDK | **The pure half only**, built from the payload adapter the command hook shares. |
+| In-process hook layer | `pre_tool_use` in `src/chaperone/gates/hook.py`, which implements no framework contract | The full predicate set, including the checker. **Called from `tests/` and from nowhere else.** |
 | Executor chokepoint | `guarded_call` in the same module | The full set, bound to the reviewed draft. The path every send in this tree actually runs; `tools/perturbation_log.py` calls `decide` directly, and transmits nothing. |
 
-**The first row is the one that needs saying out loud.** An out-of-process hook cannot call the model
-checker, so it enforces a strict subset: everything decidable by a pure function, and nothing that
-requires a content-class judgement. Claiming "the same policy is enforced at three layers" without that
-qualifier would be the overclaim this repository is built to avoid, so the suite states the gap by
-name in `test_the_out_of_process_layer_enforces_a_strict_subset_and_names_the_gap`, and
+**The two hook-shaped rows are the ones that need saying out loud.** Neither the command hook nor
+the deny callback can call the model checker, because neither can reach one from the payload it is
+handed, so both enforce a strict subset: everything decidable by a pure function, and nothing that
+requires a content-class judgement. Claiming "the same policy is enforced at every surface" without
+that qualifier would be the overclaim this repository is built to avoid, so the suite states the gap
+by name in `test_the_out_of_process_layer_enforces_a_strict_subset_and_names_the_gap`, and
 `test_only_the_pure_layer_ports_out_of_process` holds that only the portable half ports.
 
-The ordering is what makes the last layer binding. Earlier layers can be bypassed by a caller who
+**What the third row earns, since a layer nothing outside the suite calls invites the question.**
+`pre_tool_use` is the only surface that enforces the full set, checker included, without being the
+thing that performs the call. Delete it and the set becomes two pure-half hooks plus the executor,
+at which point the portability claim weakens to *the pure half ports, and the full set exists only
+where execution happens*, and the ordering argument below loses the earlier layer it contrasts the
+chokepoint against.
+
+The ordering is what makes the last surface binding. Earlier surfaces can be bypassed by a caller who
 reaches the executor directly; the chokepoint cannot, because it is the thing that performs the call.
+
+### 2.2 The comparison that gets offered, and the half of it that survives
+
+**Provenance first, because this subsection is the one thing on this page no test here can hold.**
+pydantic-ai-harness 0.18.0 was read in a separate environment during 2026-08, from its source and
+its docstrings. It is not a dependency of this repository, nothing in this tree imports it, and no
+guard in the suite can check a sentence about it. Every claim below is made at that strength and no
+higher.
+
+The harness offers `ToolGuardrail`, a policy object carried on an agent and consulted around a tool
+call. Two things are withdrawn before anything is claimed. The first is the name: it is
+`ToolGuardrail`, not `ToolGuard`. The second is the substance: **its guard sees the tool arguments,
+including a draft body, so "it gates by tool name only" is withdrawn as false.** The same
+correction applies one package over, where it *is* checkable, so it is worth landing on the
+checkable one: core pydantic-ai's `approval_required_func` is typed
+`Callable[[RunContext, ToolDefinition, dict[str, Any]], bool]`
+(`pydantic_ai/toolsets/approval_required.py:22-24`) and receives the argument dict. Nothing here
+says these primitives act on tool definitions rather than on values, because the constructor
+refutes it.
+
+What survives is a different objection, and it is the one this repository is arranged around. **A
+guardrail is a value on the agent object.** A decision written as plain code is legible to a reader
+and to an AST import audit; a callable attached to an agent at runtime is legible only to a runtime
+holding the framework. The harness sharpens that itself, and this clause is carried from the
+separate reading rather than verified here: its three guardrail classes return `None` from
+`get_serialization_name()`, documented as excluding callable policy from a serialised agent spec.
+At that provenance it reads as exclusion by design rather than as an analysis difficulty. The
+argument does not rest on it in either case, because a callable on an object is invisible to an
+import audit whether or not the library also declines to serialise it.
+
+**And the block means a different thing.** The harness documents its `block` verdict as the
+graceful path: the refusal text becomes the tool result and the agent may try another approach.
+That is the right shape for a great many guards and the wrong one for this gate, where a denial is
+terminal and `is_retryable` is false on every denial without exception (section 4). Nothing about
+the harness forbids a terminal stop, and nothing here says a hard stop *has* to raise: an exception
+raised inside a guard propagates as it was raised, and the exception type a library offers for the
+purpose is a convention rather than a mechanism.
+
+**One boundary that is version-specific and layer-specific, so it cannot be stated flatly.** In
+pydantic-ai-harness 0.18.0 output tools bypass its tool-execution hooks. In core pydantic-ai 2.23
+the output toolset is joined into the combined toolset (`pydantic_ai/agent/__init__.py:2885`), so a
+wrapper at the toolset layer does see it. "Guardrails miss output tools" is a fact about one layer
+of one version and not about the idea.
+
+**Where each shape is right.** A guardrail is the right tool for in-process argument validation and
+workspace containment, where guard and agent are one deployment and a blocked call should become a
+better next attempt. The shape here is the point when the deny must be terminal, when the
+enforcement has to be provable by reading rather than by running, and when the gate must sit
+outside the object the model drives.
+
+**Crash behaviour, with the contract named each time, because the two fail in opposite
+directions.** A guard that raises inside pydantic-ai fails closed: the exception propagates and the
+call does not proceed. An out-of-process command hook fails **open**: only exit code 2 blocks and
+every other exit code is a non-blocking error the action continues through. That asymmetry is why
+`tools/policy_hook.py` turns every escape into a deliberate exit 2, and why
+`src/chaperone/gates/sdk_callback.py` catches `BaseException` and returns a deny. Both are
+constructions in this repository's own code, and neither is guaranteed by the contract it
+implements.
 
 ---
 
