@@ -987,7 +987,7 @@ def _shipped_call_sites(name: str) -> list[str]:
 def test_the_ledger_of_uncalled_layers_matches_the_census_the_tree_supports():
     """A defence-in-depth claim resting on a layer nothing calls.
 
-    `docs/architecture.md` lists `pre_tool_use` as one of three enforcement layers and both it and
+    `docs/architecture.md` lists `pre_tool_use` as one of four decision surfaces and both it and
     the README said `act:tool_outside_grant` is *enforced at both `pre_tool_use` and
     `guarded_call`*. `pre_tool_use` is referenced from `tests/` and from nowhere else, as are
     `LadderState.on_violation` and `verbs_for`, while the README disclosed only the promotion half.

@@ -404,8 +404,11 @@ offers it.
 **The capability ladder.** Neither Pydantic AI 2.23 nor the Agent SDK 0.2.130 models graded autonomy,
 so the ladder in `src/chaperone/gates/ladder.py` has no framework equivalent to bind to. That was
 confirmed by grep rather than assumed, and a reader re-running it should expect hits that are not
-ladders: `promote` and `demote` occur in both packages, on discriminated-union part promotion and on
-tool search. The ceilings here are declared rather than derived from the verb table, deliberately, so
+ladders. `promote` occurs in Pydantic AI only, and every occurrence there is discriminated-union
+part promotion through `narrow_type`, most of it in `pydantic_ai/messages.py`. `demote` occurs once
+across the three packages, at `pydantic_ai/models/__init__.py:606`, as an English word in a
+docstring about tool visibility. Neither word appears anywhere in the Agent SDK or in Pydantic
+Evals. The ceilings here are declared rather than derived from the verb table, deliberately, so
 that adding a row cannot raise a ceiling by what looks like a documentation edit.
 
 **The audit trail.** Logfire and the OpenTelemetry instrumentation in Pydantic AI are observability:
@@ -421,7 +424,7 @@ personal data.
 binary-classification dataset. The matching surface is a ranking dataset, and on one of those the
 first two are quietly **wrong** rather than merely redundant: with `positive_from='expected_output'`
 a case is scored positive when `bool(expected_output)` is true
-(`pydantic_evals/evaluators/report_common.py:55-56`), so every case with a non-empty gold list
+(`pydantic_evals/evaluators/report_common.py:54-55`), so every case with a non-empty gold list
 becomes a positive, the negative class disappears, and the curve renders without complaint.
 That is a stronger reason than duplication, and it is independent of the frozen-measurement rule
 that would have decided this row anyway. The metrics in `src/chaperone/matching/ablation.py` stay
@@ -559,11 +562,12 @@ mandate violation **costs**: membership in one arm, score in the other. The base
 to the standard of the arm it is compared with, because a rigged baseline turns an argument into a
 demo. And what comes out is a **trade** rather than a scalar win, shortlist contamination set
 against the recall that exclusion loses.
- The hard
-arm surfaces 10 at **contamination 0.0** and **recall loss 0.0**; the weighted arm surfaces 10 at
-**contamination 0.1** and **recall loss 0.1**. Under 30% injected missingness at seed 7 the weighted
-arm goes to **0.5 and 0.5** while the hard arm stays at 0.0 and 0.0, because a blanked eligibility
-axis routes a record to needs-verification rather than discounting it by a weight. The seed is stated
+
+The hard arm surfaces 10 at **contamination 0.0** and **recall loss 0.0**; the weighted arm surfaces
+10 at **contamination 0.1** and **recall loss 0.1**. Under 30% injected missingness at seed 7 the
+weighted arm goes to **0.5 and 0.5** while the hard arm stays at 0.0 and 0.0, because a blanked
+eligibility axis routes a record to needs-verification rather than discounting it by a weight. The
+seed is stated
 because a single draw is a single draw. What is held across draws is narrower than the trade and is
 worth naming exactly: `test_no_injected_draw_lets_the_hard_filter_arm_admit_an_ineligible_party`
 pins the hard arm's contamination at zero-or-absent over five seeds and four missingness rates. Both
