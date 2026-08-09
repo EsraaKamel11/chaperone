@@ -409,3 +409,64 @@ pass would hinge on the stub's filler values: a filler emitting `violates=True` 
 library internals with nothing in this repository having changed. No sentence naming a production
 change in this repository could be written for it, which is this project's own test for whether a
 test earns its place.
+
+## 10. Landed, 2026-08-10
+
+Written after the work rather than before it, from `git log` and from the tree at `081db45` on
+`feat/chaperone`. Baseline measured here rather than carried forward: `python -m pytest -q
+--deselect tests/test_mutations.py` exits 0 at 1,243 passing with no skips, `python
+tools/static_audit.py` exits 0, and `python tools/report.py` rewrites `docs/RESULTS.md` with no diff.
+
+| Task | Commit | What landed |
+|---|---|---|
+| 1, Step 0 | `9277ea6` | The three unbound dependencies moved to named optional extras at the verified floors. |
+| 2, G-core | `9c1d850` | `CONTENT_CLASS_PHRASES` beside the instruction constant, and `build_checker_messages` made keyword-only. |
+| 3 | `fc3c4be` | The shared unusable and span predicates, the span rule enforced in `Checker.check`, and the terminal escape above the bare except. |
+| 4 | `a85e2e7` | Section 1: `pydantic_ai_transport` in `src/chaperone/gates/binding.py`, feedback retry on the semantic rule, and the structural call budget. |
+| 5 | `021bdb0` | Section 1's claim: the README row reads Built in the same commit that entered the module in the registry. |
+| 6 | `2c05e62`, `14c1eb2` | Section 2's marker: `Decision.outage` set on the unavailable branch, `Handoff.detector_outage` required and copied by `build_handoff`. |
+| 7 | `013c399` | Section 2's destination: `ReviewQueues` keyword-only with no default, `destination_for` beside `disposition_for`, the handoff appended at the chokepoint. |
+| 8 | `1be0986` | B-core's adapter: the mapping extracted to `src/chaperone/policy/payload.py`, both derivation tests repointed to it. |
+| 9 | `8d62721` | B-core's callback: `src/chaperone/gates/sdk_callback.py` as the fourth decision surface, SDK-free, joined to the parity rule. |
+| 10 | `60a6ff4` | B-core's wiring and claim: `demo/sdk_hook.py` registers the callback with `setting_sources` empty. |
+| 11 | `d9e3959`, `d2480b1`, `341bae1` | The contract documentation and the Section 5 corrections, under a coverage-claim guard landed first: the two hook contracts named apart, the shadowing correction cited, the guardrail comparison provenanced. |
+| 12 | this section | The ledger. |
+| 13 | `2e5b500`, `081db45` | B-live: the `--live` lane, and the Limits paragraph that had denied it. |
+
+**A1 and A2 preceded the work they govern.** Both landed at `78f6f3e`, twenty minutes before Task 1
+and a day before Task 13.
+
+**A3 did not, and its own body records why.** It edits sections 0 and 1, and it landed at `b7d484d`
+after both tasks that had already shipped section 1: Task 4's factory at `a85e2e7` and Task 5's claim
+sentence at `021bdb0`, which the implementer had already cut narrower than the section it came from.
+A3 ratifies that cut. What it governs forward is every brief generated after it, which is why it
+edits the spec and plan bodies in place rather than appending: a brief is generated from the body,
+and an appendix cannot stop the body from re-seeding a struck claim.
+
+**The evals adapter was not built this week.** Section 4's reporting adapter was cut under A1, and
+its delta sentence ships in the README's Limits section instead. `pydantic-evals` stays an optional
+extra that nothing imports.
+
+**B-live ran once against a live model.** One session under `--live`, one drafting turn. The gate
+refused with `act:no_approval_token: tier 2 requires an approval token`, read from the transcript and
+not from configuration. Stated at its boundary: the act classes are evaluated ahead of the tripwires,
+so the run is a refusal of an unapproved, ungranted send and not a verdict on what the draft says,
+and no content class was reached. One of the three effects the plan specified is not satisfiable as
+written, and the lane says so: an in-process callback registers as a callback on the runtime that
+ran and emits no hook lifecycle event, so the refusal was read from the errored tool result paired to
+the attempt's own id, and the lane now reads both channels and prints which one carried it. Those
+assertions were watched holding against that transcript replayed offline, not inside a second live
+process.
+
+**The bind-or-keep audit ran before the documentation task, in that order deliberately.** `64cf877`,
+before Task 11's `d9e3959` and `d2480b1`: nine surfaces, no bind that cleared the bar, ledger at
+`docs/superpowers/specs/2026-08-09-framework-audit.md`.
+
+**A live lane for the checker binding was considered and declined.** The round that specified Task 4
+had already ruled against a demo lane for that binding, and the remaining budget closed the question
+again at Task 13; it is recorded here rather than half-landed.
+
+**Section 0's registry sentence describes a state the tree has left.** That paragraph is a record of
+what was verified before design and stays as written. Measured at `081db45`: `DESIGNED_VS_BUILT` in
+`tests/test_readme_claims.py` holds ten path-existence entries, and one of them is the Pydantic AI
+row, entered by Task 5 in the commit that flipped it.
