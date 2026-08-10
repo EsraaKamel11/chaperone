@@ -93,8 +93,11 @@ CHECKER_INSTRUCTIONS = (
 #: missing phrase reddens. **Not derived: the count.** The instruction's stated "three" and this
 #: map's len() are asserted as two separate literals in
 #: `test_checker_instructions_name_every_content_class_and_nothing_else`, and nothing compares one
-#: to the other; a fourth class reddens both of them, so the property is held by a pair of pins
-#: rather than by a comparison. Deriving it would mean composing a number back into a string that
+#: to the other, and **no single edit reddens both** -- measured. A fourth class with the map left
+#: alone reddens the key comparison and neither count pin; extending the map to answer that reddens
+#: the len() pin while the frozen instruction still says "three"; and an instruction that renamed
+#: its own count reddens the substring pin while len() stays 3. So the property is held by two pins
+#: facing opposite directions, never by one edit failing both. Deriving it would mean composing a number back into a string that
 #: is frozen, which is the one thing this map must not do: the constant is never recomposed from
 #: it, because the recorded verdicts were produced under its exact bytes.
 CONTENT_CLASS_PHRASES: Mapping[ViolationClass, str] = MappingProxyType({

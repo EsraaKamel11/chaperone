@@ -273,8 +273,11 @@ def failed_turns(messages: list[Any]) -> list[ResultMessage]:
     model the credential could not reach; the runtime reported that as an assistant message whose
     text was an API error, and closed with `subtype="success"` and `is_error=True` -- a subtype and
     a flag that disagree, so the subtype cannot be the thing read. Nothing was attempted, nothing
-    was entered and nothing came back, so three of the four effects below held while the turn had
-    not happened at all. Effects asserted over a turn that never reached the model are vacuous, and
+    was entered and nothing came back, so two of the four effects below held while the turn had
+    not happened at all: `entered == []` and no delivered result, each of which a turn nobody took
+    satisfies. (Counted rather than remembered. This said three, which double-counted "nothing was
+    attempted" as an effect that held -- `assert attempts` demands a non-empty list and fails on
+    exactly that turn, as does the refusal assertion.) Effects asserted over a turn that never reached the model are vacuous, and
     a lane that reported them as a refusal would be claiming a guard governed a call nobody made.
     """
     return [m for m in messages if isinstance(m, ResultMessage) and m.is_error]
@@ -320,7 +323,9 @@ def _print_transcript(messages: list[Any], entered: list[dict]) -> None:
 
 
 async def _run_live() -> None:
-    """One drafting turn, then the three effects asserted from the transcript it produced."""
+    """One drafting turn, then four effects asserted from the transcript, behind a fifth that guards
+    them: the runtime's own failure flag is read first, because an effect asserted over a turn that
+    never reached the model is vacuous rather than evidence."""
     entered: list[dict] = []
 
     @tool(SEND_TOOL, "Send the drafted message to the investor.", {"body": str})

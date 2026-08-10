@@ -195,7 +195,12 @@ run that is offline and keyless has no model to draft one with. What the run com
 proposal is then put through -- `refine` calls `decide` on the redrafted body, so the tripwires and
 the scripted checker both judge it again, and `stopped_for=resolved` is a verdict rather than a
 label. Scene 1's `PROPOSAL` is not that file's at all: it is `DEFLECTION` in
-`src/chaperone/gates/refine.py`, the fixed response every futile denial escalates with.
+`src/chaperone/gates/refine.py`, which `refine` returns as its `alternative` on the two branches
+where it stops futile. **Not what any escalation carries**, and the difference is the boundary
+`demo/full.py` states for itself: `guarded_call` queues the handoff at the moment of denial with
+`proposed_alternative=None`, and both scenes substitute the loop's product at the print. A denial
+that never reaches the loop never meets `DEFLECTION` at all, which is `demo/day2.py` -- the same
+futile class refused there, and no refinement loop in the file.
 
 Scene 1 spends **no** redraft round, and that is a decision rather than a shortfall.
 `content:advises_on_merits` is in `FUTILE_CLASSES`, so `disposition_for` marks the denial futile and
@@ -237,8 +242,9 @@ pages and every tracked source file under `src/`, `tools/` and `demo/`, collapse
 so a line break cannot hide a sentence, and fails when the phrase lands within 120 characters of a
 content-class name. The narrower version of this sentence, that the phrase appears on act-class rows
 and nowhere else, was false as written and one grep shows it: the phrase is in a dozen tracked files
-and this paragraph is one of them, the rest being every document that defines the term, restates the
-prohibition, or makes the act-class claim in prose rather than in a table row. The pairing is the
+and this paragraph is one of them, the rest being every file that defines the term, restates the
+prohibition, or makes the act-class claim in prose or in a comment rather than in a table row --
+three of the twelve are source and test files rather than pages. The pairing is the
 drift worth guarding, rather than the phrase, and the
 temptation it exists to resist is real: a detector that has never missed on your corpus feels like a
 guarantee, and writing it up as one is a single word's worth of drift.
@@ -758,8 +764,9 @@ because nothing under `tests/` calls a model.
 say "once".** No artifact in this tree records a live run: there is no captured transcript, and the
 suite could not check one if there were. What the tree does carry is what the runs taught the file,
 which is checkable and is the only part quoted here. `failed_turns` in `demo/sdk_hook.py` documents
-a first attempt that never reached a model, and exists because three of that lane's four effects
-held while the turn had not happened; `refusals_in_results` documents that the refusal arrived as
+a first attempt that never reached a model, and exists because two of that lane's four effects held
+while the turn had not happened at all -- nothing entered and nothing delivered, which a turn nobody
+took satisfies; `refusals_in_results` documents that the refusal arrived as
 the tool result rather than in the lifecycle events the brief expected. Two attempts are on the
 record in those docstrings, so "once" was the wrong number as well as the wrong kind of claim. Same
 standard as the Task 18 note above: *the outcome shaped the file*, not *the cycle was witnessed*.

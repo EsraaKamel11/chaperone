@@ -27,7 +27,9 @@ injected through `redraft=`; there is no model here to draft one with, and a dem
 would need one. What is *not* stipulated is the verdict on it: `refine` calls `decide` on the
 redrafted body, so the tripwires and the scripted checker both judge the proposal on its own terms
 and `stopped_for=resolved` is that judgement rather than a label. Scene 1 prints no redraft of this
-file's at all -- a futile denial escalates with `DEFLECTION`, in `gates/refine.py`.
+file's at all: `refine` returns `DEFLECTION`, from `gates/refine.py`, as its alternative when it
+stops futile, and the print below substitutes that over a queued payload carrying `None`. Neither
+scene *escalates* a proposal, which is the boundary two paragraphs down.
 
 What is computed is everything between them, and the sends go through `guarded_call`, the executor
 chokepoint, so each BLOCK is the category the gate returned rather than one printed alongside it.
