@@ -6,9 +6,10 @@ catches it after transmission, which is detection and not prevention, and demoti
 triggered by a verdict -- so a missed violation also misses its own demotion. The same residual,
 closed by the same ceiling.
 
-**Built here: the demotion transition, the per-surface verbs, and the ceiling.** Not built:
-promotion mechanics. `on_pass` exists as a state transition so the ceiling has something to clamp,
-and `test_nothing_under_src_wires_an_outcome_to_promotion` holds that nothing under `src/` calls it.
+**Built here: the demotion transition, the per-surface verbs, and the ceiling.** Not wired:
+promotion. The mechanics are built -- `on_pass` increments and returns the promoted state, so the
+ceiling has something to clamp -- and what is missing is a caller;
+`test_nothing_under_src_wires_an_outcome_to_promotion` holds that nothing under `src/` calls it.
 Production promotion is keyed to human-review outcomes on real cases, never to synthetic suite
 scores: an artifact that promoted itself to autonomous operation on the strength of its own evals
 would model exactly the judgment error it was built to argue against. `PROMOTION_THRESHOLD` is

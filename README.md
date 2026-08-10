@@ -236,9 +236,10 @@ two different epistemic situations, and collapsing them is the error the reposit
 pages and every tracked source file under `src/`, `tools/` and `demo/`, collapses whitespace first
 so a line break cannot hide a sentence, and fails when the phrase lands within 120 characters of a
 content-class name. The narrower version of this sentence, that the phrase appears on act-class rows
-and nowhere else, was false as written and is checkable in one grep: it is also in this paragraph,
-in `docs/failure-modes.md` where the term is defined, and in a handful of docstrings that make the
-act-class claim or restate the prohibition. The pairing is the drift worth guarding, and the
+and nowhere else, was false as written and one grep shows it: the phrase is in a dozen tracked files
+and this paragraph is one of them, the rest being every document that defines the term, restates the
+prohibition, or makes the act-class claim in prose rather than in a table row. The pairing is the
+drift worth guarding, rather than the phrase, and the
 temptation it exists to resist is real: a detector that has never missed on your corpus feels like a
 guarantee, and writing it up as one is a single word's worth of drift.
 
@@ -826,7 +827,7 @@ above it.
 primitive underneath it: `granted_tools` on `ActContext`, checked by a pure function that returns
 `act:tool_outside_grant` for any tool outside the grant, reached through `_decide_for`, which both
 `pre_tool_use` and `guarded_call` call. **The two are not two layers in the shipped tree.**
-`guarded_call` is the path every send **this process performs** runs through:
+`guarded_call` is the path every send **this repository's own code dispatches** runs through:
 `src/chaperone/testing/scripted.py`, `demo/day2.py` and `demo/full.py` all go through it. Not every
 call to `decide` -- `tools/perturbation_log.py` runs the predicate directly to tabulate what one
 broken input does, which transmits nothing. Nothing outside `tests/` calls `pre_tool_use` at all.
@@ -835,10 +836,12 @@ claim of defence in depth would be resting on a layer the suite is the only call
 arrangement, in which a drafting agent holds no send tool at all, is in
 [docs/architecture.md](docs/architecture.md) and is labelled there as designed.
 
-**There is a fourth send tool, it is not this process's to perform, and the sentence above is
-bounded that way on purpose.** Under `--live`, `demo/sdk_hook.py` registers a `send_message` tool
-that the SDK runtime calls, so `guarded_call` is not on its path and nothing about the chokepoint
-governs it. What stands in its way is `pre_tool_use_deny` alone, and that callback runs the four
+**There is a fourth send tool, no code here calls it, and the sentence above is bounded that way on
+purpose.** Under `--live`, `demo/sdk_hook.py` registers a `send_message` tool for the SDK runtime to
+invoke. Its body runs in this process -- that is exactly why `entered == []` is evidence there
+rather than an assumption -- but nothing in this repository dispatches it, so `guarded_call` is not
+on its path and the chokepoint governs none of it. The bound is about which code calls, never about
+which process runs. What stands in its way is `pre_tool_use_deny` alone, and that callback runs the four
 pure predicates directly: it reaches neither `_decide_for` nor the model checker, so it enforces a
 **strict subset** of what the chokepoint enforces and the identical-`_decide_for` argument above
 does not extend to it. It is the same subset `tools/policy_hook.py` enforces, named as such in
