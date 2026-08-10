@@ -315,8 +315,10 @@ control.
 **Failure.** The quality lane and the permission lane share a mechanism, so a high enough score becomes
 a permission. Usually arrives as an optimisation: the judge is already running, so why run a gate too.
 
-**Mechanism.** Two lanes, two implementations, no shared path. `demo/day2.py` exists to show them
-disagreeing on one draft.
+**Mechanism.** Two lanes, two implementations, no shared path. `demo/day2.py`'s default scene exists
+to show them disagreeing on one draft. Its `--live` lane runs the permission lane only, so the
+disagreement is a default-scene demonstration; the live lane demonstrates the gate in front of a
+real model instead.
 
 **Test.** The demo's `assert not entered`, run by CI as the `Day-2 demo` step.
 
@@ -601,8 +603,11 @@ contributes exactly zero, which is what isolates the tripwire half as the whole 
 not that it governed. The system can then ignore the verdict entirely and stay green.
 
 **Mechanism.** A repository rule: assert the property, not a proxy for it. Assert effects, never
-invocations. `demo/day2.py` asserts `not entered` against a recording registry rather than asserting
-that the gate was consulted.
+invocations. `demo/day2.py`'s default scene asserts `not entered` against a recording registry
+rather than asserting that the gate was consulted; its `--live` lane goes one step further for the
+same rule, asserting the registry against the decision (`entered` agrees with `decision.allowed`)
+and the assembled wire against `build_checker_messages`, so a non-empty wire is what proves the
+checker was reached at all.
 
 **Test.** `tests/test_no_empty_tests.py` catches the degenerate case of a test that asserts nothing at
 all.
@@ -615,8 +620,10 @@ discipline, and calling it more than that would itself be a proxy claim.
 **Failure.** A test reaches a live model, so the suite is slow, flaky, keyed, and measures the provider
 as much as the code.
 
-**Mechanism.** Everything runs offline and keyless through recorded transports. This is also what lets
-every arm be compared over identical verdicts rather than over independent samples.
+**Mechanism.** Every test runs offline and keyless through recorded transports. This is also what lets
+every arm be compared over identical verdicts rather than over independent samples. The two shipped
+live lanes (`demo/day2.py --live`, `demo/sdk_hook.py --live`) are flag-gated, spend money, and are
+run by no test and no CI step.
 
 **Test.** The suite runs with no credentials present.
 

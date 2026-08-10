@@ -202,6 +202,15 @@ threads context through cannot land quietly.
 A justification is written to persuade. A reviewer holding one is not a second opinion, it is the first
 opinion with extra steps.
 
+The checker reaches its model through a transport callable, and that seam is where the declared stack
+binds: `pydantic_ai_transport` in `src/chaperone/gates/binding.py` returns the callable `Checker`
+takes, converting the assembled messages for a pydantic-ai `Agent` while `build_checker_messages`
+stays the sole prompt assembler. The suite drives it with `FunctionModel`; `demo/day2.py --live`
+constructs it with a real model, which is the one shipped path where this section's independence
+properties are exercised against live output rather than a recording. Section 2.2 above discusses
+pydantic-ai's *guardrail* surface and rejects it for enforcement; the two are different uses of the
+same package, and rejecting one does not idle the other.
+
 ### 3.2 The cost and quality split
 
 The checker model must be at least as strong as the drafter, held by

@@ -284,6 +284,13 @@ is available today and is declined on A3's ground. It should be taken up when so
 tree first needs a provider model for its own reasons, because at that point the flag stops guarding
 a hypothetical and the A3 objection no longer applies.
 
+*Annotation, 2026-08-10.* That condition has since occurred: `demo/day2.py --live` constructs a
+provider model. The README's stack section records the decision taken then, which is to decline
+again on a narrower ground this row did not anticipate -- the flag is a per-process property, so
+setting it for the suite would leave the demo untouched, and the suite remains the half that
+constructs no provider model at all. This row stands as written; the trigger sentence above is the
+part events have overtaken.
+
 ---
 
 ## 2. Bind-now items

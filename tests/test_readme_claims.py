@@ -250,7 +250,7 @@ def zero_by_construction_beside_a_content_class(text: str) -> list[str]:
 
 
 #: Everything the rule applies to. `CLAUDE.md` says the phrase is forbidden outside act-classes
-#: "in code, comments, docstrings, or documentation", and the guard read the six reader-facing
+#: "in code, comments, docstrings, or documentation", and the guard read the reader-facing
 #: pages only -- so adding *"content:negotiates_terms is zero by construction"* to any docstring
 #: under `src/` broke the repository's one non-negotiable and broke no test. The phrase already
 #: appears in `src/chaperone/gates/engine.py` and `tools/coverage_map.py`, both correctly, and
@@ -299,7 +299,7 @@ def test_a_wrapped_claim_beside_a_content_class_is_detected():
 def test_zero_by_construction_is_never_claimed_beside_a_content_class(path: Path):
     """CLAUDE.md forbids the phrase outside act-classes, in code as much as in documentation.
 
-    Guarding the README alone would leave five of six reader-facing files unguarded, which is where
+    Guarding the README alone would leave every other reader-facing file unguarded, which is where
     the claim is most likely to drift: a docs page has room to explain, and explaining is where an
     act-class guarantee gets generalised into a sentence about the whole gate. Guarding the pages
     alone left every docstring in the tree unguarded, which is the other half of the same rule.

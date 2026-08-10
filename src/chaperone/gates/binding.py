@@ -2,7 +2,9 @@
 
 The recorded verdicts predate this module and were not re-run through it; no published rate was
 measured through it. Every test that drives it uses `FunctionModel`, which answers from a local
-function; nothing here contacts a network and no key is read.
+function, so the suite runs offline and reads no key. What contacts a network is a caller that
+constructs this transport with a provider model and its own credentials -- `demo/day2.py --live`
+is the one shipped example, and the suite never runs it.
 
 **One rule, enforced at two points, and only one of the two rules travels.** `unusable_reason` is a
 property of the verdict alone, so the output validator below can apply it and ask the model again

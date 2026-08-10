@@ -1,6 +1,13 @@
 # README and docs design
 
-**Design document. Status: designed, not written.** This spec governs `README.md`, four `docs/` pages,
+**Superseded, 2026-08-10.** This spec was executed on its date and the README it designed exists;
+the pages have since been maintained against the tree directly, and the tree has outgrown the spec.
+Its snapshot claims are now wrong in both directions -- section 8 mandates deleting
+`src/chaperone/matching/`, which was subsequently built and tested, and section 1.3's absent-list
+names five subsystems the tree now ships. Do not re-execute it. What remains live is section 7's
+acceptance idea, which grew into `tests/test_readme_claims.py`.
+
+**Design document. Original status: designed, not written.** This spec governs `README.md`, four `docs/` pages,
 and a new guard test. It **supersedes the README instructions in
 `docs/superpowers/plans/2026-08-05-chaperone.md` Task 26 Steps 1 and 2**, which mandate content the
 tree cannot back: the matching ablation, the "smallest production v1" framing, and a demo calling

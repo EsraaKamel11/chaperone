@@ -129,7 +129,8 @@ as **consistent with** the ceiling rather than as the argument for it.
 
 ## One draft, two lanes, opposite verdicts
 
-This is the argument in miniature. `demo/day2.py` runs the real path and prints:
+This is the argument in miniature. `demo/day2.py`, run with no arguments, runs the real path and
+prints:
 
 ```
 QUALITY LANE   -> PASS  grounding=0.94 fluency=0.91 fit=0.89
@@ -166,8 +167,20 @@ not run. And the exact printed text above is kept in step with the demo by a byt
 same test module. So a regression that let the send through fails both the suite and the build rather
 than printing a different number and exiting 0.
 
-Both transports are scripted, because the suite runs offline and keyless. The quality scores and the
-checker verdict are inputs to the script. What is computed is everything between them.
+In the default scene both transports are scripted, because the suite runs offline and keyless. The
+quality scores and the checker verdict are inputs to the script. What is computed is everything
+between them.
+
+The same file carries a second lane: `python demo/day2.py --live` swaps the scripted checker
+transport for `pydantic_ai_transport` from `src/chaperone/gates/binding.py` and puts the same gate,
+the same chokepoint and the same audit chain in front of a real model, with the model spec read from
+the environment. That lane asserts invariants only: an answer of the declared union arrived, prompt
+assembly stayed in `build_checker_messages`, and the send tool's registry agrees with the decision.
+What the model decided is printed, never asserted, because a live verdict is a probabilistic outcome
+and this repository's rule is that those are measured and reported, not asserted. The two live lanes
+are complementary by design: `demo/sdk_hook.py --live` demonstrates an act-class refusal, decided
+before the draft's wording is read; this one shows a content-class verdict on a body no tripwire
+matches, judged by a model. Neither is run by the suite or by CI.
 
 ### The second scene, which is the half that argues for the architecture
 
@@ -237,8 +250,9 @@ two different epistemic situations, and collapsing them is the error the reposit
 
 **The phrase "zero by construction" is never written beside a content class**, which is a rule in
 `CLAUDE.md` rather than a habit, and it is the rule a guard can actually hold.
-`test_zero_by_construction_is_never_claimed_beside_a_content_class` reads the six reader-facing
-pages and every tracked source file under `src/`, `tools/` and `demo/`, collapses whitespace first
+`test_zero_by_construction_is_never_claimed_beside_a_content_class` reads the eight reader-facing
+pages, this one and every markdown page under `docs/`, and every tracked source file under `src/`,
+`tools/` and `demo/`, collapses whitespace first
 so a line break cannot hide a sentence, and fails when the phrase lands within 120 characters of a
 content-class name. The narrower version of this sentence, that the phrase appears on act-class rows
 and nowhere else, was false as written and one grep shows it: the phrase is in a dozen tracked files
@@ -380,7 +394,9 @@ is the one thing on that page no test here can hold.
 
 Nine hand-rolled surfaces were checked one by one against the exact APIs the declared stack offers,
 at the versions installed here: pydantic-ai 2.23.0, pydantic-evals 2.23.0, claude-agent-sdk 0.2.130.
-**Nothing bound**, and that is a result rather than the absence of one. Four surfaces have no
+The checker's transport is not among the nine: it did bind, at `src/chaperone/gates/binding.py`, and
+the audit's ground rules close it as settled before the nine are counted. Of the nine,
+**nothing bound**, and that is a result rather than the absence of one. Four surfaces have no
 framework equivalent at all. Four have one that implements a different thing, or that would move a
 decision written as readable code onto an agent object where an import audit cannot follow it, or
 that would produce a number that is wrong and looks fine. One is buildable today and is declined on
@@ -877,7 +893,7 @@ git clone <this repo> && cd chaperone
 pip install -e ".[dev]"
 
 pytest -q                      # the full suite, offline, no API key required
-python demo/day2.py            # the two-lane demo above
+python demo/day2.py            # the quality-versus-permission demo above, scripted scene
 python demo/day2.py --live     # the same gate, checker answered by a real model; needs CHAPERONE_CHECKER_MODEL and credentials in the environment, and spends money
 python demo/full.py            # both scenes, futile then refinable
 python tools/report.py         # regenerates docs/RESULTS.md
@@ -888,8 +904,9 @@ python demo/sdk_hook.py --show-wiring    # the in-process registration, printed,
 python demo/sdk_hook.py --live           # one real turn; needs credentials in the environment, and spends money
 ```
 
-No network access is used by any test. Model transports are recorded and replayed, which is what makes
-the suite deterministic and what lets every arm be compared over identical verdicts.
+No network access is used by any test. Model transports in the suite are recorded and replayed, which
+is what makes it deterministic and what lets every arm be compared over identical verdicts. The two
+`--live` lines are the only commands above that leave the machine, and nothing runs either for you.
 
 ---
 
