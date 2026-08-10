@@ -8,8 +8,10 @@ holds the decision and deliberately imports no SDK, so the gate stays legible to
 has none; the import is confined here, to the wiring and to the run that fires it, which is the only
 part that actually needs a runtime.
 
-**`--show-wiring` stipulates nothing, because it calls nothing.** `demo/day2.py` and `demo/full.py`
-script their transports and say so in their own docstrings, because they run a draft past a checker.
+**`--show-wiring` stipulates nothing, because it calls nothing.** `demo/day2.py`'s default scene and
+`demo/full.py` script their transports and say so in their own docstrings, because they run a draft
+past a checker. Under `--live` the first of those answers its checker from a real model instead, and
+says that too.
 This lane starts no client, submits no draft and consults no model: it builds the options object a
 client would be constructed with and prints what got registered on it. So there is no scripted
 verdict to declare, and it connects nowhere.

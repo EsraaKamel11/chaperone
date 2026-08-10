@@ -971,13 +971,16 @@ def test_no_shipped_path_derives_a_send_count_and_hands_it_to_an_act_context():
 #: whose only caller is their own module and says nothing about a claim anyone made. These are the
 #: names the documents put weight on.
 #:
-#: **`pydantic_ai_transport` is entered because a reader-facing sentence rests on it.** The README's
-#: Pydantic AI row says nothing outside `tests/` constructs it, and until now that sentence was held
-#: by reading. Here it is measured, in both directions: the day anything under `src/`, `tools/` or
-#: `demo/` constructs the transport, the census flips and the disclosure has to come off the page in
-#: that same commit. `_shipped_call_sites` matches the name cleanly -- it is called by name and the
-#: name is unique -- unlike the `count` and `Branch.COMPLETE` cases the ledger guard below documents
-#: as excluded.
+#: **`pydantic_ai_transport` is entered because a reader-facing sentence rested on it, and the
+#: measurement has since moved.** The README's Pydantic AI row used to say nothing outside `tests/`
+#: constructed it, held by reading until this roster measured it. Then `demo/day2.py` grew a
+#: `--live` lane that constructs it, and the census flipped in exactly the direction described here:
+#: this assertion went red reading *now called ['pydantic_ai_transport']*, the name left
+#: `UNCALLED_IN_THE_SHIPPED_TREE`, and the disclosure came off the page in that same commit. It
+#: stays on the roster because the measurement runs in both directions and the other one is still
+#: live: delete that lane and the name has to come back here and the disclosure back onto the page.
+#: `_shipped_call_sites` matches the name cleanly -- it is called by name and the name is unique --
+#: unlike the `count` and `Branch.COMPLETE` cases the ledger guard below documents as excluded.
 #:
 #: **`pre_tool_use_deny` is deliberately not entered, and the reason is a measurement rather than a
 #: preference.** `_shipped_call_sites` does return `[]` for it, so it would measure uncalled and
@@ -1006,7 +1009,7 @@ ENFORCEMENT_ROSTER = (
 #: on the commit that gives it a caller.
 UNCALLED_IN_THE_SHIPPED_TREE = frozenset({
     "pre_tool_use", "on_pass", "on_violation", "verbs_for", "transmit", "resume",
-    "requires_approval_for", "pydantic_ai_transport",
+    "requires_approval_for",
 })
 
 

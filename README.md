@@ -482,7 +482,10 @@ adds belongs to the library rather than to anything written here. That is the sa
 generic model-stub test was rejected earlier in this project. It would be available to build: an
 injected mock transport gives a failing test that opens no socket. So it is declined rather than
 blocked, and it should be taken up the first time something else in the tree needs a provider model
-for its own reasons.
+for its own reasons. Something else now does: `demo/day2.py` builds one under `--live`. That did not
+change this decision, and the reason is the scope of what the flag would protect. It is a property
+of a process, so setting it for the suite would leave the demo alone anyway, and the suite is the
+half that still constructs no provider model at all.
 
 ---
 
@@ -754,16 +757,19 @@ reproduces*, not *the cycle was watched*, and this page does not say otherwise.
 
 **There is no live judging arm.** No test in this repository has ever contacted a model; there is no
 key-gated live judging arm, and every verdict any test consumes is a frozen recording. That is a
-different thing from the SDK demo's live lane, which is built and has been run by hand: it is a
-demo rather than a test, no test imports it, and neither the suite nor CI runs it, so no verdict any
-test consumes came from it either. It is the far side of the gap the "Arm 1 is absent on purpose"
-note below describes: the first rung of the ladder has no honest verdict source here precisely
-because nothing under `tests/` calls a model.
+different thing from the two demo lanes that do contact one, both flag-gated and both run by hand:
+the SDK demo's live lane in `demo/sdk_hook.py`, and the checker binding's live lane in
+`demo/day2.py`. Each is a demo rather than a test, no test imports either, and neither the suite nor
+CI runs either, so no verdict any test consumes came from them. It is the far side of the gap the
+"Arm 1 is absent on purpose" note below describes: the first rung of the ladder has no honest
+verdict source here precisely because nothing under `tests/` calls a model.
 
-**How many times that lane has been run is unverifiable rather than verified, and this page used to
-say "once".** No artifact in this tree records a live run: there is no captured transcript, and the
-suite could not check one if there were. What the tree does carry is what the runs taught the file,
-which is checkable and is the only part quoted here. `failed_turns` in `demo/sdk_hook.py` documents
+**How many times either lane has been run is unverifiable rather than verified, and this page used
+to say "once" of the SDK one.** No artifact in this tree records a live run of either: there is no
+captured transcript, and the suite could not check one if there were. What the tree does carry is
+what the runs taught each file, which is checkable and is the only part quoted here. The checker
+binding's lane carries `retries=0` and a body no tripwire matches, both written down in
+`demo/day2.py` and both readable without running anything. `failed_turns` in `demo/sdk_hook.py` documents
 a first attempt that never reached a model, and exists because two of that lane's four effects held
 while the turn had not happened at all -- nothing entered and nothing delivered, which a turn nobody
 took satisfies; `refusals_in_results` documents that the refusal arrived as
@@ -815,7 +821,7 @@ Everything on the right was verified absent from the tree, not assumed.
 | Four-agent topology and per-agent grants | **Designed, not built** |
 | Crash-recovery `resume` pass, branches (b) and (c) | **Built.** Nothing schedules it and nothing consults its approval gate yet. Branch (c) files no handoff: naming a recipient needs a resolver beside the log, which is undesigned. |
 | Thread-scope pass for cross-turn accumulation | **Designed, not built** |
-| Pydantic AI binding for the checker | **Built.** `pydantic_ai_transport` in `src/chaperone/gates/binding.py` returns the callable `Checker` takes as its transport, so the content-class checker can run through pydantic-ai; prompt assembly stays in `build_checker_messages`. Nothing outside `tests/` constructs it, and no demo runs through it. The 160 recorded verdicts predate the binding and were not re-run through it; the binding is exercised offline against FunctionModel, and no published rate was measured through it. |
+| Pydantic AI binding for the checker | **Built.** `pydantic_ai_transport` in `src/chaperone/gates/binding.py` returns the callable `Checker` takes as its transport, so the content-class checker can run through pydantic-ai; prompt assembly stays in `build_checker_messages`. `demo/day2.py` constructs it under `--live` and nothing else outside `tests/` does; that lane is a demo rather than a test, no test imports it, and neither the suite nor CI runs it. The 160 recorded verdicts predate the binding and were not re-run through it; the binding is exercised offline against FunctionModel, and no published rate was measured through it. |
 | Ladder promotion mechanics | **Built, and driven by nothing.** Not "designed, not built", which [docs/failure-modes.md](docs/failure-modes.md) defines as *specified and absent from this tree*: `PROMOTION_THRESHOLD` is 25 and `on_pass` increments and returns the promoted state, exercised by `tests/gates/test_ladder.py`. What is absent is a caller, and `test_nothing_under_src_wires_an_outcome_to_promotion` holds it absent. It would not be keyed to these numbers if it had one. See below. |
 | Active learning on the matching shortlist | **Designed, not built.** Routing needs-verification records to the reviewers whose answers move the most eligibility mass needs a review queue with outcomes in it, and there is none. |
 | Sliding-window rate limiting | **Designed, not built.** `act:send_cap_exceeded` is a cap over a total, not over a window. A window needs a clock, and `policy/` may not hold one, so it belongs beside the log with the count. |
@@ -872,6 +878,7 @@ pip install -e ".[dev]"
 
 pytest -q                      # the full suite, offline, no API key required
 python demo/day2.py            # the two-lane demo above
+python demo/day2.py --live     # the same gate, checker answered by a real model; needs CHAPERONE_CHECKER_MODEL and credentials in the environment, and spends money
 python demo/full.py            # both scenes, futile then refinable
 python tools/report.py         # regenerates docs/RESULTS.md
 python tools/static_audit.py   # the policy purity check that CI runs

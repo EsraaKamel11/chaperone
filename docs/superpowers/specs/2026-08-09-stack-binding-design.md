@@ -489,7 +489,12 @@ before Task 11's `d9e3959` and `d2480b1`: nine surfaces, no bind that cleared th
 
 **A live lane for the checker binding was considered and declined.** The round that specified Task 4
 had already ruled against a demo lane for that binding, and the remaining budget closed the question
-again at Task 13; it is recorded here rather than half-landed.
+again at Task 13; it is recorded here rather than half-landed. **A4 reversed that a day later and
+the lane landed**, as `demo/day2.py --live`; the paragraph stays because it is what this ledger
+recorded on its date, and A4's own body says why the reversal is not a change of mind about cost.
+That commit is where the census this section's last paragraph measures moved again:
+`pydantic_ai_transport` left `UNCALLED_IN_THE_SHIPPED_TREE` and the README's disclosure came off
+the page beside it.
 
 **Section 0's registry sentence describes a state the tree has left.** That paragraph is a record of
 what was verified before design and stays as written. Measured at `081db45`: `DESIGNED_VS_BUILT` in
