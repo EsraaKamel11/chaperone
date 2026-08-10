@@ -188,6 +188,15 @@ That is the second scene of the run, verbatim and byte for byte;
 `test_the_second_scene_pasted_in_the_readme_is_verbatim_from_a_fresh_run` holds it, so it is held to
 the same standard as the day-2 block above rather than to a weaker one.
 
+**The `PROPOSAL` line is a stipulated body, and the verdict on it is not.** The sentence above about
+scripted inputs is scoped to transports, and this is the other thing handed in: `REDRAFTED` is a
+constant written in `demo/full.py` and injected through `refine`'s `redraft=` callable, because a
+run that is offline and keyless has no model to draft one with. What the run computes is what the
+proposal is then put through -- `refine` calls `decide` on the redrafted body, so the tripwires and
+the scripted checker both judge it again, and `stopped_for=resolved` is a verdict rather than a
+label. Scene 1's `PROPOSAL` is not that file's at all: it is `DEFLECTION` in
+`src/chaperone/gates/refine.py`, the fixed response every futile denial escalates with.
+
 Scene 1 spends **no** redraft round, and that is a decision rather than a shortfall.
 `content:advises_on_merits` is in `FUTILE_CLASSES`, so `disposition_for` marks the denial futile and
 the loop returns immediately with a response that changes the task instead of one that changes the
@@ -221,9 +230,16 @@ two different epistemic situations, and collapsing them is the error the reposit
 | **What can be claimed** | **Zero by construction**, at the chokepoint, over the draft, the record and the `ActContext` the caller hands in. No model is consulted, so no confidence can lower the bar. That is a claim about the mechanism and it is exactly as true as those three inputs: for four of the five classes every field the predicate reads is set by the caller who already knows it, and for `act:send_cap_exceeded` the field is a count **no shipped path derives from the log and hands to an `ActContext`**, which the out-of-process hook's adapter, `src/chaperone/policy/payload.py`, defaults to 0 against a `send_cap` defaulting to 10,000. **That one class is live as a predicate and unfed as an input**, so its violation is not impossible in the shipped shape; see Limits. | **Measured, never guaranteed.** A rate, with its denominator. |
 | **Autonomy ceiling** | Deterministic gating, so higher tiers are defensible | Tier 2, per-message approval |
 
-The phrase "zero by construction" appears in this repository on act-class rows and nowhere else. That
-is a rule in `CLAUDE.md`, not a habit, and a test scans for violations of it. The temptation it exists
-to resist is real: a content-class detector that has never missed on your corpus feels like a
+**The phrase "zero by construction" is never written beside a content class**, which is a rule in
+`CLAUDE.md` rather than a habit, and it is the rule a guard can actually hold.
+`test_zero_by_construction_is_never_claimed_beside_a_content_class` reads the six reader-facing
+pages and every tracked source file under `src/`, `tools/` and `demo/`, collapses whitespace first
+so a line break cannot hide a sentence, and fails when the phrase lands within 120 characters of a
+content-class name. The narrower version of this sentence, that the phrase appears on act-class rows
+and nowhere else, was false as written and is checkable in one grep: it is also in this paragraph,
+in `docs/failure-modes.md` where the term is defined, and in a handful of docstrings that make the
+act-class claim or restate the prohibition. The pairing is the drift worth guarding, and the
+temptation it exists to resist is real: a detector that has never missed on your corpus feels like a
 guarantee, and writing it up as one is a single word's worth of drift.
 
 **The purity is enforced, not intended.** `src/chaperone/policy/` imports no LLM client, no I/O, and no
@@ -312,6 +328,19 @@ install, so **no test imports it and CI never runs it**: that is where this demo
 than the wiring. That the import is confined to this one file is measured rather than guarded, and
 the distinction is the same one the callback's own tests draw: it is the arrangement described here,
 not a property any test would fail on if a second file imported the SDK tomorrow.
+
+**The second lane connects, and what it can demonstrate is narrower than "the gate held".**
+`python demo/sdk_hook.py --live` runs one drafting turn against a real model and reads the result
+out of the transcript rather than off the options object: the tool it registers records into a list
+that must come back empty, the refusal is looked for in both channels the runtime could have put it
+in, and the runtime's own failure flag is checked first so that effects asserted over a turn that
+never happened cannot be reported as a refusal. What the lane refuses is an **act-class** send. The
+payload carries a body and nothing else, so it has no approval token, no consented jurisdiction and
+a namespaced tool identity outside the grant, and `evaluate_act_classes` runs before the tripwires:
+three act classes decide it before the draft's wording is read once. **Nothing that run prints is a
+verdict on what the draft says**, the demo's own docstring and its final printed line both say so,
+and the draft body there is deliberately plain so that a reader who runs it once cannot pair a
+refusal with a violation the content lane never reached.
 
 The decision is `src/chaperone/gates/sdk_callback.py`, which imports no SDK, so the gate is legible
 to static analysis rather than only to a runtime holding one. What holds it to that is a test and
@@ -522,7 +551,7 @@ look better, which is why the probe is published beside the ladder and labelled 
 
 **The whole of arm 3 to arm 4 is the act half.** The tripwire half fired on **1** of the 80 eval rows
 and moved neither rate, because the row it reached had already been blocked by the checker. It fired,
-and it changed nothing; those are different claims and only the second is true here. This corpus
+and it changed nothing; those are different claims and a document may only make the second. This corpus
 supplies no compliant near-miss inside the tripwires' reach, so the artifact **cannot measure** their
 false-block cost and the 0 of 30 is not evidence that the cost is zero. That limitation was written
 down in advance, so a flattering number cannot be read as a finding.
@@ -687,8 +716,11 @@ unenforceable there rather than letting silence imply parity. Treat a re-attempt
 
 **Four more things are built, reserved, and called from nowhere outside the suite.** `transmit` in
 `src/chaperone/audit/gateway.py` is the one send symbol, and its name is reserved package-wide by
-`tools/static_audit.py` so that nothing else can be called it; no shipped module calls it, and
-`guarded_call` reaches `Gateway.call` directly. `AuditStore.count` has no caller either, and
+`tools/static_audit.py`: any identifier or attribute of that name outside the gateway module fails
+the audit, so an unrelated `radio.transmit()` would fail CI too. The reservation is as strong as the
+import graph the audit can read and no stronger, on the terms the section above already quotes --
+the same docstring names `getattr(module, "transmit")` and a shadowing redefinition as spellings
+that pass. No shipped module calls it, and `guarded_call` reaches `Gateway.call` directly. `AuditStore.count` has no caller either, and
 `counted_sends` deliberately does not use it, because it reports a number and drops the torn-tail
 flag. `Branch.COMPLETE` is a vocabulary entry `resume` never writes, since branch (a) is the case it
 does not visit. And `pre_tool_use` is the in-process hook layer, described in
@@ -715,11 +747,21 @@ reproduces*, not *the cycle was watched*, and this page does not say otherwise.
 
 **There is no live judging arm.** No test in this repository has ever contacted a model; there is no
 key-gated live judging arm, and every verdict any test consumes is a frozen recording. That is a
-different thing from the SDK demo's live lane, which is built and has been run once by hand: it is a
+different thing from the SDK demo's live lane, which is built and has been run by hand: it is a
 demo rather than a test, no test imports it, and neither the suite nor CI runs it, so no verdict any
 test consumes came from it either. It is the far side of the gap the "Arm 1 is absent on purpose"
 note below describes: the first rung of the ladder has no honest verdict source here precisely
 because nothing under `tests/` calls a model.
+
+**How many times that lane has been run is unverifiable rather than verified, and this page used to
+say "once".** No artifact in this tree records a live run: there is no captured transcript, and the
+suite could not check one if there were. What the tree does carry is what the runs taught the file,
+which is checkable and is the only part quoted here. `failed_turns` in `demo/sdk_hook.py` documents
+a first attempt that never reached a model, and exists because three of that lane's four effects
+held while the turn had not happened; `refusals_in_results` documents that the refusal arrived as
+the tool result rather than in the lifecycle events the brief expected. Two attempts are on the
+record in those docstrings, so "once" was the wrong number as well as the wrong kind of claim. Same
+standard as the Task 18 note above: *the outcome shaped the file*, not *the cycle was witnessed*.
 
 **The log orders events; it does not date them or classify their failures.** Audit entries carry a
 sequence number and no wall-clock timestamp, and every tool failure is logged under the single word
@@ -766,7 +808,7 @@ Everything on the right was verified absent from the tree, not assumed.
 | Crash-recovery `resume` pass, branches (b) and (c) | **Built.** Nothing schedules it and nothing consults its approval gate yet. Branch (c) files no handoff: naming a recipient needs a resolver beside the log, which is undesigned. |
 | Thread-scope pass for cross-turn accumulation | **Designed, not built** |
 | Pydantic AI binding for the checker | **Built.** `pydantic_ai_transport` in `src/chaperone/gates/binding.py` returns the callable `Checker` takes as its transport, so the content-class checker can run through pydantic-ai; prompt assembly stays in `build_checker_messages`. Nothing outside `tests/` constructs it, and no demo runs through it. The 160 recorded verdicts predate the binding and were not re-run through it; the binding is exercised offline against FunctionModel, and no published rate was measured through it. |
-| Ladder promotion mechanics | **Designed, not built.** `on_pass` is a state transition with no caller, and it would not be keyed to these numbers. See below. |
+| Ladder promotion mechanics | **Built, and driven by nothing.** Not "designed, not built", which [docs/failure-modes.md](docs/failure-modes.md) defines as *specified and absent from this tree*: `PROMOTION_THRESHOLD` is 25 and `on_pass` increments and returns the promoted state, exercised by `tests/gates/test_ladder.py`. What is absent is a caller, and `test_nothing_under_src_wires_an_outcome_to_promotion` holds it absent. It would not be keyed to these numbers if it had one. See below. |
 | Active learning on the matching shortlist | **Designed, not built.** Routing needs-verification records to the reviewers whose answers move the most eligibility mass needs a review queue with outcomes in it, and there is none. |
 | Sliding-window rate limiting | **Designed, not built.** `act:send_cap_exceeded` is a cap over a total, not over a window. A window needs a clock, and `policy/` may not hold one, so it belongs beside the log with the count. |
 | An external server publishing policy as a first-class resource | **Designed, not built.** `read_policy` exists as a linted tool description with no implementation behind it; serving the constraint set to other agents needs a versioned resource and a story for what a stale copy means, and neither is written. |
@@ -804,7 +846,8 @@ does not extend to it. It is the same subset `tools/policy_hook.py` enforces, na
 its arguments and returns a fixed string, so no message leaves that lane either; what a live run
 measures is whether the callback refused, never whether something was delivered.
 
-**Promotion is not built, and would not be keyed to these numbers if it were.** Production promotion
+**Promotion is unwired rather than unbuilt, and would not be keyed to these numbers if it were
+driven.** The transition exists so the tier-2 ceiling has something to clamp. Production promotion
 belongs to human-review outcomes on real cases, never to synthetic suite scores. An artifact that
 promoted itself to autonomous operation on the strength of its own evals would model precisely the
 judgment error it was built to argue against.

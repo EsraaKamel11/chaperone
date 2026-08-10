@@ -379,7 +379,9 @@ def predictions_section(
 #:
 #: "The tripwire half is inert on this corpus" is the sentence this measurement exists to refuse.
 #: The tripwires do fire; what they did not do is move a rate, because the rows they reached were
-#: already blocked by the checker. Those are different claims and only the second is true.
+#: already blocked by the checker. Those are different claims and a document may only make the
+#: second -- the wording this comment used to carry, "only the second is true", denied the firing
+#: the sentence beneath it asserts and the count beside it measures.
 def deterministic_layer_section(items, labels, act: Ladder) -> list[str]:
     """How many eval rows each half of arm 4's deterministic layer reached.
 

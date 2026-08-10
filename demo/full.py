@@ -20,6 +20,15 @@ thing this architecture exists to refuse, and it is the shape that looks most li
 offline and keyless, so the quality scores and the checker's verdicts are inputs to this script
 rather than model outputs. Scene 2's transport is keyed on the draft body, which is what a recorded
 transport is: it answers the violating body with a violation and the redraft with a clean verdict.
+
+**`REDRAFTED` is stipulated too, and it is not a transport**, which is worth saying because it is the
+most persuasive line this file prints. The proposal scene 2 shows is a constant written below and
+injected through `redraft=`; there is no model here to draft one with, and a demo that generated it
+would need one. What is *not* stipulated is the verdict on it: `refine` calls `decide` on the
+redrafted body, so the tripwires and the scripted checker both judge the proposal on its own terms
+and `stopped_for=resolved` is that judgement rather than a label. Scene 1 prints no redraft of this
+file's at all -- a futile denial escalates with `DEFLECTION`, in `gates/refine.py`.
+
 What is computed is everything between them, and the sends go through `guarded_call`, the executor
 chokepoint, so each BLOCK is the category the gate returned rather than one printed alongside it.
 
