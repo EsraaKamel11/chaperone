@@ -46,7 +46,7 @@ authorization.
 
 ---
 
-## 2. The published contract
+## 2. The contract to publish
 
 Today `src/chaperone/__init__.py` is empty, as are all six subpackage inits, and the package declares
 no `__all__` anywhere. Every consumer import is therefore a submodule path discovered by reading
@@ -70,8 +70,8 @@ nothing. This section states what the package should publish. Section 8 records 
 `policy.tripwires`; `unsendable_in` and `unsendable_finding` from `policy.arguments`.
 
 **`ActContext` is defined in `act_classes`, not `types`.** A consumer guesses `types` because
-`act_classes` imports four of the six `types` names handled alongside it. The publication in section 8
-removes the guess.
+`act_classes` imports four of the eight names `types` defines, and handles them alongside it. The
+publication in section 8 removes the guess.
 
 **`Message` is not optional to know.** `Draft.thread` is `tuple[Message, ...]`, so a consumer without
 `Message` cannot construct the first argument to anything.
@@ -80,6 +80,9 @@ removes the guess.
 `Disposition` three, `Family` three.
 
 ### 2.3 The checker seam
+
+All of the following live in `gates.checker`: `Checker`, `MODEL_STRENGTH`, `assert_checker_not_weaker`,
+`CheckerResult`, `Verdict`, `FlagForReview`, `CheckerUnavailable`.
 
 `Checker` is a plain concrete class, not an abstract base and not a protocol. A consumer constructs
 it and supplies a transport; it does not implement it.
@@ -95,8 +98,9 @@ The transport is the seam, and it has no published type name today, so a contrac
 transport seam" names a hole and no way to fill it. Publishing `CheckerResult` gives the callable's
 return type a name a consumer can annotate against. `Verdict`, `FlagForReview` and
 `CheckerUnavailable` complete it: the first two are what a transport returns, the third is what a
-consumer catches. `CheckerResult` is a type alias, not a class, and cannot be used with `isinstance`
-directly.
+consumer catches. `CheckerResult` is a type alias, not a class. On the Python versions this package supports today it
+cannot be used with `isinstance` directly; a consumer that needs a runtime check tests against the two
+members.
 
 ### 2.4 Audit
 
@@ -110,24 +114,43 @@ eleven fields. A contract listing the store and the chain but not the entry is t
 meets on its first verification.
 
 `transmit` is a special case: it is public, and `tools/static_audit.py` fails the build if any module
-other than `audit/gateway.py` references it. It is published as the reserved send symbol, not as a
-call site.
+**in the shipped package** other than `audit/gateway.py` references it. That audit is rooted at
+`src/chaperone` and walks no further, so the suite references it freely. It is published as the
+reserved send symbol, not as a call site.
 
 ### 2.5 Routing and escalation
 
 `ReviewQueues` from `gates.queues`; `Handoff` and `build_handoff` from `gates.handoff`; `decide`,
 `denial_result`, `disposition_for`, `destination_for` from `gates.engine`.
 
-### 2.6 Matching
+### 2.6 The payload adapter
+
+`build_act_inputs`, `CONSUMED_KEYS`, `UNENFORCEABLE_HERE`, `CONSENTED` and `GRANTED` from
+`policy.payload`.
+
+Section 4 tells a consumer how to read `UNENFORCEABLE_HERE`, so the contract must publish it rather
+than leave it to be found. The module anticipates further layers building their inputs through it,
+and each inherits obligations the adapter does not discharge: it validates nothing, an absent `body`
+raises, and a key outside `CONSUMED_KEYS` is checked as outbound content rather than ignored. A layer
+that skips those guards fails open in a way the adapter cannot see.
+
+If a consumer would rather not take that on, `pre_tool_use_deny` is the supported payload-shaped
+surface and performs those guards itself.
+
+### 2.7 Matching
 
 `Mandate`, `Candidate`, `Eligibility`, `classify` from `matching.filters`; `relationship_score` from
 `matching.relationship`; `rank` from `matching.rank`.
 
-### 2.7 What a consumer must construct
+### 2.8 What a consumer must construct
 
 `guarded_call` requires a `Gateway` (which requires an `AuditStore`, which mkdirs its parent at
-construction), a tool registry whose values are callables accepting the argument dict, a `Checker`
-with a transport, and a `ReviewQueues`. None of these are optional and none has a default.
+construction), a tool registry, a `Checker` with a transport, and a `ReviewQueues`. None of these are
+optional and none has a default.
+
+**The registry's values are called as `registry[tool_name](**args)`.** A tool must therefore accept
+the argument keys as keyword parameters. A callable written to take a single dict raises `TypeError`
+at the chokepoint, and the annotation does not say so.
 
 ---
 
@@ -140,7 +163,15 @@ and none of them ships. **A consumer inherits the properties, not the enforcemen
 consumer needs held in its own tree, it holds itself.
 
 `chaperone/evals/` and `chaperone/testing/` **do** travel, because they sit under `src/chaperone`.
-Section 8 records why that is currently a defect rather than a feature.
+
+`testing/` is accident rather than contract, and this specification does not publish it. It holds the
+recorded and scripted transports this repository's own suite drives, and a consumer will find them in
+the wheel and reasonably want to build tests on them. They are outside the contract, they may change
+without notice, and a consumer that wants a replaying transport should write its own against the seam
+in section 2.3, which is small and is the supported surface.
+
+`evals/` travels for the same structural reason and is a defect rather than a choice. Section 8
+records it.
 
 Runtime dependencies are `pydantic>=2.7` and `pydantic-ai>=2.23`. Optional extras are `evals`
 (`pydantic-evals`), `sdk` (`claude-agent-sdk`) and `dev` (`pytest`, `hypothesis`). Measured by
@@ -194,7 +225,16 @@ repository's construction on top of that contract, not a property of it.
 
 ### 5.1 Held by discipline, not by mechanism
 
-A specification of record earns its name here rather than in the table above.
+A specification of record earns its name here rather than in the table above. **This is a selection,
+not the whole set.** The criterion is what a program importing this boundary would be wrong to
+assume; parochial items that bind only this repository's own workflow are left to the source that
+records them.
+
+- **The checker prompt interpolates its inputs raw.** `build_checker_messages` selects which fields
+  reach the prompt and is held to that selection in both directions, but thread roles, thread bodies
+  and the draft body are copied in unescaped. **A consumer that puts untrusted counterparty text into
+  `Draft.thread` is holding a prompt-injection boundary by discipline**, and nothing in this library
+  holds it for them. Whoever assembles a `Draft` owns that line.
 
 - **There is no timeout anywhere.** Fail-closed on an unusable checker does not cover a hang. Both
   modules say so and say that no test holds either half. A consumer that needs a bound supplies it in
@@ -228,9 +268,11 @@ Three arithmetic rules are themselves enforced: a rate over an empty denominator
 than zero, a calibration cell refuses a sample size below one, and every table publishing a rate
 publishes its denominator.
 
-**Only two rates are ever asserted, and both because they are invariants**: act-class escapes are zero,
-and the arm ordering is monotone over frozen replays. Every other number is reported and never
-asserted. That rule is what keeps a measurement from quietly becoming a gate.
+**A rate is asserted only where it is an invariant of the construction rather than a finding.** Four
+are: act-class escapes are zero; the escape-rate ordering across arms is monotone over frozen
+replays; the false-block ordering between the last two arms is structural rather than predicted; and
+the reference arm's escape rate is one, because that arm has no detector. Every other number is
+reported and never asserted. That rule is what keeps a measurement from quietly becoming a gate.
 
 ---
 
@@ -245,7 +287,11 @@ These are limits of the boundary, not of the corpus.
 - The double-send guard is built and unarmed: nothing schedules the resume pass, nothing consults the
   approval-requirement predicate, and no shipped path feeds a log-derived count into an `ActContext`.
   The cap's payload input defaults permissively.
-- Four symbols are built and called from nowhere outside the suite.
+- Symbols are built and called from nowhere outside the suite. How many is a question for the census
+  in `tests/test_readme_claims.py` and not for this sentence, which is why no number appears here:
+  the census measures call sites by name and cannot see two of the symbols the README enumerates.
+  Among the uncalled is `pre_tool_use`, which section 2.1 publishes: a contract name with no shipped
+  caller.
 - No cross-turn breach is demonstrated caught. Per-draft statelessness **is** held; what is absent is
   the thread-scope pass.
 - The checker's stated confidence routes nothing. No threshold promotes or auto-approves.
