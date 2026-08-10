@@ -1155,7 +1155,7 @@ classes as driving the binding's tests when only one of them existed anywhere in
 It reached the README's guarded surface, and the full suite stayed green. Read A3 for the incident;
 it is deliberately not restated here, for a reason this step returns to below.
 
-Build the dual of `ABSENCE_CLAIM` (`tests/test_readme_claims.py:1297`), following that guard's
+Build the dual of `ABSENCE_CLAIM` (in `tests/test_readme_claims.py`), following that guard's
 construction exactly: a verb-scoped regex capturing the symbol, checked against the tree, plus a
 planted-case killer proving the regex still locates what it claims to.
 

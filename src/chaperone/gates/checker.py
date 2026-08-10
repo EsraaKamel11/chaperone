@@ -86,11 +86,17 @@ CHECKER_INSTRUCTIONS = (
 )
 
 
-#: Hand-chosen verbatim substrings of CHECKER_INSTRUCTIONS, one per content class. Coverage is
-#: derived by test: keys equal the Family.CONTENT members both directions, each phrase appears
-#: in the instruction text, and the instruction's stated count equals len() of this map. The
-#: constant is never recomposed from this map: the recorded verdicts were produced under its
-#: exact bytes.
+#: Hand-chosen verbatim substrings of CHECKER_INSTRUCTIONS, one per content class. Two derivations
+#: and one pinned pair, which is worth separating because "derived" was claimed for all three.
+#: Derived: the keys are compared against the Family.CONTENT members in both directions, and each
+#: phrase is required to appear in the instruction text -- add a class and either the key set or a
+#: missing phrase reddens. **Not derived: the count.** The instruction's stated "three" and this
+#: map's len() are asserted as two separate literals in
+#: `test_checker_instructions_name_every_content_class_and_nothing_else`, and nothing compares one
+#: to the other; a fourth class reddens both of them, so the property is held by a pair of pins
+#: rather than by a comparison. Deriving it would mean composing a number back into a string that
+#: is frozen, which is the one thing this map must not do: the constant is never recomposed from
+#: it, because the recorded verdicts were produced under its exact bytes.
 CONTENT_CLASS_PHRASES: Mapping[ViolationClass, str] = MappingProxyType({
     ViolationClass.ADVISES_ON_MERITS: "advising on the merits",
     ViolationClass.NEGOTIATES_TERMS: "negotiating terms",

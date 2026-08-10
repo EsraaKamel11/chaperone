@@ -1074,10 +1074,12 @@ def test_the_ledger_sentence_claims_only_the_coverage_the_roster_actually_gives(
     The paragraph names four things called from nowhere outside the suite -- `transmit`,
     `AuditStore.count`, `Branch.COMPLETE`, `pre_tool_use` -- and said
     `test_the_ledger_of_uncalled_layers_matches_the_census_the_tree_supports` *measures the census
-    and fails when this paragraph and the tree disagree in either direction*. `ENFORCEMENT_ROSTER`
-    holds ten names and neither `count` nor `COMPLETE` is among them. Give `AuditStore.count` a
-    shipped caller, or make `resume` write `Branch.COMPLETE`, and the paragraph goes false with the
-    suite green.
+    and fails when this paragraph and the tree disagree in either direction*. Neither `count` nor
+    `COMPLETE` is in `ENFORCEMENT_ROSTER`, so two of the four are outside what that test measures.
+    Give `AuditStore.count` a shipped caller, or make `resume` write `Branch.COMPLETE`, and the
+    paragraph goes false with the suite green. (This sentence used to give the roster's size as a
+    number, and the number went stale on the commit that added `pydantic_ai_transport` to it. The
+    count was never the argument -- the two absences are -- so it is gone rather than corrected.)
 
     The roster is not extended, and the reason is a measurement rather than a preference: the census
     is built from `_shipped_call_sites`, which matches callees by name. `Branch.COMPLETE` is an

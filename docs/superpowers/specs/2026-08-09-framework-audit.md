@@ -140,16 +140,18 @@ Four decision surfaces exist over one predicate set:
 **Are all four earned? Yes, and the one worth testing is `pre_tool_use`.** It has the profile of a
 layer that exists to be tested: it implements no framework contract, and `gates/hook.py` defines it
 without calling it, so every call site is under `tests/` (`tests/gates/test_hook.py`, with the name
-also carried in the registries at `tests/test_readme_claims.py:937,945,1002`). The tree already
-discloses this at `docs/architecture.md:76` ("Called from `tests/` and from nowhere else") and holds
-it by test at `tests/test_readme_claims.py:967-969`. What earns it is the discriminator in the
+also carried in the `ENFORCEMENT_ROSTER`, `UNCALLED_IN_THE_SHIPPED_TREE` and `LEDGER_SUBJECTS`
+registries of `tests/test_readme_claims.py`). The tree already discloses this in the in-process
+hook-layer row of `docs/architecture.md` section 2.1 ("Called from `tests/` and from nowhere else")
+and holds it by test in
+`test_the_ledger_of_uncalled_layers_matches_the_census_the_tree_supports`. What earns it is the discriminator in the
 same table row: **it is the only layer that enforces the full predicate set, checker included,
 without being the thing that performs the call.** The two hook-shaped layers that could stand in for
 it cannot: `tools/policy_hook.py` and `gates/sdk_callback.py` both enforce the pure half only, because
 neither can call the model checker from the payload it is handed. Delete `pre_tool_use` and the layer
 set becomes two pure-half hooks plus the executor, at which point the portability claim weakens to
 "the pure half ports, and the full set exists only where execution happens", and the ordering argument
-at `docs/architecture.md:86-87` loses the earlier layer it contrasts the chokepoint against. So the
+that closes `docs/architecture.md` section 2.1 loses the earlier layer it contrasts the chokepoint against. So the
 layer is principled, not incidental. Its **return shape** is the incidental part, and that is finding 2.
 
 Two findings, both recorded, neither fixed here (this audit writes no source):
@@ -164,6 +166,18 @@ Two findings, both recorded, neither fixed here (this audit writes no source):
    returns `HookOutcome`, which is neither the SDK's `HookJSONOutput` shape nor pydantic-ai's
    toolset return. The honest description is that it is a generic in-process hook layer showing the
    same predicate set is portable, and the SDK-shaped one is `sdk_callback.py`.
+
+> **Annotated after the fact: Task 11 folded both in, and both findings above are now false of the
+> tree.** They are left standing, in the present tense they were written in, because this ledger is a
+> record of what the audit found and not a description of the tree today; §5 item 1 is the thing that
+> says what was to happen next, and this note is what says it happened. The docstring quoted in
+> finding 1 is no longer in `gates/hook.py`: it now opens **"Four surfaces, one predicate set"** and
+> says in the same breath that it read three until the fourth had shipped for two tasks. The
+> paragraph below that disowns the framework-hook description in finding 2's own words, and
+> `pre_tool_use` is described there as a generic in-process hook layer. Nothing annotated this ledger
+> on the commit that made the corrections, which is the same drift in the opposite direction from the
+> one the findings record, and is why the citations in 1.2 are now written by symbol and section
+> rather than by line.
 
 On crash behaviour, naming the contract each time: `pre_tool_use_deny` catches `BaseException` and
 converts it to a deny (`sdk_callback.py:115-118`), so it fails closed **by construction in this

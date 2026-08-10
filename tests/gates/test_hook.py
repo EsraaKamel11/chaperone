@@ -558,8 +558,22 @@ def test_the_hook_runs_every_pure_predicate_the_in_process_gate_consults():
     # **Every ported surface, not only the command hook.** Rooting the requirement at the in-process
     # gate and then asking it of one file left the fourth surface outside the derivation entirely: a
     # predicate added to `_decide_for` would be demanded of `tools/policy_hook.py` and not of
-    # `gates/sdk_callback.py`, and the corpus test below would catch the resulting divergence only on
-    # a row that happens to exercise the new predicate. That is sampling where this is construction.
+    # `gates/sdk_callback.py`.
+    #
+    # **What this holds is narrower than "the predicate runs", and the difference is measured.**
+    # `invoked` collects every callee name anywhere in the file's AST, not the callees of the
+    # decision function, so what passes is *this module calls the predicate somewhere*. Move
+    # `validate_citations` out of `sdk_callback._decide` into a helper nothing calls and
+    # `pure - invoked` is still empty; delete the call outright and it reports
+    # `['validate_citations']`. Both measured. So this is a floor against the omission that actually
+    # happened -- a ported surface shipped without a predicate the gate consults -- and it is not a
+    # construction proof that the decision path reaches one.
+    #
+    # The behavioural direction is
+    # `test_the_two_enforcement_layers_reach_the_same_verdict_and_the_same_category`, which runs the
+    # command hook and the callback over `_CORPUS` and compares verdict, category and detail row by
+    # row. A predicate present but unreached changes an answer there: the row named "a citation the
+    # record does not hold" is decided by `validate_citations` and by nothing else.
     for label, path in _PORTED_SURFACES.items():
         tree = ast.parse(path.read_text(encoding="utf-8"))
         invoked = set()

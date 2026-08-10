@@ -262,11 +262,16 @@ def test_the_model_strength_table_cannot_be_mutated_in_place():
 
 
 def test_checker_instructions_name_every_content_class_and_nothing_else():
-    """Coverage is derived from the enum; the phrases are hand-chosen.
+    """Coverage is derived from the enum; the phrases are hand-chosen; the count is pinned twice.
 
     The instruction text itself is frozen (the recorded verdicts were produced under these
-    exact bytes), so the map is checked against it, never composed into it. The count equality
-    is what "no other class is described as checkable" operationalizes to.
+    exact bytes), so the map is checked against it, never composed into it.
+
+    **The last two assertions are a pair of literals and not an equality**, which the wording here
+    used to obscure. Nothing reads a number out of the instruction and compares it to `len()`; what
+    holds "no other class is described as checkable" is that a fourth content class reddens the key
+    comparison and the length pin together, while an instruction that renamed its own count reddens
+    the substring pin. Composing the number into the frozen string is the one repair not available.
     """
     from chaperone.gates.checker import CHECKER_INSTRUCTIONS, CONTENT_CLASS_PHRASES
     from chaperone.policy.types import Family, ViolationClass

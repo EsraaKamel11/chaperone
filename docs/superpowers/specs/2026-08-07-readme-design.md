@@ -173,7 +173,7 @@ edit-time hook, and `test_the_real_policy_package_is_pure`. This carries the "po
 LLM client" claim.
 
 **4.6 One verbatim `denial_result` JSON payload.** The six keys `denial_result` actually returns
-(`src/chaperone/gates/engine.py:147`), not an invented shape: `is_error`, `is_retryable`, `category`,
+(`denial_result` in `src/chaperone/gates/engine.py`), not an invented shape: `is_error`, `is_retryable`, `category`,
 `detail`, `span`, `disposition`. `is_retryable` is `False` unconditionally, and the sentence that
 earns the paste is that retryability and redraftability are two axes: whether a redraft could help is
 `disposition`, never `is_retryable`.
