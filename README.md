@@ -253,9 +253,16 @@ here that was the tool.
   "category": "content:advises_on_merits",
   "detail": "tripwire",
   "span": "honestly, is this a good deal",
-  "disposition": "redirect_refinable"
+  "disposition": "redirect_futile"
 }
 ```
+
+That block is built by the code rather than typed here:
+`test_the_denial_payload_pasted_in_the_readme_is_what_denial_result_returns` runs the tripwire over
+the body the `span` quotes, takes the disposition from `disposition_for`, and compares the result to
+these bytes. It is held to the standard the two pasted transcripts above are held to, and it did not
+used to be: this block read `redirect_refinable` while `content:advises_on_merits` sits in
+`FUTILE_CLASSES`, which the paragraph on scene 1 says in words sixty lines up.
 
 The field worth arguing about is `is_retryable`, which is `false` on every denial without exception.
 **Retryability and redraftability are two different axes**, and the tidy-looking edit that makes

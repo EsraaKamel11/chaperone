@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import json
 import re
 import subprocess
 import sys
@@ -187,6 +188,42 @@ def test_the_demo_output_pasted_in_the_readme_matches_a_fresh_run():
     )
     assert completed.stdout.strip() == fenced[0].strip(), (
         "the README's pasted demo output no longer matches a fresh run of demo/day2.py"
+    )
+
+
+#: The body the README's `denial_result` block is the denial of. The `span` in that block is this
+#: string as the tripwire matched it, so the paste and the payload cannot be brought back into
+#: agreement by editing either one on its own.
+DENIAL_BLOCK_BODY = "honestly, is this a good deal for us?"
+
+
+def test_the_denial_payload_pasted_in_the_readme_is_what_denial_result_returns():
+    """The one executable artifact on that page that nothing compared against the code.
+
+    Both pasted transcripts are held byte for byte against a fresh run and this block was held
+    against nothing, so it drifted: it carried `redirect_refinable` for a class `FUTILE_CLASSES`
+    contains, contradicting the same page's sentence that `disposition_for` marks that class futile.
+    Every backticked name in it resolved the whole time, which is the failure mode this file exists
+    for.
+
+    Built rather than asserted key by key. A per-key assertion would have been written from the
+    paste and would agree with it for the same reason the paste was wrong, and the disposition comes
+    from `disposition_for` rather than from a literal so a change to the futile set fails here.
+    """
+    from chaperone.gates.engine import denial_result, disposition_for
+    from chaperone.policy.tripwires import evaluate_tripwires
+    from chaperone.policy.types import Decision, Draft
+
+    draft = Draft(thread=(), body=DENIAL_BLOCK_BODY, cited_fields=(), recipient_jurisdiction="US",
+                  recipient_domain="example.test", tool_name="send_message")
+    findings = evaluate_tripwires(draft)
+    assert findings, "the body trips no tripwire, so this test would build its payload from nothing"
+    produced = json.dumps(denial_result(Decision(False, findings, disposition_for(findings))), indent=2)
+
+    fenced = re.findall(r"```json\n(.*?)```", README.read_text(encoding="utf-8"), re.S)
+    assert len(fenced) == 1, "expected exactly one pasted denial payload in the README"
+    assert fenced[0].strip() == produced, (
+        f"the README's pasted denial payload is not what denial_result returns:\n{produced}"
     )
 
 
