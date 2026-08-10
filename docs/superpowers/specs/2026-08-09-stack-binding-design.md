@@ -410,6 +410,31 @@ library internals with nothing in this repository having changed. No sentence na
 change in this repository could be written for it, which is this project's own test for whether a
 test earns its place.
 
+**A4 (review round, 2026-08-10).** `demo/day2.py` gains a `--live` lane that runs the content
+checker through `pydantic_ai_transport` against a real model. Default behaviour is unchanged:
+without the flag the demo is offline, keyless, and byte-identical to what the README pastes.
+
+**Why this reverses an earlier round.** Section 1's binding is real but nothing outside the suite
+constructs it, and a previous round declined to wire it into a demo. That round weighed cost against
+marginal governance evidence; it did not weigh the artifact's purpose, which is to show a declared
+stack doing work in the tree a reader executes. The earlier objection was specific and does not
+transfer: a canned `FunctionModel` inside a demo is a stub wearing a framework's clothes, whereas a
+live lane runs the real conversion, the real validator and the real budget against a real model. The
+round's other ground stands and is what shapes this lane: the transport's production construction
+site is a caller holding a live model, which no default lane here may be. So the flag, not a
+credential, is the gate, exactly as A2 requires.
+
+**What the lane asserts, and what it refuses to assert.** It asserts invariants only: that a value
+of the declared output union came back, that the gate consumed it and produced a `Decision`, and
+that `build_checker_messages` remained the sole prompt assembler. **It does not assert what the
+model decided.** A live verdict is a probabilistic outcome, and this project's standing rule is that
+probabilistic rates are measured and reported, never asserted. The lane prints the verdict it got
+and makes no claim about what the next run would get.
+
+**Frozen measurements are untouched.** The lane drafts a fresh synthetic body written for it. No
+corpus row is re-run through the binding, no published number is recomputed, and nothing from a live
+run is committed. The recorded verdicts still predate the binding and are still never re-run.
+
 ## 10. Landed, 2026-08-10
 
 Written after the work rather than before it, from `git log` and from the tree at `081db45` on
