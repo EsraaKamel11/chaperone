@@ -103,9 +103,9 @@ reader is misled by.
 | Surface | What it is | What it enforces |
 |---|---|---|
 | Out-of-process command hook | A `PreToolUse` hook in a separate process, `tools/policy_hook.py` | **The pure half only.** Act-classes and tripwires. |
-| In-process deny callback | `pre_tool_use_deny` in `src/chaperone/gates/sdk_callback.py`, which produces the Agent SDK deny shape as plain JSON and imports no SDK | **The pure half only**, built from the payload adapter the command hook shares. |
+| In-process deny callback | `pre_tool_use_deny` in `src/chaperone/gates/sdk_callback.py`, which produces the Agent SDK deny shape as plain JSON and imports no SDK | **The pure half only**, built from the payload adapter the command hook shares. The one surface with a send tool behind it that the chokepoint never sees: `demo/sdk_hook.py --live` registers one for the runtime to call, and this callback is the whole of what governs it. |
 | In-process hook layer | `pre_tool_use` in `src/chaperone/gates/hook.py`, which implements no framework contract | The full predicate set, including the checker. **Called from `tests/` and from nowhere else.** |
-| Executor chokepoint | `guarded_call` in the same module | The full set, bound to the reviewed draft. The path every send in this tree actually runs; `tools/perturbation_log.py` calls `decide` directly, and transmits nothing. |
+| Executor chokepoint | `guarded_call` in the same module | The full set, bound to the reviewed draft. The path every send **this process performs** runs through; `tools/perturbation_log.py` calls `decide` directly, and transmits nothing. The send tool `demo/sdk_hook.py` registers is the runtime's to call, so it is governed by the deny callback in the row above and not by this row. |
 
 **The two hook-shaped rows are the ones that need saying out loud.** Neither the command hook nor
 the deny callback can call the model checker, because neither can reach one from the payload it is

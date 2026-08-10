@@ -784,13 +784,25 @@ above it.
 primitive underneath it: `granted_tools` on `ActContext`, checked by a pure function that returns
 `act:tool_outside_grant` for any tool outside the grant, reached through `_decide_for`, which both
 `pre_tool_use` and `guarded_call` call. **The two are not two layers in the shipped tree.**
-`guarded_call` is the path every send here runs: `src/chaperone/testing/scripted.py`, `demo/day2.py`
-and `demo/full.py` all go through it. Not every call to `decide` -- `tools/perturbation_log.py` runs
-the predicate directly to tabulate what one broken input does, which transmits nothing. Nothing outside `tests/` calls `pre_tool_use` at all. It is not
-a permissive gap, because both call the identical `_decide_for`, but a claim of defence in depth
-would be resting on a layer the suite is the only caller of. The intended arrangement, in which a
-drafting agent holds no send tool at all, is in [docs/architecture.md](docs/architecture.md) and is
-labelled there as designed.
+`guarded_call` is the path every send **this process performs** runs through:
+`src/chaperone/testing/scripted.py`, `demo/day2.py` and `demo/full.py` all go through it. Not every
+call to `decide` -- `tools/perturbation_log.py` runs the predicate directly to tabulate what one
+broken input does, which transmits nothing. Nothing outside `tests/` calls `pre_tool_use` at all.
+Between *those two* it is not a permissive gap, because both call the identical `_decide_for`, but a
+claim of defence in depth would be resting on a layer the suite is the only caller of. The intended
+arrangement, in which a drafting agent holds no send tool at all, is in
+[docs/architecture.md](docs/architecture.md) and is labelled there as designed.
+
+**There is a fourth send tool, it is not this process's to perform, and the sentence above is
+bounded that way on purpose.** Under `--live`, `demo/sdk_hook.py` registers a `send_message` tool
+that the SDK runtime calls, so `guarded_call` is not on its path and nothing about the chokepoint
+governs it. What stands in its way is `pre_tool_use_deny` alone, and that callback runs the four
+pure predicates directly: it reaches neither `_decide_for` nor the model checker, so it enforces a
+**strict subset** of what the chokepoint enforces and the identical-`_decide_for` argument above
+does not extend to it. It is the same subset `tools/policy_hook.py` enforces, named as such in
+[docs/architecture.md](docs/architecture.md) section 2.1. The tool's own body is a stub that records
+its arguments and returns a fixed string, so no message leaves that lane either; what a live run
+measures is whether the callback refused, never whether something was delivered.
 
 **Promotion is not built, and would not be keyed to these numbers if it were.** Production promotion
 belongs to human-review outcomes on real cases, never to synthetic suite scores. An artifact that
