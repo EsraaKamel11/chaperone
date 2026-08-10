@@ -5,7 +5,8 @@
 **Goal:** Publish the import contract this package already has but never declared, and hold it to the
 specification in both directions so the two cannot drift apart.
 
-**Architecture:** Five independent changes at the packaging boundary. Nothing under `policy/`,
+**Architecture:** Five changes at the packaging boundary, executed in order. Tasks 2, 4 and 5 all
+consume artifacts Task 1 creates, so they are sequential rather than independent. Nothing under `policy/`,
 `gates/`, `audit/` or `matching/` changes behaviour; no published number moves; no frozen recording
 is re-run. Four tasks fix a packaging defect a consumer can hit, and the fifth makes the contract
 self-enforcing using the same both-directions shape the repository already uses for its
@@ -65,6 +66,18 @@ the specification wins and this plan is amended in a review round.
 The names come from section 2 of the specification. They are listed here in full so this task needs
 no other document open.
 
+**Three names in section 2 are deliberately NOT in `__all__`, and each for a stated reason.** Do not
+add them; adding the first one halts this task.
+
+- **`transmit`.** `tools/static_audit.py` fails the build if any file inside `src/chaperone` other
+  than `audit/gateway.py` names it, and the package init is inside that root. Importing it here
+  trips the reservation on the init's first line, and step 5 would exit 1. It is published at
+  `chaperone.audit.gateway.transmit` and reached only there. Specification section 2.4 says so.
+- **`CHECKER_INSTRUCTIONS`.** Frozen bytes. The recorded verdicts were produced under its exact
+  content, so it is not a consumer tuning surface.
+- **`build_checker_messages`.** `Checker.check` calls it; a consumer supplying a transport never
+  does.
+
 - [ ] **Step 1: Write the failing test**
 
 Create `tests/test_contract.py`:
@@ -114,10 +127,9 @@ replaying transport writes one against the seam in section 2.3.
 """
 from chaperone.audit.chain import GENESIS_HASH, VerifyResult, link, verify
 from chaperone.audit.entry import INDETERMINATE_OUTCOMES, AuditEntry
-from chaperone.audit.gateway import Gateway, GatewayResult, transmit
+from chaperone.audit.gateway import Gateway, GatewayResult
 from chaperone.audit.store import AuditStore
 from chaperone.gates.checker import (
-    CHECKER_INSTRUCTIONS,
     MODEL_STRENGTH,
     Checker,
     CheckerResult,
@@ -125,7 +137,6 @@ from chaperone.gates.checker import (
     FlagForReview,
     Verdict,
     assert_checker_not_weaker,
-    build_checker_messages,
 )
 from chaperone.gates.engine import decide, denial_result, destination_for, disposition_for
 from chaperone.gates.handoff import Handoff, build_handoff
@@ -161,7 +172,6 @@ __all__ = (
     "ActContext",
     "AuditEntry",
     "AuditStore",
-    "CHECKER_INSTRUCTIONS",
     "CONSENTED",
     "CONSUMED_KEYS",
     "Candidate",
@@ -194,7 +204,6 @@ __all__ = (
     "ViolationClass",
     "assert_checker_not_weaker",
     "build_act_inputs",
-    "build_checker_messages",
     "build_handoff",
     "classify",
     "decide",
@@ -209,7 +218,6 @@ __all__ = (
     "pre_tool_use_deny",
     "rank",
     "relationship_score",
-    "transmit",
     "unsendable_finding",
     "unsendable_in",
     "validate_citations",
@@ -299,10 +307,12 @@ Expected: PASS.
 A wheel target naming `packages = ["src/chaperone"]` includes package data by default under
 hatchling, so no `pyproject.toml` change is expected. **Verify rather than assume:**
 
+Git Bash, from the repository root:
+
 ```bash
-python -m pip install --quiet build 2>NUL
-python -m build --wheel --outdir "%TEMP%\chap-wheel" .
-python -c "import zipfile,glob;z=glob.glob(r'%TEMP%\chap-wheel\*.whl')[0];print([n for n in zipfile.ZipFile(z).namelist() if 'py.typed' in n])"
+python -m pip install --quiet build
+python -m build --wheel --outdir dist .
+python -c "import zipfile,glob;z=sorted(glob.glob('dist/*.whl'))[-1];print([n for n in zipfile.ZipFile(z).namelist() if 'py.typed' in n])"
 ```
 
 Expected: a list containing `chaperone/py.typed`. If it is empty, add to `pyproject.toml` under
@@ -416,7 +426,11 @@ def corpus_root() -> Path:
     """
     for parent in _SEARCH_FROM.parents:
         candidate = parent / "corpus"
-        if candidate.is_dir():
+        # `is_dir()` alone would bind any `corpus/` above an installed package -- a consumer whose
+        # own project happens to have one gets a stranger's directory and a failure deferred to
+        # read, which is the shape this function exists to end. The marker file is what makes it
+        # ours.
+        if (candidate / "drafts.jsonl").is_file():
             return candidate
     raise CorpusError(
         "no corpus/ directory above "
@@ -467,10 +481,70 @@ and import `corpus_root` from `chaperone.evals.corpus`.
 
 Delete the now-unused `_ROOT` assignment from each of the three modules.
 
-- [ ] **Step 6: Update every caller**
+- [ ] **Step 6: Update every caller, and do NOT mechanically substitute a call**
 
-Re-run the grep from the preamble. Each remaining hit is a constant reference that must become a
-call. Do not change what any caller does with the path.
+Re-run the grep from the preamble. Most hits are ordinary references that become calls. **Seven are
+default parameter values, and substituting a call into a default recreates the exact defect this
+task exists to remove**: a default is evaluated at import, so `def load(path=corpus_path())` binds
+at import time again, and inside a wheel it turns `import chaperone.evals.corpus` into a raise.
+Worse, in a checkout the walk succeeds, so the suite, the generators and the anchor audit all pass
+over it. **Nothing in this plan's verification would catch it.**
+
+The seven sites, measured:
+
+| Site | Function |
+|---|---|
+| `src/chaperone/evals/corpus.py:210` | `load_corpus` |
+| `src/chaperone/evals/corpus.py:350` | `load_labels` |
+| `src/chaperone/evals/harness.py:147` | `load_recorded` |
+| `src/chaperone/evals/discrimination.py:91` | `load_quality_scores` |
+| `tools/build_corpus.py:179` | `build` |
+| `tools/label_corpus.py:98` | `write_labels` |
+| `tools/record_verdicts.py:147` | `record` |
+
+Each takes a `None` sentinel and resolves in the body:
+
+```python
+def load_corpus(path: Path | None = None) -> list[CorpusItem]:
+    path = corpus_path() if path is None else path
+    ...
+```
+
+That keeps every existing call site working unchanged, keeps the caller's ability to pass a path,
+and moves resolution to call time where the refusal belongs.
+
+- [ ] **Step 6b: Prove the sentinel holds, rather than assuming it**
+
+Add to `tests/evals/test_corpus_paths.py`:
+
+```python
+import inspect
+
+from chaperone.evals import corpus as corpus_module
+from chaperone.evals import discrimination, harness
+
+
+def test_no_loader_resolves_a_corpus_path_in_a_default_argument():
+    """A default is evaluated at import, which is the binding this task removes.
+
+    The production change this catches: `def load_corpus(path=corpus_path())`. In a checkout the
+    walk succeeds and every other check in this plan stays green, so only this test sees it.
+    """
+    loaders = [
+        corpus_module.load_corpus, corpus_module.load_labels,
+        harness.load_recorded, discrimination.load_quality_scores,
+    ]
+    for fn in loaders:
+        for name, param in inspect.signature(fn).parameters.items():
+            if "path" not in name:
+                continue
+            assert param.default is None, (
+                f"{fn.__module__}.{fn.__qualname__} resolves {name} in a default argument, which "
+                "binds at import; use a None sentinel and resolve in the body"
+            )
+```
+
+Watch it fail first by giving one loader a resolved default, then restore.
 
 - [ ] **Step 7: Run the suite and the generators**
 
@@ -484,8 +558,10 @@ a path is found, never what is read, and a moved number means something else cha
 - [ ] **Step 8: Run the anchor audit**
 
 Run: `python -m pytest tests/test_mutations.py -k anchor -q`
-Expected: PASS. That selection is read-only. **Do not run the file unfiltered.** If an anchor is
-stale because a mutated line moved, re-derive it in `tools/mutate.py` and say so in the report.
+Expected: PASS, and expected to be uneventful: all seventeen mutants anchor in `gates/`, `audit/`,
+`policy/` and `matching/`, and **none anchors in `evals/`**, so this task cannot move one. The step
+runs anyway because that is a measured fact about today's mutant list rather than a property of the
+harness. That selection is read-only. **Do not run the file unfiltered.**
 
 - [ ] **Step 9: Commit**
 
@@ -499,7 +575,8 @@ git commit -m "fix: the corpus is found by walking, so an installed copy refuses
 ### Task 4: The dependency declaration matches the import graph
 
 **Files:**
-- Modify: `pyproject.toml:5-12`
+- Modify: `pyproject.toml:5-13` (through the `dev` line inclusive; stopping at 12 leaves a second
+  `dev` key below the new block and `tomllib` raises on the next parse)
 - Test: `tests/test_contract.py`
 
 **Interfaces:**
@@ -543,7 +620,7 @@ Expected: FAIL, hard dependencies are `['pydantic', 'pydantic-ai']`.
 
 - [ ] **Step 3: Move the dependency**
 
-In `pyproject.toml`, change lines 5 to 12 to:
+In `pyproject.toml`, change lines 5 to 13 inclusive to:
 
 ```toml
 dependencies = [
@@ -571,6 +648,28 @@ Run: `grep -rn "pydantic-ai" README.md docs/*.md`
 Every sentence describing `pydantic-ai` as a runtime dependency becomes a sentence describing it as
 the `binding` extra. **The README's designed-versus-built table and its census are guarded in both
 directions; if a row moves, its registry entry moves in the same commit.**
+
+**Measured warning: that grep's scope is probably empty, and the sentence that must move is outside
+it.** No `README.md` or `docs/*.md` sentence currently calls `pydantic-ai` a runtime dependency; the
+one that does is in the specification, at section 3, which the non-recursive glob cannot reach. An
+implementer who runs only this grep will conclude there is nothing to do and leave a false sentence
+in the document this plan derives from. Step 5b is where the real edit lives.
+
+- [ ] **Step 5b: Amend the specification, in the A1 to A4 convention**
+
+Executing this plan falsifies three sentences in
+`docs/superpowers/specs/2026-08-10-boundary-specification.md`, and **no guard reads any of them**:
+
+| Location | Goes false because | After |
+|---|---|---|
+| Section 2 opening | says the package init is empty | Task 1 published it |
+| Section 3 | names `pydantic-ai` a runtime dependency | Task 4 moved it to an extra |
+| Section 8 | describes a delta not yet closed | all five tasks |
+
+Amend all three in place and add a dated entry recording what changed and why, following the
+convention the stack-binding spec uses for A1 through A4. **In place, not appended**: a reader who
+opens section 3 does not read an appendix, and the specification's own section 8 note says these
+three must move together.
 
 - [ ] **Step 6: Run the suite and the claims guards**
 
@@ -602,7 +701,42 @@ repository already holds its designed-versus-built table this way, and the docst
 records why one direction was not enough: asserting only that a listed module is absent fires once,
 and never checks the row it caused to be written.
 
-- [ ] **Step 1: Write the failing test**
+**A regex over section 2's prose cannot work, and trying it corrupts the specification.** Measured:
+that region contains the contract names plus nine legitimate backticked identifiers that are not
+exports and never will be, including `__all__`, `act_classes`, `types`, `model`, `drafter_model`,
+`isinstance`, `body` and `TypeError`. Every one sits in a sentence that is true and correctly
+backticked. No honest edit removes them, and no lexical rule separates `model` from a contract name
+like `rank` in the same register. An executor asked to make such a guard green will strip backticks
+from prose, which is the corruption this task exists to prevent.
+
+So the specification gains **one canonical table** that the guard reads exclusively, and the prose
+stays prose. This follows the designed-versus-built precedent, where the registry is a Python
+structure and the page is held against it rather than parsed as English.
+
+- [ ] **Step 1: Add the canonical table to the specification**
+
+Append to section 2 of `docs/superpowers/specs/2026-08-10-boundary-specification.md`, immediately
+before section 3:
+
+```markdown
+### 2.9 The contract, enumerated
+
+This table is the contract. The prose above explains it; this is what a guard reads, and what
+`chaperone.__all__` is held to in both directions. A name in one and not the other is a defect in
+whichever moved last.
+
+| Name | Module |
+|---|---|
+| `ActContext` | `policy.act_classes` |
+| `AuditEntry` | `audit.entry` |
+...
+```
+
+Populate every row from `__all__` as Task 1 landed it, with the module each name is imported from.
+`transmit` does **not** appear: it is published at its module path only, for the reason section 2.4
+gives.
+
+- [ ] **Step 2: Write the failing test**
 
 Append to `tests/test_contract.py`:
 
@@ -610,15 +744,15 @@ Append to `tests/test_contract.py`:
 import re
 
 SPEC = PACKAGE_ROOT.parents[1] / "docs" / "superpowers" / "specs" / "2026-08-10-boundary-specification.md"
-#: Backticked identifiers in the specification's section 2, which is the contract it publishes.
-_BACKTICKED = re.compile(r"`([A-Za-z_][A-Za-z0-9_]*)`")
+#: Rows of the canonical table in section 2.9: | `Name` | `module` |
+_ROW = re.compile(r"^\|\s*`([A-Za-z_][A-Za-z0-9_]*)`\s*\|\s*`([A-Za-z_][A-Za-z0-9_.]*)`\s*\|", re.M)
 
 
 def _specified_names() -> set[str]:
     text = SPEC.read_text(encoding="utf-8")
-    start = text.index("## 2. The contract to publish")
+    start = text.index("### 2.9 The contract, enumerated")
     end = text.index("## 3. What travels")
-    return set(_BACKTICKED.findall(text[start:end]))
+    return {name for name, _module in _ROW.findall(text[start:end])}
 
 
 def test_the_published_contract_and_the_specification_agree_in_both_directions():
@@ -631,31 +765,41 @@ def test_the_published_contract_and_the_specification_agree_in_both_directions()
     side moved.
     """
     specified = _specified_names()
-    assert specified, "no backticked names found in section 2, so this guard would pass vacuously"
+    assert specified, "the canonical table parsed to nothing, so this guard would pass vacuously"
     exported = set(chaperone.__all__)
 
     unspecified = sorted(exported - specified)
     assert unspecified == [], (
-        f"exported and not in section 2 of the specification: {unspecified}. Either document the "
-        "name or stop exporting it."
+        f"exported and absent from the table in section 2.9: {unspecified}. Either add the row or "
+        "stop exporting the name."
     )
 
-    unexported = sorted(n for n in specified - exported if n[0].isupper() or n.islower())
+    unexported = sorted(specified - exported)
     assert unexported == [], (
-        f"named in section 2 of the specification and not exported: {unexported}. Either export it "
-        "or stop specifying it."
+        f"in the table in section 2.9 and not exported: {unexported}. Either export it or remove "
+        "the row."
     )
 ```
 
-- [ ] **Step 2: Run it and watch it fail in the informative direction**
+No filter is needed on either side, because the table contains only names. That is the point of
+reading a table rather than prose.
 
-Run: `python -m pytest tests/test_contract.py::test_the_published_contract_and_the_specification_agree_in_both_directions -q`
+- [ ] **Step 2b: Prove the table is not silently empty**
 
-Expected: FAIL. Section 2 contains backticked identifiers that are not exported names, such as module
-paths and type names in signatures, so the second assertion fires with a list. **That list is the
-work:** for each entry decide whether it is a contract name that Task 1 missed, or prose that the
-filter should not treat as a name. Do not widen the filter to make the list empty; narrow the region
-the test reads, or correct the specification, or correct `__all__`.
+Also append:
+
+```python
+def test_the_canonical_table_is_not_trivially_small():
+    """A table that parsed to two rows would make the guard above nearly vacuous.
+
+    The production change this catches: a regex edit that stops matching most rows, which leaves
+    both set differences empty for the wrong reason.
+    """
+    assert len(_specified_names()) >= 40, (
+        f"only {len(_specified_names())} rows parsed from section 2.9; the contract is larger than "
+        "that, so the row pattern has stopped matching"
+    )
+```
 
 - [ ] **Step 3: Make it pass by fixing the disagreement, never the guard**
 
@@ -707,14 +851,49 @@ not prove an intact kill. It applies mutants to the working tree, so **nothing e
 does**, and a killed run strands a mutation: if that happens, `python -m tools.mutate` recovers
 before it audits.
 
-Then a fresh-clone check, because CI has never executed and this plan changes packaging:
+Then two installation checks. **They are different checks and the second is the one that matters.**
+Commands are Git Bash; on win32 use a short path, because a deep one breaks `pip` on `MAX_PATH`.
+
+**Check A, fresh clone, editable.** Proves a checkout still installs and passes:
 
 ```bash
-git clone --branch main . /tmp/contract-check     # a short path; long ones break on win32
-cd /tmp/contract-check && python -m venv .venv
-.venv/Scripts/python -m pip install -e ".[dev]"
-.venv/Scripts/python -m pytest -q
+git clone --branch main . /c/Users/$USER/cc && cd /c/Users/$USER/cc
+python -m venv .venv && ./.venv/Scripts/python -m pip install -e ".[dev]"
+./.venv/Scripts/python -m pytest -q --deselect tests/test_mutations.py
 ```
 
-Expected: install clean, suite exit 0. This is the only check that exercises the packaging changes
-the way a consumer will.
+Expected: install clean, exit 0. The mutation sweep is deselected because it has already run once
+above; running it again here is a second full sweep mid-check for no added evidence.
+
+**Check B, built wheel, no extras. This is the consumer's path, and check A exercises none of it.**
+An editable install puts the repository root above `src/`, so `corpus_root()` always succeeds and
+its refusal never fires; `py.typed` is present in-tree whether or not it ships; and the `dev` extra
+drags in `pydantic-ai`, so Task 4's property is never tested. All four packaging defects are
+invisible to check A.
+
+```bash
+cd /c/Users/$USER/cc
+./.venv/Scripts/python -m pip install build
+./.venv/Scripts/python -m build --wheel --outdir dist .
+python -m venv /c/Users/$USER/cw && cd /c/Users/$USER/cw
+./Scripts/python -m pip install /c/Users/$USER/cc/dist/*.whl
+./Scripts/python -c "
+import chaperone, pathlib
+missing = [n for n in chaperone.__all__ if not hasattr(chaperone, n)]
+assert missing == [], missing
+root = pathlib.Path(chaperone.__file__).parent
+assert (root / 'py.typed').is_file(), 'py.typed did not ship'
+import importlib; assert importlib.util.find_spec('pydantic_ai') is None, 'pydantic-ai came along'
+from chaperone.evals.corpus import CorpusError, corpus_root
+try:
+    corpus_root(); raise SystemExit('corpus_root resolved inside a wheel')
+except CorpusError:
+    pass
+print('wheel contract OK')
+"
+```
+
+Expected: `wheel contract OK`. Each line proves one of the four defects fixed: every published name
+imports, the marker shipped, the dependency is genuinely optional, and the corpus refuses by name
+instead of misreading. Delete both temporary directories afterwards; nothing from either is
+committed.

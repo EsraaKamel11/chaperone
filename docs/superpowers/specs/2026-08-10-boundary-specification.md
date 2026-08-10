@@ -113,10 +113,16 @@ members.
 eleven fields. A contract listing the store and the chain but not the entry is the gap a consumer
 meets on its first verification.
 
-`transmit` is a special case: it is public, and `tools/static_audit.py` fails the build if any module
-**in the shipped package** other than `audit/gateway.py` references it. That audit is rooted at
-`src/chaperone` and walks no further, so the suite references it freely. It is published as the
-reserved send symbol, not as a call site.
+**`transmit` is published at its module path only, and never from the package root.** It is public,
+and `tools/static_audit.py` fails the build if any file **inside the shipped package** other than
+`audit/gateway.py` so much as names it. `src/chaperone/__init__.py` is inside that root, so
+re-exporting `transmit` from the package would trip the reservation on its own first line. A
+consumer reaches it at `chaperone.audit.gateway.transmit` and nowhere else.
+
+That is the reservation working rather than an inconvenience: the symbol is published so a consumer
+knows the send exists and where it lives, and is deliberately unreachable from the package surface
+so no import can quietly widen the set of modules that name it. The audit is rooted at
+`src/chaperone` and walks no further, which is why the suite references it freely.
 
 ### 2.5 Routing and escalation
 
@@ -328,6 +334,13 @@ Closing that is the work the accompanying plan sequences.
    census of uncalled layers.
 
 None of these is a change to policy, to a published number, or to a frozen recording.
+
+**Three sentences in this document go false the moment that work lands, and no guard reads any of
+them.** Section 2's opening paragraph describes an empty package init; section 3 names `pydantic-ai`
+a runtime dependency; and this section describes a delta that will be closed. The plan carries an
+explicit amendment step for all three, in the A1 through A4 convention, because a specification that
+its own implementation falsifies is worse than one that never specified anything. They are listed
+here so the amendment cannot be forgotten by a reader who only opens section 8.
 
 ---
 
