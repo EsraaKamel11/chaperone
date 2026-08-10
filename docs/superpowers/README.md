@@ -8,11 +8,15 @@ record that is quietly edited to match the outcome stops being a record.
 
 The pages maintained against the tree are the reader-facing ones: the root `README.md` and the
 markdown pages directly under `docs/`. Those are held to the tree by `tests/test_readme_claims.py`
-and its sibling guards; the documents here are held only to their dates.
+and its sibling guards. The documents here are not maintained against the tree, but they are not
+wholly unguarded either: two tree-wide scans read every tracked markdown file, so a page here
+cannot deny a symbol the source defines and cannot claim test coverage the suite does not have.
+What no guard holds is their narrative, which is the part that dates.
 
 Reading order, if the process is what you came for: `specs/2026-08-05-chaperone-design.md` is the
 original design, `plans/2026-08-05-chaperone.md` its build plan,
 `specs/2026-08-07-readme-design.md` the reader-layer design (since superseded, and marked so),
-`specs/2026-08-09-stack-binding-design.md` the stack-binding design with its amendment ledger, and
+`specs/2026-08-09-stack-binding-design.md` the stack-binding design with its amendment ledger,
+`plans/2026-08-09-stack-binding.md` the plan built from it, and
 `specs/2026-08-09-framework-audit.md` the bind-or-keep audit of what deliberately stayed
 hand-rolled.

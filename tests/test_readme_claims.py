@@ -74,7 +74,7 @@ def _tracked(*patterns: str) -> list[Path]:
 
 
 def _all_markdown() -> list[Path]:
-    """Every markdown file that would publish, not only the reader-facing five.
+    """Every markdown file that would publish, not only the reader-facing pages.
 
     `docs/superpowers/` ships with this repository, so a guard scoped to `docs/*.md` would leave the
     design documents unchecked while claiming to cover the repository.
@@ -140,7 +140,7 @@ def test_the_docs_directory_is_not_silently_empty():
     in the same commit.
     """
     assert README.exists(), "README.md is missing"
-    assert len(DOCS) >= 4, f"expected the four docs pages, found {[p.name for p in DOCS]}"
+    assert len(DOCS) >= 4, f"expected at least four docs pages, found {[p.name for p in DOCS]}"
     assert RESULTS_PAGE.exists(), (
         "docs/RESULTS.md is missing; regenerate it with `python tools/report.py`"
     )
@@ -1491,7 +1491,7 @@ def test_no_published_page_says_a_symbol_is_absent_that_the_tree_defines(path: P
     denying `foo.bar` while some unrelated module defines `bar` fails here and has to be reworded.
     A guard that erred the other way would be the guard this one replaces.
 
-    **Scope is every tracked markdown file, not the reader-facing six.** The same sentence in
+    **Scope is every tracked markdown file, not the reader-facing pages alone.** The same sentence in
     `demo/`, in `tools/`, or in the plan under `docs/superpowers/` was unchecked, and the plan is
     the document most likely to describe a tree that has since moved.
     """
@@ -1649,8 +1649,8 @@ def test_no_published_page_claims_test_coverage_of_a_symbol_no_test_names(path: 
     RED will land on prose someone has just written and the temptation will be immediate. The
     correct fix is to name a symbol the tests actually reach for, or to stop claiming coverage.
 
-    **Scope is every tracked markdown file, not the reader-facing six**, for the reason the absence
-    guard above gives unchanged: the plan is the document most likely to describe a tree that has
+    **Scope is every tracked markdown file, not the reader-facing pages alone**, for the reason the
+    absence guard above gives unchanged: the plan is the document most likely to describe a tree that has
     since moved. A3 edits the spec and plan bodies in place rather than appending, which is what
     lets this land green at all.
 

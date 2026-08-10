@@ -171,16 +171,17 @@ In the default scene both transports are scripted, because the suite runs offlin
 quality scores and the checker verdict are inputs to the script. What is computed is everything
 between them.
 
-The same file carries a second lane: `python demo/day2.py --live` swaps the scripted checker
+The same file carries a second scene: `python demo/day2.py --live` swaps the scripted checker
 transport for `pydantic_ai_transport` from `src/chaperone/gates/binding.py` and puts the same gate,
 the same chokepoint and the same audit chain in front of a real model, with the model spec read from
-the environment. That lane asserts invariants only: an answer of the declared union arrived, prompt
-assembly stayed in `build_checker_messages`, and the send tool's registry agrees with the decision.
-What the model decided is printed, never asserted, because a live verdict is a probabilistic outcome
-and this repository's rule is that those are measured and reported, not asserted. The two live lanes
+the environment. That scene asserts invariants only: no tripwire matches the body, so the question
+is the checker's alone; an answer of the declared union arrived; prompt assembly stayed in
+`build_checker_messages`; and the send tool's registry agrees with the decision. What the model
+decided is printed, never asserted, because a live verdict is a probabilistic outcome and this
+repository's rule is that those are measured and reported, not asserted. The two `--live` commands
 are complementary by design: `demo/sdk_hook.py --live` demonstrates an act-class refusal, decided
-before the draft's wording is read; this one shows a content-class verdict on a body no tripwire
-matches, judged by a model. Neither is run by the suite or by CI.
+before the draft's wording is read; this one puts a content-class question to a real model on a
+body no tripwire matches, and prints whatever came back. Neither is run by the suite or by CI.
 
 ### The second scene, which is the half that argues for the architecture
 
@@ -251,8 +252,8 @@ two different epistemic situations, and collapsing them is the error the reposit
 **The phrase "zero by construction" is never written beside a content class**, which is a rule in
 `CLAUDE.md` rather than a habit, and it is the rule a guard can actually hold.
 `test_zero_by_construction_is_never_claimed_beside_a_content_class` reads the eight reader-facing
-pages, this one and every markdown page under `docs/`, and every tracked source file under `src/`,
-`tools/` and `demo/`, collapses whitespace first
+pages, this one and every markdown page directly under `docs/`, and every tracked source file under
+`src/`, `tools/` and `demo/`, collapses whitespace first
 so a line break cannot hide a sentence, and fails when the phrase lands within 120 characters of a
 content-class name. The narrower version of this sentence, that the phrase appears on act-class rows
 and nowhere else, was false as written and one grep shows it: the phrase is in a dozen tracked files
@@ -906,7 +907,7 @@ python demo/sdk_hook.py --live           # one real turn; needs credentials in t
 
 No network access is used by any test. Model transports in the suite are recorded and replayed, which
 is what makes it deterministic and what lets every arm be compared over identical verdicts. The two
-`--live` lines are the only commands above that leave the machine, and nothing runs either for you.
+`--live` lines are the only commands above that reach a model, and nothing runs either for you.
 
 ---
 
