@@ -1,7 +1,7 @@
 # chaperone
 
-An agent carrying an outbound conversation on behalf of an organisation will be asked, in the most
-natural way possible, to do things that organisation has publicly stated it does not do. The most
+An agent carrying a conversation with investors during a raise, on behalf of a firm, will be asked,
+in the most natural way possible, to do things that firm has publicly stated it does not do. The most
 helpful next sentence and the permitted next sentence are not the same sentence, and they diverge
 exactly where the stakes are highest. This repository is a working enforcement layer for that
 divergence, built so that one family of constraint is decided by pure functions rather than
@@ -79,9 +79,10 @@ content rows per split, not a guarantee. See [docs/measurement.md](docs/measurem
 ### 2. The rubber stamp
 
 **The failure.** A checker reads the draft *and* the drafting model's own justification for it, and
-agrees. This is the most comfortable way to build a reviewer and the least useful, because a
-justification is an argument written to be persuasive, and a reviewer holding one is no longer
-independent. The system now has a second opinion that is really the first opinion restated.
+agrees. For this firm that is a reviewer reading a reply to an investor alongside the drafter's case
+for why the reply is fine, which is the most comfortable way to build a reviewer and the least
+useful, because a justification is an argument written to be persuasive, and a reviewer holding one
+is no longer independent. The system now has a second opinion that is really the first opinion restated.
 
 **The mechanism.** Independence enforced by what is left out of the prompt. The checker never receives
 the generator's reasoning, its confidence, or its self-assessment, and the checker model must be at
@@ -98,8 +99,9 @@ prompt is assembled. It is not a rate, and it is not a promise about what the ch
 
 ### 3. The confident wrong checker
 
-**The failure.** The checker returns clean, with high confidence, on a draft that breaches. High
-confidence is the part that hurts. A gate that knew it was uncertain could escalate; a gate that is
+**The failure.** The checker returns clean, with high confidence, on a draft that breaches, say one
+that quietly promises an investor what the round will return. High confidence is the part that
+hurts. A gate that knew it was uncertain could escalate; a gate that is
 confidently wrong hands back a clean verdict and the system proceeds. Any autonomy tier resting on
 that verdict inherits the error silently.
 
@@ -143,8 +145,9 @@ One draft. Two lanes. Opposite verdicts.
 
 Line by line:
 
-- **`QUALITY LANE -> PASS`.** The judge likes this draft, and it is right to. It is well grounded and
-  fluent and it answers what was asked. Nothing is wrong with the writing.
+- **`QUALITY LANE -> PASS`.** The judge likes this draft, a reply to an investor who asked whether
+  the deal is good, and it is right to like it. It is well grounded and fluent and it answers what
+  was asked. Nothing is wrong with the writing.
 - **`PERMISSION LANE -> BLOCK`.** The same draft, same moment, refused, with the class named. The two
   lanes disagree, and the disagreement is the thesis rather than a defect in either lane. A judge is a
   measurement instrument. A gate is an authorization boundary. They are not interchangeable, and this
@@ -237,8 +240,11 @@ used. Both the suite and CI run the file.
 
 ## Two families of constraint
 
-The split that everything else follows from. These are not two severities of the same thing; they are
-two different epistemic situations, and collapsing them is the error the repository is built around.
+The split that everything else follows from. Act-classes are the operating envelope of a firm
+contacting investors: consent, approval, grants and volume. Content-classes are the firm's three
+published statements about what it will not say to one. These are not two severities of the same
+thing; they are two different epistemic situations, and collapsing them is the error the repository
+is built around.
 
 | | Act-classes | Content-classes |
 |---|---|---|
