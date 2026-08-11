@@ -80,8 +80,8 @@ territory, and `test_every_content_class_has_both_a_checker_and_a_tripwire` hold
 content-class rests on a single detector. Even the vocabulary is enforced: the phrase reserved for
 act-classes is never written within 120 characters of a content-class name, anywhere --
 `test_zero_by_construction_is_never_claimed_beside_a_content_class` scans this page, every
-reader-facing page, and every tracked source file, whitespace collapsed so a line break cannot
-hide the pairing. A guard on a phrase sounds precious until you watch the drift it prevents: a
+reader-facing page, and every tracked source file under `src/`, `tools/` and `demo/`, whitespace
+collapsed so a line break cannot hide the pairing. A guard on a phrase sounds precious until you watch the drift it prevents: a
 detector that has never missed on your corpus feels like a guarantee, and writing it up as one is
 a single word of drift.
 
@@ -142,7 +142,8 @@ claim counting it as a live layer would be resting on the suite.
 
 ## 4. The chokepoint contract
 
-`guarded_call` exists to make one sentence true: **the object reviewed is the object sent.** Both
+`guarded_call` exists to make one sentence true: **the reply an investor receives is the reply
+that was reviewed.** Both
 halves of that binding had to be built, because each failed separately. Identity: nothing held
 `decide`'s `draft.tool_name` equal to the tool the executor runs, so a draft naming a granted
 `draft_message` once passed review while the executor ran `send_message` -- both inside the grant,
@@ -203,7 +204,8 @@ threads context through cannot land quietly.
 **The checker must not be weaker than the drafter**, refused at construction over the
 `MODEL_STRENGTH` ordering (`test_a_checker_model_weaker_than_the_drafter_is_refused`). The
 tempting inversion -- draft strong, review cheap -- hands the authorizing decision to a reviewer
-that can be out-argued by fluency. Spend on the gate.
+that can be out-argued by fluency; spend on the gate ([architecture.md](architecture.md)
+section 3.2 argues it in full).
 
 **The transport is the seam, and the framework binds there and only there.** `Checker` takes a
 plain callable `list[dict] -> CheckerResult`; `pydantic_ai_transport` in
@@ -315,7 +317,8 @@ denied send, entry by entry, is [audit-walkthrough.md](audit-walkthrough.md).
 
 ## 8. The autonomy ladder
 
-Autonomy here is graded per surface, and the interesting rung is the one nothing can reach.
+Autonomy here is graded per surface, and the interesting rung is the one no surface that sends
+outward to an investor can reach.
 `src/chaperone/gates/ladder.py` defines tier verbs per task class -- "send outward" is meaningless
 for a read-only research surface -- and a ceiling per surface: research tops out at tier 3,
 conversation at tier 2, per-message approval. The ceiling is structural rather than aspirational:
@@ -337,16 +340,16 @@ building.** `on_pass` increments and promotes at `PROMOTION_THRESHOLD`, exercise
 `tests/gates/test_ladder.py`; what is absent is a caller, and
 `test_nothing_under_src_wires_an_outcome_to_promotion` holds the absence by AST scan rather than
 by memory. If promotion were wired, it would not be keyed to these numbers: production promotion
-belongs to human-review outcomes on real cases, never to synthetic suite scores. An artifact that
-promoted itself to autonomous operation on the strength of its own evals would model precisely the
-judgement error it was built to argue against.
+belongs to human-review outcomes on real cases, never to synthetic suite scores -- the
+self-promotion error the README and [architecture.md](architecture.md) section 7.2 both refuse in
+the same words, deliberately.
 
 ---
 
 ## 9. The evaluation architecture
 
-Every number in this repository was predicted before it existed, and the failed predictions are
-reported as failed. The corpus was frozen and five predictions committed in
+Every number in this repository comes from a frozen corpus of 160 investor-facing drafts, was
+predicted before it existed, and the failed predictions are reported as failed. The corpus was frozen and five predictions committed in
 [PREREGISTRATION.md](../PREREGISTRATION.md) before any arm ran; two held, three failed, and one of
 the two holds only because a stronger prediction had already been weakened on dev-split evidence,
 which the results page says out loud. Git history is the only witness to the ordering, because no
@@ -409,8 +412,8 @@ claims about the gate true. Documentation drift is treated as a failure class wi
 seriousness as a permission bypass, because a reader-facing page goes stale in exactly one
 direction: the tree moves and the prose does not.
 
-**The claims suite.** `tests/test_readme_claims.py` -- 1,755 lines, roughly the size of the whole
-`src/chaperone/` package -- holds the reader-facing layer to the tree. Every backticked test name
+**The claims suite.** `tests/test_readme_claims.py` -- 1,755 lines, more than a third the size of
+the whole `src/chaperone/` package -- holds the reader-facing layer to the tree. Every backticked test name
 on every page must exist; every cited source path must exist; every relative link must resolve.
 Both pasted demo transcripts in the README are compared byte for byte against fresh subprocess
 runs, and the pasted denial payload is rebuilt by executing the tripwire and `denial_result` over
@@ -470,7 +473,8 @@ two of the four decision surfaces have no exception handler; "no network in test
 absence and has no scanner; the catalog's cited tests are name-checked but never
 relevance-checked, so a test could exist and not attack the failure its row describes; the send
 symbol's reservation is a name audit, not a call-graph proof; one measured mutant survivor -- a
-justification sentence appended to the checker instructions -- has no guard; and the
+justification sentence appended to the checker instructions, hand-applied and recorded at
+`tests/gates/test_checker.py`, not one of the sweep's seventeen -- has no guard; and the
 declared-unenforceable classes can be talked out of firing by the caller being judged, exhibited
 by tests and not closed. A register that filed those in the same voice as the tested rows would be
 worth less than no register.
@@ -503,7 +507,7 @@ accepts its own permissions from the caller is not a guard. Absence fails closed
 entropy check; the suite runs keyless. The two live lanes are reached only by an explicit
 `--live`, refuse unrecognised arguments rather than ignoring them, and raise loudly when the model
 spec is absent, because under a paid flag a silent skip is how a lane gets recorded as run without
-having run. Nothing in the repository selects an endpoint or names a model: the spec is read whole
+having run. Nothing in the repository selects an endpoint or hardcodes a concrete model spec: the spec is read whole
 from the environment and never echoed back.
 
 What does not exist is stated with equal precision: no key-management story, no encryption-at-rest
@@ -554,7 +558,7 @@ The scripted scene of `demo/day2.py`, which both the suite and CI execute, trace
 
 ```
 investor message                       QUALITY LANE (measurement)
-      |                                  score_quality(draft, record)
+      |                                  score_quality(draft, record, transport=...)
       v                                  -> grounding 0.94, fluency 0.91, fit 0.89: PASS
   drafted reply ----------------------> (a judge's opinion; authorizes nothing)
       |
@@ -604,8 +608,9 @@ src/chaperone/
   evals/        harness (the arms), judge, calibration, discrimination, corpus.
   matching/     filters, rank, relationship, ablation (the second ablation surface).
   testing/      recorded and scripted transports; ships in the wheel, outside the contract.
-tools/          the guards: static_audit, guard_edit, policy_hook, mutate, report, coverage_map,
-                perturbation_log, scan_secrets, lint_descriptions.
+tools/          the guards -- static_audit, guard_edit, policy_hook, mutate, report, coverage_map,
+                perturbation_log, scan_secrets, lint_descriptions -- and the corpus construction
+                that predates them: build_candidates, build_corpus, label_corpus, record_verdicts.
 tests/          ~3 lines of tests per source line; the claims suite; the mutation sweep.
 corpus/         frozen drafts, provenance labels, recorded verdicts, quality scores.
 demo/           day2 (two lanes), full (both scenes), sdk_hook (SDK wiring; only SDK import).
@@ -625,9 +630,10 @@ Limits are properties of the system, so they are listed with the same precision 
   built.
 - **The audit detects tampering and does not prevent it**; a whole-chain rewrite verifies (section 7).
 - **The double-send guard is built, tested, and unarmed outside the suite.** Nothing schedules
-  `resume`, nothing consults `requires_approval_for` before a send, and `Gateway.sent_count()` is
-  called from `tests/audit/test_send_cap.py` and nowhere else, while the hook layer's cap input
-  defaults to a permissive zero from the payload. Treat a re-attempt as unguarded until wired.
+  `resume`, nothing consults `requires_approval_for` before a send, and no shipped path derives a
+  count from the log and hands it to an `ActContext` -- `counted_sends` has shipped readers, but
+  they only print -- while the hook layer's cap input defaults to a permissive zero from the
+  payload. A re-attempt is unguarded until that wiring exists.
 - **Four symbols are built and called from nowhere outside the suite** -- `transmit`,
   `AuditStore.count`, `Branch.COMPLETE`, `pre_tool_use` -- disclosed and, where the census can see
   them, measured (section 10). None is a permissive path.
@@ -667,7 +673,9 @@ with its `HookOutcome` from `gates.hook`; `pre_tool_use_deny` from `gates.sdk_ca
 returning the deny dict, importing no SDK.
 
 **Policy vocabulary.** `Draft`, `Message`, `Record`, `Decision`, `Finding`, `ViolationClass` (nine
-members), `Disposition` (three), `Family` (three) from `policy.types`; `ActContext` and
+members: the eight named classes plus `other`, the class an outage denial rides on),
+`Disposition` (three), `Family` (three: act, content, and unclassified for `other`) from
+`policy.types`; `ActContext` and
 `evaluate_act_classes` from `policy.act_classes` -- the dataclass lives beside its predicate, not
 in `types`; `validate_citations`, `evaluate_tripwires` and `TRIPWIRE_CLASSES`, `unsendable_in` and
 `unsendable_finding` from their `policy` modules. `Message` is not optional to know: `Draft.thread`
@@ -675,12 +683,17 @@ is a tuple of them, so without it a consumer cannot construct the first argument
 
 **The checker seam.** `Checker(model, drafter_model, transport, retries=2)` from `gates.checker`,
 a concrete class a consumer constructs rather than implements; `MODEL_STRENGTH`, without which the
-legal model set is learned from an exception; `CheckerResult` (a type alias naming the transport's
+valid model set is learned from an exception; `CheckerResult` (a type alias naming the transport's
 return), `Verdict`, `FlagForReview`, and `CheckerUnavailable`, which is what a consumer catches.
 
 **Audit.** `AuditStore` (mkdirs its parent at construction), `Gateway`, `GatewayResult`, `link`,
 `verify`, `VerifyResult`, `GENESIS_HASH`, plus `AuditEntry` and `INDETERMINATE_OUTCOMES` -- the
-entry is the currency of every audit call a consumer makes. `transmit` is published at its module
+entry is the currency of every audit call a consumer makes.
+
+**Matching.** `Mandate`, `Candidate`, `Eligibility` and `classify` from `matching.filters`;
+`relationship_score` from `matching.relationship`; `rank` from `matching.rank`.
+
+`transmit` is published at its module
 path only, never from the package root, because the send-symbol reservation covers the package
 init itself: re-exporting it would trip `tools/static_audit.py` on the init's first line. That is
 the reservation working, not an inconvenience -- the symbol is findable, and no import can quietly

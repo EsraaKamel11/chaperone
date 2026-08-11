@@ -257,7 +257,7 @@ is built around.
 
 **The phrase "zero by construction" is never written beside a content class**, which is a rule in
 `CLAUDE.md` rather than a habit, and it is the rule a guard can actually hold.
-`test_zero_by_construction_is_never_claimed_beside_a_content_class` reads the eight reader-facing
+`test_zero_by_construction_is_never_claimed_beside_a_content_class` reads the reader-facing
 pages, this one and every markdown page directly under `docs/`, and every tracked source file under
 `src/`, `tools/` and `demo/`, collapses whitespace first
 so a line break cannot hide a sentence, and fails when the phrase lands within 120 characters of a
