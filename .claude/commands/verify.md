@@ -13,6 +13,7 @@ python tools/coverage_map.py
 python tools/lint_descriptions.py
 python tools/report.py
 python tools/perturbation_log.py
+python tools/diagram.py
 python demo/day2.py
 python demo/full.py
 git status --porcelain
@@ -29,9 +30,11 @@ a CLI `-q` makes it `-qq` and suppresses the summary line the run is being read 
 least 25 minutes: the sweep runs the whole suite once per mutant, and a contended lock adds more.
 **Never kill it** -- see the paragraph above for what a killed run leaves behind.
 
-The last `git status --porcelain` must also print nothing. `report.py` and `perturbation_log.py`
-regenerate committed pages, so a dirty tree after they run means a published document disagrees with
-what its generator produces.
+The last `git status --porcelain` must also print nothing. `report.py`, `perturbation_log.py` and
+`diagram.py` regenerate committed pages, so a dirty tree after they run means a published document
+disagrees with what its generator produces. `diagram.py` owns two spans of `README.md` rather than a
+whole file, and it refuses before it writes: a symbol or an arrow the tree no longer backs raises
+`DiagramError` here rather than leaving a stale picture on the page.
 
 **How this differs from CI, stated rather than implied.** `.github/workflows/ci.yml` runs the same
 tools in a different order, and it does **not** run `tools/lint_descriptions.py`, which only this

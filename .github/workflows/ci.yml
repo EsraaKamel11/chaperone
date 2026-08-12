@@ -36,6 +36,12 @@ jobs:
         run: python tools/report.py
       - name: Perturbation log generates
         run: python tools/perturbation_log.py
+      # Third generator, and the one whose output the step below is most likely to catch: it owns
+      # two spans of `README.md` and rewrites them from the tree. A renamed function or a call that
+      # stopped being made raises here rather than leaving a picture that still looks right, and a
+      # specification edited without regenerating leaves the page dirty and fails the diff.
+      - name: Diagrams generate
+        run: python tools/diagram.py
       # The generators above rewrite committed pages. Running them proved only that they do not
       # crash: a rate that moved regenerated `docs/RESULTS.md`, left the tree dirty, and CI still
       # exited 0 with a published document disagreeing with what produces it. This is not an
