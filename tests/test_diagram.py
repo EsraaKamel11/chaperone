@@ -584,3 +584,26 @@ def test_no_value_the_diagrams_derive_is_also_typed_into_the_generator():
             f"{label} is typed into tools/diagram.py as well as derived from the tree, so the "
             f"picture would survive the tree moving: {value!r}"
         )
+
+
+def test_the_walk_cache_keys_on_the_follow_scope_and_not_only_the_entry():
+    """`call_paths(entry, follow=...)` and a later default-scope call are different questions.
+
+    The production change this catches: a cache keyed on `entry` alone, which answers the second
+    question with the first call's result. A narrower first walk then falsely refuses a real
+    arrow, and a wider one falsely backs an arrow through a route outside the followed packages --
+    a silent wrong answer in the one function every edge check and the lane refusal rest on.
+    """
+    import tools.diagram as diagram_module
+
+    diagram_module._WALK_CACHE.clear()
+    narrow = call_paths(CHOKEPOINT, follow="nothing.at.all")
+    assert not any(c.endswith(":decide") for c in narrow), (
+        "the narrowed walk reached decide anyway, so this test's premise is wrong"
+    )
+    default = call_paths(CHOKEPOINT)
+    diagram_module._WALK_CACHE.clear()
+    assert any(c.endswith(":decide") for c in default), (
+        "the default-scope walk lost chaperone.gates.engine:decide to a cache entry keyed on the "
+        "entry alone; the follow scope must be part of the key"
+    )

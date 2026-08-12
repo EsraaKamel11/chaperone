@@ -609,9 +609,10 @@ src/chaperone/
   matching/     filters, rank, relationship, ablation (the second ablation surface).
   testing/      recorded and scripted transports; ships in the wheel, outside the contract.
 tools/          the guards -- static_audit, guard_edit, policy_hook, mutate, report, coverage_map,
+                diagram,
                 perturbation_log, scan_secrets, lint_descriptions -- and the corpus construction
                 that predates them: build_candidates, build_corpus, label_corpus, record_verdicts.
-tests/          ~3 lines of tests per source line; the claims suite; the mutation sweep.
+tests/          more than 3 lines of tests per source line; the claims suite; the mutation sweep.
 corpus/         frozen drafts, provenance labels, recorded verdicts, quality scores.
 demo/           day2 (two lanes), full (both scenes), sdk_hook (SDK wiring; only SDK import).
 docs/           this page and its siblings; RESULTS.md and PERTURBATIONS.md are generated.

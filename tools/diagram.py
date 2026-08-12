@@ -22,7 +22,7 @@ refuses to draw what the tree no longer backs.
 - **The blocked class, its span, the inbound question, the drafted body and the tool name come out
   of `demo/day2.py`'s AST**, so the sequence diagram is the scene that file actually runs.
 - **One absence is enforced rather than drawn.** The thesis of the first picture is that the quality
-  lane authorizes nothing, and an absence cannot be derived positively. `refuse_quality_lane_reach`
+  lane authorizes nothing, and an absence cannot be derived positively. `check_lane_separation`
   asserts that `score_quality` is unreachable from the permission lane's entry points, so the day a
   gate consults a score the build fails instead of the picture going quietly wrong.
 
@@ -40,6 +40,11 @@ generator that guesses is worse than one that stops.
 
 Written in LF against the `eol=lf` pin, and anchored to the repository rather than to the process
 cwd -- both for the reasons `tools/report.py` records, having been bitten by each.
+
+**The derivations run at import** (`QUEUE_NAME`, `SCENE`), so a demo file this module can no longer
+read fails `import tools.diagram` itself -- in a pytest run that is a collection error over the
+whole test module, not one named failure. The refusal still lands before any write; only the
+failure's address is coarse, and this sentence is here so the next reader recognises the shape.
 """
 from __future__ import annotations
 
@@ -327,7 +332,9 @@ def _callees(tree: ast.Module, function: ast.AST, where: str, owner: str | None)
 
 
 _SOURCE_CACHE: dict[str, ast.Module] = {}
-_WALK_CACHE: dict[str, dict[str, tuple[str, ...]]] = {}
+#: Keyed on `(entry, follow)`, never entry alone: the walk's answer depends on both, and a cache
+#: that forgot the scope answered a default-scope question with a narrowed walk's result.
+_WALK_CACHE: dict[tuple[str, str], dict[str, tuple[str, ...]]] = {}
 
 
 def _tree_for(where: str) -> ast.Module:
@@ -346,8 +353,8 @@ def call_paths(entry: str, follow: str = FOLLOW) -> dict[str, tuple[str, ...]]:
     **A class is recorded and never followed.** Constructing a `Checker` is not a call into every
     method a `Checker` has, and following one would let an arrow be backed by a route nobody takes.
     """
-    if entry in _WALK_CACHE:
-        return _WALK_CACHE[entry]
+    if (entry, follow) in _WALK_CACHE:
+        return _WALK_CACHE[(entry, follow)]
     reached: dict[str, tuple[str, ...]] = {}
     seen: set[str] = set()
     pending: list[tuple[str, tuple[str, ...]]] = [(entry, (entry,))]
@@ -370,7 +377,7 @@ def call_paths(entry: str, follow: str = FOLLOW) -> dict[str, tuple[str, ...]]:
                 reached[callee] = (*route, callee)
             if callee.split(":")[0].startswith(follow) and callee not in seen:
                 pending.append((callee, (*route, callee)))
-    _WALK_CACHE[entry] = reached
+    _WALK_CACHE[(entry, follow)] = reached
     return reached
 
 
@@ -615,8 +622,8 @@ TWO_LANES = Diagram(
         Node("citations", "validate_citations", symbol=CITATIONS),
         Node("tripwires", "evaluate_tripwires", symbol=TRIPWIRES),
         Node("checker", "Checker.check", symbol=CHECKER),
-        Node("denial", f"BLOCK {SCENE.violation_class}. The class is named, and the "
-                       f"{SCENE.tool} tool is never entered."),
+        Node("denial", f"BLOCK, the class named. In this scene {SCENE.violation_class} fired, and "
+                       f"the {SCENE.tool} tool is never entered."),
         Node("destination", "destination_for", symbol=DESTINATION),
         Node("put", "ReviewQueues.put", symbol=QUEUE_PUT),
         Node("queue", f"the {QUEUE_NAME} queue"),
