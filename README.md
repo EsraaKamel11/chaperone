@@ -235,6 +235,13 @@ not run. And the exact printed text above is kept in step with the demo by a byt
 same test module. So a regression that let the send through fails both the suite and the build rather
 than printing a different number and exiting 0.
 
+![The four demo runs, typed back from their captured transcripts](https://github.com/user-attachments/assets/b5392915-fa3c-471d-a0ac-b98e7e132a3f)
+
+The recording above types back four captured transcripts: this scene, both scenes of the full
+demo, and the two `--live` lanes described further down. It lives outside this tree, on the
+repository's asset host, so no test here can hold it, and the live verdicts in it are what those
+single runs printed, not what any future run is claimed to return.
+
 In the default scene both transports are scripted, because the suite runs offline and keyless. The
 quality scores and the checker verdict are inputs to the script. What is computed is everything
 between them.
@@ -896,7 +903,9 @@ verdict source here precisely because nothing under `tests/` calls a model.
 
 **How many times either lane has been run is unverifiable rather than verified, and this page used
 to say "once" of the SDK one.** No artifact in this tree records a live run of either: there is no
-captured transcript, and the suite could not check one if there were. What the tree does carry is
+captured transcript, and the suite could not check one if there were. The recording embedded in
+the demo section is such a record, and it lives outside the tree, which is why this sentence stays
+true. What the tree does carry is
 what the runs taught each file, which is checkable and is the only part quoted here. The checker
 binding's lane carries `retries=0` and a body no tripwire matches, both written down in
 `demo/day2.py` and both readable without running anything. `failed_turns` in `demo/sdk_hook.py` documents
