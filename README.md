@@ -40,9 +40,10 @@ python tools/report.py    regenerates docs/RESULTS.md from the frozen artifacts
 python tools/static_audit.py   an accidental impurity in the policy layer made impossible
 ```
 
-Roughly 3 lines of tests for every line of source under `src/chaperone/`. That ratio is the claim,
-not a line count, and `tests/test_readme_claims.py` recomputes it against the tree so a
-hand-maintained number cannot drift here in silence. The tests are not incidental to the argument;
+More than 3 lines of tests for every line of source under `src/chaperone/`, counting the whole
+suite against the shipped package. That floor is the claim, not a line count, and
+`tests/test_readme_claims.py` recomputes it against the tree so a hand-maintained number cannot
+drift here in silence. The tests are not incidental to the argument;
 several of the claims below are true *because* a named test attacks them, and those test names are
 cited inline so you can check any of them in one grep.
 

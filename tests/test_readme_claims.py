@@ -430,7 +430,7 @@ def test_no_organisation_is_named_anywhere_this_repository_commits(path: Path):
 
 SOURCE_ROOT = REPO / "src" / "chaperone"
 TESTS_ROOT = REPO / "tests"
-RATIO_CLAIM = re.compile(r"(\d+) lines of tests? for every line of source")
+RATIO_CLAIM = re.compile(r"More than (\d+) lines of tests? for every line of source")
 
 
 def _python_lines(root: Path) -> int:
@@ -452,15 +452,18 @@ def test_the_readmes_test_to_source_ratio_holds_in_the_tree():
     source, tests = _python_lines(SOURCE_ROOT), _python_lines(TESTS_ROOT)
     assert source, "no source lines were counted, so this guard would pass vacuously"
     measured = tests / source
-    # A tolerance band rather than `round()`. Rounding accepted anything from 2.50 to 3.49 against a
-    # stated "3", which is a 40% spread the README does not mean and does not say; the word
-    # "roughly" in front of the number is a claim about a band, so the band is what is asserted.
-    # +/- 0.35 is narrower than rounding in both directions and still survives ordinary commits:
-    # measured 2.87 the day this was written.
+    # A floor, and it used to be a band. The band's own docstring stated a floor's purpose --
+    # "failing on the day the suite stops outweighing the source" -- while its upper half failed the
+    # build for adding tests, which is the direction this repository exists to reward: the commit
+    # that generated the README's diagrams from the tree pushed 3.343 to 3.35 and the band's edge
+    # refused it, by one ulp, because 0.35 has no exact binary form. The guard was wrong and the
+    # work was right, which is the one case CLAUDE.md names for changing a guard, raised and ruled
+    # rather than edited silently. The README now claims "more than", so more is what is asserted,
+    # and growth in tests can never redden this again. Only shrinkage can.
     claimed = int(stated[0])
-    assert abs(measured - claimed) <= 0.35, (
-        f"the README claims roughly {claimed} lines of tests per line of source; "
-        f"the tree measures {tests} / {source} = {measured:.2f}, outside the +/-0.35 band"
+    assert measured > claimed, (
+        f"the README claims more than {claimed} lines of tests per line of source; "
+        f"the tree measures {tests} / {source} = {measured:.2f}, at or below the floor"
     )
 
 
