@@ -35,6 +35,7 @@ from tools.diagram import (
     begin_marker,
     call_pairs,
     call_paths,
+    check_drawn_lane_containment,
     check_edges,
     check_lane_separation,
     check_symbols,
@@ -607,3 +608,39 @@ def test_the_walk_cache_keys_on_the_follow_scope_and_not_only_the_entry():
         "the default-scope walk lost chaperone.gates.engine:decide to a cache entry keyed on the "
         "entry alone; the follow scope must be part of the key"
     )
+
+
+def test_a_drawn_edge_out_of_the_quality_lane_is_refused_even_between_prose_boxes():
+    """The first picture's thesis is an absence, and the tree-side refusal cannot see the drawing.
+
+    `check_lane_separation` refuses a TREE in which the permission lane reaches the judge. But
+    `call_pairs` skips any edge with a symbol-less endpoint, so a spec edit drawing an arrow from a
+    prose quality box into the permission lane would render two lanes meeting while every tree
+    check stayed green. The production change this catches: exactly that spec edit. The rule is
+    drawing-side: no edge may leave a group named "quality", whatever the endpoints name.
+    """
+    joined = Diagram(
+        marker="probe", kind="flowchart", title="probe",
+        nodes=(Node("q1", "a prose quality box"), Node("p1", "a prose permission box")),
+        edges=(Edge("q1", "p1", "a lane-joining arrow no tree check can see"),),
+        groups=(("quality", "QUALITY", ("q1",)), ("permission", "PERMISSION", ("p1",))),
+    )
+    with pytest.raises(DiagramError, match="q1"):
+        check_drawn_lane_containment(joined)
+
+    reply_out = Diagram(
+        marker="probe", kind="sequence", title="probe",
+        nodes=(Node("q1", "a prose quality box"), Node("p1", "a prose permission box")),
+        edges=(Edge("q1", "p1", "a reply is an arrow too", reply=True),),
+        groups=(("quality", "QUALITY", ("q1",)), ("permission", "PERMISSION", ("p1",))),
+    )
+    with pytest.raises(DiagramError, match="q1"):
+        check_drawn_lane_containment(reply_out)
+
+    contained = Diagram(
+        marker="probe", kind="flowchart", title="probe",
+        nodes=(Node("q1", "prose"), Node("q2", "prose"), Node("p1", "prose")),
+        edges=(Edge("q1", "q2", "inside the lane"), Edge("p1", "q1", "into the lane is the judged draft arriving")),
+        groups=(("quality", "QUALITY", ("q1", "q2")), ("permission", "PERMISSION", ("p1",))),
+    )
+    check_drawn_lane_containment(contained)

@@ -385,9 +385,11 @@ def call_pairs(diagram: Diagram) -> tuple[tuple[str, str], ...]:
     """`(caller symbol, callee symbol)` for every arrow that claims a call.
 
     An arrow touching a box that names no symbol claims nothing about the call graph -- the draft,
-    the denial and the queue are not functions -- so it is not here. What stops that being a way
-    out is `EDGE_FLOOR` in `tests/test_diagram.py`, which names the relationships that must keep
-    being drawn.
+    the denial and the queue are not functions -- so it is not here. Two guards stop that being a
+    way out, and they cover different directions: `EDGE_FLOOR` in `tests/test_diagram.py` names the
+    relationships that must keep being drawn, so a checked arrow cannot be quietly dropped; and
+    `check_drawn_lane_containment` refuses any arrow leaving the quality group, so a symbol-less
+    edge cannot quietly join the lanes the first picture exists to keep apart.
     """
     nodes = _node_map(diagram)
     pairs: list[tuple[str, str]] = []
@@ -622,8 +624,8 @@ TWO_LANES = Diagram(
         Node("citations", "validate_citations", symbol=CITATIONS),
         Node("tripwires", "evaluate_tripwires", symbol=TRIPWIRES),
         Node("checker", "Checker.check", symbol=CHECKER),
-        Node("denial", f"BLOCK, the class named. In this scene {SCENE.violation_class} fired, and "
-                       f"the {SCENE.tool} tool is never entered."),
+        Node("denial", f"BLOCK: {SCENE.violation_class} fired; the {SCENE.tool} tool is "
+                       f"never entered"),
         Node("destination", "destination_for", symbol=DESTINATION),
         Node("put", "ReviewQueues.put", symbol=QUEUE_PUT),
         Node("queue", f"the {QUEUE_NAME} queue"),
@@ -635,16 +637,16 @@ TWO_LANES = Diagram(
         Edge("judge", "judge_prompt", "assembles the judge prompt"),
         Edge("judge", "scored", "returns a score"),
         Edge("scored", "measurement", "and that is all it is"),
-        Edge("draft", "chokepoint", "the permission lane is handed the same one"),
+        Edge("draft", "chokepoint", "the same draft"),
         Edge("chokepoint", "gateway", "every guarded call goes through it"),
         Edge("chokepoint", "engine", "through _decide_for"),
         Edge("engine", "acts", "act-classes"),
         Edge("engine", "citations", "citations"),
         Edge("engine", "tripwires", "tripwires"),
         Edge("engine", "checker", "the checker"),
-        Edge("engine", "denial", "findings, and a disposition derived from them"),
+        Edge("engine", "denial", "findings and a disposition"),
         Edge("denial", "destination", "routes where"),
-        Edge("chokepoint", "destination", "asks where, and never types a queue name"),
+        Edge("chokepoint", "destination", "asks where; no queue name typed"),
         Edge("destination", "queue", "returns"),
         Edge("chokepoint", "put", "at the chokepoint, before it returns"),
         Edge("put", "queue", "the escalation payload"),
@@ -809,11 +811,35 @@ def write_readme(path: Path = README_PATH) -> None:
         handle.write(document)
 
 
+def check_drawn_lane_containment(diagram: Diagram) -> None:
+    """Refuse any arrow that leaves a group named "quality", whatever its endpoints name.
+
+    `check_lane_separation` refuses a TREE in which the permission lane reaches the judge, and
+    `call_pairs` checks every arrow between two symbols -- but an arrow between prose boxes claims
+    no call, so neither would see a spec edit drawing the quality lane into the permission lane.
+    The first picture's thesis is that absence, so the drawing is held to it directly: replies
+    included, because a reader does not distinguish an answer-arrow from a call-arrow when both
+    cross the one gap the picture exists to show empty.
+    """
+    for group_id, _label, members in diagram.groups:
+        if group_id != "quality":
+            continue
+        inside = set(members)
+        for edge in diagram.edges:
+            if edge.source in inside and edge.target not in inside:
+                raise DiagramError(
+                    f"the drawing sends an arrow out of the quality lane, {edge.source} -> "
+                    f"{edge.target}: a measurement authorizes nothing, so no arrow may leave that "
+                    f"group, and this one is refused before it can render the lanes joined"
+                )
+
+
 def check_all() -> None:
     """Every refusal this module can make, before a byte is written."""
     for diagram in DIAGRAMS:
         check_symbols(diagram)
         check_edges(diagram)
+        check_drawn_lane_containment(diagram)
     check_lane_separation()
 
 
