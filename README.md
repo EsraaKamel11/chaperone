@@ -33,12 +33,12 @@ gate answer different questions, and the moment they share a mechanism, the syst
 that a high enough score is a permission.
 
 ```
-pip install -e ".[dev]"   once, from a clone; everything below assumes it
-pytest -q                 the full suite, offline and keyless
-python demo/day2.py       one draft, two lanes, opposite verdicts
-python demo/full.py       both scenes: the futile deflection, then the refinable redraft
-python tools/report.py    regenerates docs/RESULTS.md from the frozen artifacts
-python tools/static_audit.py   an accidental impurity in the policy layer made impossible
+pip install -e ".[dev]"   # once, from a clone; everything below assumes it
+pytest -q                 # the full suite, offline and keyless
+python demo/day2.py       # one draft, two lanes, opposite verdicts
+python demo/full.py       # both scenes: the futile deflection, then the refinable redraft
+python tools/report.py    # regenerates docs/RESULTS.md from the frozen artifacts
+python tools/static_audit.py   # an accidental impurity in the policy layer made impossible
 ```
 
 More than 3 lines of tests for every line of source under `src/chaperone/`, counting the whole
@@ -327,10 +327,10 @@ pages, this one and every markdown page directly under `docs/`, and every tracke
 `src/`, `tools/` and `demo/`, collapses whitespace first
 so a line break cannot hide a sentence, and fails when the phrase lands within 120 characters of a
 content-class name. The narrower version of this sentence, that the phrase appears on act-class rows
-and nowhere else, was false as written and one grep shows it: the phrase is in a dozen tracked files
-and this paragraph is one of them, the rest being every file that defines the term, restates the
-prohibition, or makes the act-class claim in prose or in a comment rather than in a table row --
-three of the twelve are source and test files rather than pages. The pairing is the
+and nowhere else, was false as written and one grep shows it: the phrase is in tracked files across
+docs, source and tests, and this paragraph is one of them, the rest being every file that defines
+the term, restates the prohibition, or makes the act-class claim in prose or in a comment rather
+than in a table row. The pairing is the
 drift worth guarding, rather than the phrase, and the
 temptation it exists to resist is real: a detector that has never missed on your corpus feels like a
 guarantee, and writing it up as one is a single word's worth of drift.
@@ -413,7 +413,7 @@ That block is built by the code rather than typed here:
 the body the `span` quotes, takes the disposition from `disposition_for`, and compares the result to
 these bytes. It is held to the standard the two pasted transcripts above are held to, and it did not
 used to be: this block read `redirect_refinable` while `content:advises_on_merits` sits in
-`FUTILE_CLASSES`, which the paragraph on scene 1 says in words sixty lines up.
+`FUTILE_CLASSES`, which the paragraph on scene 1 says in words earlier on this page.
 
 The field worth arguing about is `is_retryable`, which is `false` on every denial without exception.
 **Retryability and redraftability are two different axes**, and the tidy-looking edit that makes
