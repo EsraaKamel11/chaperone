@@ -466,9 +466,11 @@ deliberate one conspicuous, not proving that none exists.
 [boundary specification](superpowers/specs/2026-08-10-boundary-specification.md) section 5 files
 every invariant under the mechanism that holds it -- **T** a test asserting an effect, **S** a
 static tool with its own exit code, **H** an edit-time hook, **R** review discipline only -- and
-the register earns its name in the fourth column. Held by discipline, not mechanism: there is no
-timeout anywhere, so fail-closed on an unusable checker does not cover a hang, and both
-`src/chaperone/gates/checker.py` and `src/chaperone/gates/engine.py` say so in their docstrings;
+the register earns its name in the fourth column. Held by discipline, not mechanism: the timeout
+is opt-in -- `src/chaperone/gates/deadline.py` bounds a wrapped transport's wait and routes expiry
+into the tested outage denial, but nothing forces the wrap, an unwrapped transport still hangs the
+gate, and the wrapper bounds the wait rather than the transport's execution, so the abandoned
+in-flight call survives the deny;
 two of the four decision surfaces have no exception handler; "no network in tests" is true by
 absence and has no scanner; the catalog's cited tests are name-checked but never
 relevance-checked, so a test could exist and not attack the failure its row describes; the send

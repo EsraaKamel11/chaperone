@@ -242,9 +242,12 @@ records them.
   `Draft.thread` is holding a prompt-injection boundary by discipline**, and nothing in this library
   holds it for them. Whoever assembles a `Draft` owns that line.
 
-- **There is no timeout anywhere.** Fail-closed on an unusable checker does not cover a hang. Both
-  modules say so and say that no test holds either half. A consumer that needs a bound supplies it in
-  the transport.
+- **The timeout is opt-in** (amended 2026-08-13; this bullet read "There is no timeout anywhere" --
+  section 10 records the change). `gates/deadline.py` bounds a wrapped transport's wait and expiry
+  becomes the unavailability denial, tested at both call sites. Nothing forces the wrap: an
+  unwrapped transport still hangs the gate, the wrapper bounds the gate's wait rather than the
+  transport's execution, and the abandoned in-flight call survives the deny. A consumer chooses the
+  bound as an argument with a default.
 - **Two of the four surfaces have no exception handler.** Their fail-closed behaviour is derivative,
   from ordering and from `decide` returning rather than raising. One containment case is tested.
 - **"No network in tests" has no scanner.** It is true by absence today. Nothing would fail if
@@ -350,3 +353,25 @@ This specification does not restate `docs/architecture.md`, which carries the re
 decisions, or `docs/measurement.md`, which carries the evaluation protocol. It carries the contract,
 the register and the limits, and links rather than duplicates. Two documents describing one system in
 parallel is the drift this repository spends its suite preventing.
+
+---
+
+## 10. Amendments
+
+The convention is the stack-binding specification's (its section 9): the body is edited in place so
+no section a reader opens states a falsehood, and a dated entry here records what changed and why.
+That document's entries are lettered A1 through A4, and `docs/failure-modes.md` uses the same
+letters for failure modes, so entries here are keyed by date rather than continuing either sequence.
+
+**2026-08-13 (deny-on-timeout).** Section 5.1's second bullet read: "There is no timeout anywhere.
+Fail-closed on an unusable checker does not cover a hang. Both modules say so and say that no test
+holds either half. A consumer that needs a bound supplies it in the transport." The mechanism now
+exists: `src/chaperone/gates/deadline.py` wraps a checker transport so an expired wait raises the
+unavailability error, which the register's tested row -- "the gate fails closed when the checker is
+unusable or raising" -- already turns into a denial carrying an outage marker, and
+`tests/gates/test_deadline.py` holds both call sites and the executor chokepoint on effects. The
+bullet is rewritten in place rather than retired, because what remains is still discipline-held:
+the wrap is opt-in, an unwrapped transport still hangs the gate, and the wrapper bounds the gate's
+wait rather than the transport's execution, so the abandoned in-flight call survives the deny. The
+bound is an argument with a default, read from no environment, and no timeout code lives under
+`policy/`.

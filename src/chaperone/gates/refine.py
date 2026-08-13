@@ -31,7 +31,11 @@ to resolve the very class it was left refinable for.
   that shape. Recorded as a limit test, with a control that differs only in the class named.
 - **It does not rank findings.** `findings[0]` decides the deadlock comparison, so two decisions
   carrying the same classes in a different order read as progress. The engine does not rank either.
-- **It runs no clock and no retry.** A hanging transport hangs the loop, as it hangs the gate.
+- **It runs no clock and no retry.** An unwrapped transport that hangs still hangs the loop, as it
+  hangs the gate; one wrapped by `gates/deadline.py` costs an outage denial instead, classed
+  futile, so the loop escalates with the deflection rather than waiting -- held by
+  `tests/gates/test_deadline.py`. The wrapper bounds each wait, not the transport's execution, and
+  an abandoned in-flight call survives the deny.
 """
 from __future__ import annotations
 

@@ -8,9 +8,13 @@ transmitted/untransmitted line for the text inside them.
 
 Two things this layer does NOT do, written down because their absence is otherwise invisible:
 
-- **It runs no clock.** An unanswered question is not a permission, but nothing here enforces that
-  by timing: a transport that hangs hangs the gate, and deny-on-timeout exists only insofar as the
-  transport raises. That property lives in the transport, and today in no test.
+- **It runs no clock.** An unanswered question is not a permission, and nothing here enforces that
+  by timing: deny-on-timeout exists only insofar as the transport raises, which stopped being a gap
+  and became the design when `gates/deadline.py` landed -- its wrapper bounds a transport's wait
+  and raises `CheckerUnavailable` at expiry, and `tests/gates/test_deadline.py` holds the deny that
+  follows. "A transport that hangs hangs the gate" was true of every transport when this bullet
+  said so; it is now true only of an unwrapped one. The wrapper bounds the gate's wait, not the
+  transport's execution -- the abandoned in-flight call survives the deny.
 - **It does not judge whether a verdict is correct.** It refuses verdicts it cannot act on -- a
   wrong type, a violation reported without a class, or a span the draft does not contain verbatim
   -- and a refusal costs a retry and then becomes `CheckerUnavailable`, which callers fail closed

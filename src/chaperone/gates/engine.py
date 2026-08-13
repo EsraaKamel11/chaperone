@@ -37,7 +37,11 @@ Three things this layer does NOT do, written down because their absence is other
   is the fallback when no answer arrives, and `decide` is the only place that knows it.
   **The mechanism belongs to the transport**, because `checker.check` is a blocking call and a
   deadline consulted after it returns stops no hang, while a transport can bound its own wait.
-  **Today neither half exists and no test holds either.** A hanging transport hangs the gate.
+  **Both halves now exist and `tests/gates/test_deadline.py` holds them together.** The policy
+  half was always the `CheckerUnavailable` branch in `decide`; the mechanism half is
+  `gates/deadline.py`, whose wrapper raises exactly that at an expired wait. The bound is opt-in
+  at the transport seam -- an unwrapped transport still hangs the gate -- and it bounds the
+  gate's wait, not the transport's execution: the abandoned in-flight call survives the deny.
 - **It does not rank findings.** `denial_result` reports `findings[0]`, and act-classes are
   evaluated first and returned early -- so a draft that trips an act-class and a tripwire is
   categorized by the act-class and the tripwire is never evaluated. Nothing escapes; the category
