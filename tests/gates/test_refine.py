@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from chaperone.audit.gateway import Gateway
 from chaperone.audit.store import AuditStore
 from chaperone.gates.checker import Checker, Verdict
@@ -261,3 +263,14 @@ def test_a_misclassified_content_class_skips_the_budget_a_recorded_limit():
     assert correct.stopped_for == "resolved"
     assert correct.rounds == 1
     assert correct.alternative == resolved_bodies[0]
+
+
+def test_a_negative_budget_raises_rather_than_reporting_an_exhaustion_that_never_ran():
+    """budget=-1 would skip the loop entirely and return stopped_for="budget" with
+    rounds=0, indistinguishable from a legitimate budget=0 whose zero rounds were the
+    configured allowance. A negative cap is a misconfiguration, and a misconfiguration
+    fails loudly at the call instead of silently doing nothing and labelling it
+    exhaustion."""
+    with pytest.raises(ValueError):
+        refine(_draft("They would accept $8M instead."), RECORD, CONTEXT, CLEAN,
+               lambda d, decision: d, budget=-1)

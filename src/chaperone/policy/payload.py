@@ -179,6 +179,14 @@ def build_act_inputs(payload: dict) -> tuple[Draft, Record, ActContext]:
         tier=int(tool_input.get("tier", 2)),
         consented_jurisdictions=CONSENTED,
         granted_tools=GRANTED,
+        # The cap pair defaults open, and the asymmetry with tier is deliberate rather than a
+        # leftover. Everything in `tool_input` is the caller's own claim, so a count read from it
+        # can no more gate the caller than a token invented here could satisfy the token rule;
+        # that is why SEND_CAP_EXCEEDED sits in UNENFORCEABLE_HERE for this surface while the
+        # engine surface is fed the gateway's own count. Defaulting closed instead
+        # (sent_count=send_cap) would deny every payload that omits the count and label the
+        # refusal a cap breach that never happened: absence would fire a class this surface
+        # already declares it cannot reliably fire. Open on absence, honest in the roster.
         sent_count=int(tool_input.get("sent_count", 0)),
         send_cap=int(tool_input.get("send_cap", 10_000)),
     )

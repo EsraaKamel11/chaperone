@@ -70,6 +70,11 @@ def refine(
     budget: int = 3,
 ) -> RefinementOutcome:
     """Termination is verdict-pass. The budget is a backstop, not the control signal."""
+    if budget < 0:
+        raise ValueError(
+            f"budget must be >= 0, got {budget}: a negative cap would skip the loop and "
+            "report exhaustion for rounds that never ran"
+        )
     decision = decide(draft, record, context, checker)
     if decision.allowed:
         return RefinementOutcome(True, 0, draft.body, "resolved")
