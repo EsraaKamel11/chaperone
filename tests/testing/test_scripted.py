@@ -131,11 +131,14 @@ def test_a_flag_for_review_denies_a_compliant_attempt_rather_than_sending_it(tmp
     futile -- no redraft answers a checker that cannot say what is wrong -- and `outage` stays
     `None`, because a checker that flagged spoke; nothing was down.
 
-    No registered mutant anchors in `decide`'s flag branch, so the reds here were hand-applied and
-    watched once each, the measured-mutant practice `tests/gates/test_deadline.py`'s banner records.
-    Against the branch failing open -- its return replaced with
-    `Decision(True, (), Disposition.ALLOW)`, the registered engine mutants' own shape -- this
-    failed at `[r.allowed for r in results] == [False]` with `[True]`. Against the branch denying
+    `flag_for_review_fails_open` now anchors in `decide`'s flag branch, in exactly the shape this
+    docstring specified for it, so the first red below is a standing guard rather than a
+    hand-applied memory. The sweep killed it by seven tests, this one among them rather than alone,
+    which is a wider blast radius than this note predicted when it queued the mutant. Both reds
+    were hand-applied and watched once each before that, the measured-mutant practice
+    `tests/gates/test_deadline.py`'s banner records. Against the branch failing open -- its return
+    replaced with `Decision(True, (), Disposition.ALLOW)`, the registered engine mutants' own
+    shape -- this failed at `[r.allowed for r in results] == [False]` with `[True]`. Against the branch denying
     but routing nowhere -- `Decision(False, flagged, Disposition.ALLOW)` -- it failed at
     `decision.disposition is Disposition.REDIRECT_FUTILE` with `Disposition.ALLOW` in its place.
     The source was restored byte-exact after each and both runs re-watched green.

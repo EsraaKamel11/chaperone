@@ -476,7 +476,7 @@ absence and has no scanner; the catalog's cited tests are name-checked but never
 relevance-checked, so a test could exist and not attack the failure its row describes; the send
 symbol's reservation is a name audit, not a call-graph proof; one measured mutant survivor -- a
 justification sentence appended to the checker instructions, hand-applied and recorded at
-`tests/gates/test_checker.py`, not one of the sweep's seventeen -- has no guard; and the
+`tests/gates/test_checker.py`, not one of the sweep's nineteen -- has no guard; and the
 declared-unenforceable classes can be talked out of firing by the caller being judged, exhibited
 by tests and not closed. A register that filed those in the same voice as the tested rows would be
 worth less than no register.

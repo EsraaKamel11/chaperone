@@ -120,6 +120,43 @@ MUTANTS: list[Mutant] = [
         "        return Decision(False, unavailable, disposition_for(unavailable), outage=outage)",
         "        return Decision(True, (), Disposition.ALLOW)",
     ),
+    # The third of `decide`'s deny branches, and the last to get a registered anchor. Until this
+    # entry the branch had guards but no standing one: `tests/testing/test_scripted.py` drove it by
+    # hand, watched it red, restored the source, and wrote down the shape it wanted a mutant to
+    # take -- the registered engine mutants' own `Decision(True, (), Disposition.ALLOW)`. This is
+    # that note becoming the guard it described. Killed on registration by seven tests, the first
+    # `tests/gates/test_engine.py::test_flag_for_review_fails_closed_rather_than_passing`. The
+    # chokepoint test that specified the shape is among those seven rather than alone, which is
+    # the sweep reporting a wider blast radius than the note queuing it predicted -- recorded here
+    # because a killer named from reading and a killer named from a run are different claims.
+    Mutant(
+        "flag_for_review_fails_open",
+        SRC / "gates" / "engine.py",
+        "    if isinstance(result, FlagForReview):\n"
+        "        flagged = (Finding(ViolationClass.OTHER, f\"flagged for review: {result.reason}\", None),) + tripwire_findings\n"
+        "        return Decision(False, flagged, disposition_for(flagged))\n",
+        "    if isinstance(result, FlagForReview):\n"
+        "        return Decision(True, (), Disposition.ALLOW)\n",
+    ),
+    # The first mutant anchored outside `decide`, and deliberately not a fail-open: the gate still
+    # denies, so a sweep looking only for a draft that got sent would score this one killed by
+    # nothing. What dies is the wrapper's terminal guarantee. Expiry raising a generic error rather
+    # than the declaration `Checker.check` re-raises untouched turns a closed question back into a
+    # retryable failure, and the gate pays the availability budget for a hang the clock had already
+    # settled. Killed by
+    # `test_expiry_is_a_closed_question_and_does_not_burn_the_availability_budget`, at
+    # `len(calls) == 1`.
+    Mutant(
+        "expiry_raises_a_generic_error",
+        SRC / "gates" / "deadline.py",
+        "            raise CheckerUnavailable(\n"
+        "                f\"checker transport gave no answer within {timeout_seconds} seconds; the gate \"\n"
+        "                \"stops waiting and fails closed. The in-flight call was abandoned, not cancelled\"\n"
+        "            )\n",
+        "            raise RuntimeError(\n"
+        "                f\"checker transport gave no answer within {timeout_seconds} seconds\"\n"
+        "            )\n",
+    ),
     # Re-derived, and not as the brief wrote it. `finally:` -> `else:` does not parse -- a `try`
     # with neither `except` nor `finally` is a syntax error -- so that mutant would have killed
     # every test through a collection error, which this tool now refuses as a false kill. What

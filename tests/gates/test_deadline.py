@@ -15,12 +15,17 @@ transport in a `finally`, so no worker outlives its test by more than the releas
 No network, no recorded replay: every transport here is a local function, and the only clock in
 play is the one the wrapper owns.
 
-**No sweep mutant covers the wrapper yet, deliberately.** The one that would earn its place --
-expiry raising a generic error instead of `CheckerUnavailable` -- dies here to the closed-question
-call count, but entering it in `tools/mutate.py` moves the "seventeen mutants" count stated in two
-reader-facing documents, which is its own commit. The relabelling and always-expire wrong
-implementations were instead hand-applied once each and watched failing at the assertions the
-docstrings below name, this repository's measured-mutant practice.
+**A sweep mutant covers the wrapper now, and the count it moved was smaller than this banner
+said.** `expiry_raises_a_generic_error` is registered in `tools/mutate.py`, replacing the expiry
+declaration with a generic error, and it dies to the closed-question call count below at
+`len(calls) == 1`. Registering it waited for its own commit because it moves a stated mutant
+count -- and the deferral note said that count sat in two reader-facing documents, where a search
+at registration found one, `docs/architecture-proposal.md`. The README carried no count to move:
+an earlier round dropped it rather than deriving it. A note that names a number of sites is a
+claim like any other, and this one was wrong by one until it was checked. The relabelling and
+always-expire wrong implementations stay hand-applied and watched at the assertions the docstrings
+below name, the measured-mutant practice this repository keeps for the properties no registered
+anchor covers.
 """
 from __future__ import annotations
 
