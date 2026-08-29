@@ -666,6 +666,48 @@ properties and must hold in its own tree anything it needs held.
 
 ---
 
+## 16. The roadmap, from measured pressure (added 2026-08-27)
+
+This section did not exist while the library had no live consumers. It exists now because the
+downstream fleet console ran two keyed captures through the real gate (2026-08-24 and
+2026-08-26), and measured pressure is the only roadmap input this proposal accepts. Three rows,
+each Designed and argued, none built; a row flips on evidence, never on effort.
+
+**16.1 The stated-figure lane.** The strictest check earned its keep and overshot in the same
+runs. `act:figure_not_in_record` correctly refused an inflated figure a counterparty pushed
+for; it also flagged digits the counterparty herself had stated in words ("eighteen months",
+"forty two stores"), the refused figure quoted inside the refusal that declined it, and a
+delta the drafter computed from two record values. Six of the second capture's seven holds
+trace to this class. The gate was right by its contract and wrong by any operator's reading,
+which is exactly the pressure that justifies a design and forbids a hotfix. The designed shape:
+record accretion as an audited act. A counterparty's stated figure may enter the record as an
+attributed entry through an explicit accretion write, itself logged like any act; the predicate
+then checks a draft's digits against the union of authored record and attributed statements,
+and stays deterministic. What it refuses to become: an allowance for any figure that appeared
+anywhere in a thread, which would dissolve the check; attribution is the boundary, and the
+accretion write is where a human or a rule takes responsibility for it. Evidence that would
+flip the row: a capture where truthful recaps of counterparty statements pass, the inflated
+figure still refuses, and every accretion has an audit entry.
+
+**16.2 Expiry under load, reported.** The deadline wrapper's fail-closed denial fired live in
+both captures: one expiry in twelve checker calls at a 90.0 second bound, one in seventeen at
+240.0 seconds. Both became outage denials carrying the outage in the decision record; neither
+hung the gate; both shipped as canon downstream. The row is reporting, not mechanism: these
+rates belong in RESULTS with their denominators, refreshed per capture, never asserted. The
+argued stance on retry-before-deny stays refusal: a bounded retry doubles the worst-case wait
+the wrapper exists to bound, and the abandoned in-flight call already survives the deny; an
+operator who wants retries wraps twice and owns the doubled bound explicitly.
+
+**16.3 The wheel that names its build.** Two vendored builds of this library have shared one
+filename and one version, distinguishable only by hash; downstream pins now carry the wheel's
+sha256 for exactly that reason. The row: a version bump per released build, so the stamp a
+capture carries can name its gate build without a hash lookup. Small, and it stays Designed
+until a second release exists to need it.
+
+Two older items stay parked where their plans left them: the stratified sampler over allowed
+decisions (selection invariants asserted, rates reported) awaits a build session; the absent
+evaluation arm stays absent until an operator authorizes its one pre-registered spend.
+
 ## Appendix: the published contract
 
 Summarised from the [boundary specification](superpowers/specs/2026-08-10-boundary-specification.md)
